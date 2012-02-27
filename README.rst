@@ -8,12 +8,12 @@ provide just as abstraction as needed.
 
 For example:
 
-#. Don't care about keys, `limpyd` do it for you
-#. Retrieve objects from some of their attributes
-#. Retrieve objects collection
-#. Keep the power of all the Redis data types in your own code
+- Don't care about keys, `limpyd` do it for you
+- Retrieve objects from some of their attributes
+- Retrieve objects collection
+- Keep the power of all the Redis data types in your own code
 
-.. warning::
+.. note::
    This is full R&D, so *do not* try to use it in production right know!
 
 Example of configuration::
