@@ -2,8 +2,8 @@
 Limpyd
 ======
 
-Idea is to provide an *easy* way to store objects in `Redis <http://redis.io/>`_, 
-*without losing the power and the control of the Redis API*, in a ''limpid'' way. So, scope is to 
+Idea is to provide an **easy** way to store objects in `Redis <http://redis.io/>`_, 
+**without losing the power and the control of the Redis API**, in a *limpid* way. So, scope is to 
 provide just as abstraction as needed.
 
 For example:
@@ -13,8 +13,10 @@ For example:
 - Retrieve objects collection
 - Keep the power of all the Redis data types in your own code
 
-.. note::
+.. warning::
+
    This is full R&D, so *do not* try to use it in production right know!
+
 
 Example of configuration::
 
@@ -23,6 +25,7 @@ Example of configuration::
     class Bike(model.RedisModel):
         name = model.StringField(indexable=True)
         wheels = model.StringField(default=2)
+
 
 So you can use it like this::
 
