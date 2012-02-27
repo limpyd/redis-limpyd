@@ -1,4 +1,4 @@
-.pyc
+*.pyc
 *.pyo
 *.swp
 *.lock

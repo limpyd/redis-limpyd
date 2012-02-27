@@ -2,7 +2,7 @@
 
 from copy import copy
 
-from limpyd import connection
+from limpyd import get_connection
 from limpyd.fields import *
 
 __all__ = ['RedisModel', 'StringField', 'SortedSetField']
@@ -35,7 +35,9 @@ class RedisModel(object):
     
     __metaclass__ = MetaRedisModel
     
-    connection = connection
+    @classmethod
+    def connection(cls):
+        return get_connection()
 
     def __init__(self, *args, **kwargs):
         """
@@ -54,7 +56,7 @@ class RedisModel(object):
             value = kwargs.values()[0]
             if name == "pk":
                 # pk is not a field for now
-                exists = self.connection.sismember(self.collection_key(), value)
+                exists = self.connection().sismember(self.collection_key(), value)
                 if exists:
                     self._pk = value
                 else:
@@ -76,7 +78,7 @@ class RedisModel(object):
         save_dict = {}
         for attr_name in self._hashable_fields:
             save_dict[attr_name] = getattr(self, attr_name)
-        self.connection.hmset(self.key, save_dict)
+        self.connection().hmset(self.key, save_dict)
 
     @classmethod
     def collection_key(cls):
@@ -84,7 +86,7 @@ class RedisModel(object):
 
     @classmethod
     def collection(cls):
-        return cls.connection.smembers(cls.collection_key())
+        return cls.connection().smembers(cls.collection_key())
 
     @property
     def key(self):
@@ -94,10 +96,10 @@ class RedisModel(object):
     def pk(self):
         if not hasattr(self, "_pk"):
             key = "%s:pk" % self.__class__.__name__.lower()
-            self._pk = self.connection.incr(key)
+            self._pk = self.connection().incr(key)
             # We have created it, so add it to the collection
 #            print "Adding %s in %s collection" % (self._pk, self.__class__.__name__)
-            self.connection.sadd(self.collection_key(), self._pk)
+            self.connection().sadd(self.collection_key(), self._pk)
         return self._pk
 
     @classmethod

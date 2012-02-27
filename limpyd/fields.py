@@ -1,4 +1,4 @@
-from limpyd import connection
+from limpyd import get_connection
 
 __all__ = ['StringField', 'SortedSetField', 'RedisField']
 
@@ -33,9 +33,9 @@ class RedisField(object):
 
     def connection(self):
         if self._instance:
-            return self._instance.connection
+            return self._instance.connection()
         else:
-            return connection
+            return get_connection()
 
     def exists(self, value):
         raise NotImplementedError("Only indexable fields can be used")
