@@ -1,4 +1,5 @@
 from limpyd import get_connection
+from limpyd.utils import make_key
 
 __all__ = ['StringField', 'SortedSetField', 'RedisField']
 
@@ -24,12 +25,11 @@ class RedisField(object):
         return attr(key, *args, **kwargs)
 
     def key(self):
-        args = {
-            "class_name": self._instance.__class__.__name__.lower(),
-            "instance_id": self._instance.pk,
-            "field_name": self.name
-        }
-        return "{class_name}:{instance_id}:{field_name}".format(**args)
+        return self.make_key(
+            self._instance.__class__.__name__.lower(),
+            self._instance.pk,
+            self.name,
+        )
 
     def connection(self):
         if self._instance:
@@ -44,6 +44,9 @@ class RedisField(object):
         new_copy = self.__class__()
         new_copy.__dict__ = self.__dict__
         return new_copy
+    
+    def make_key(self, *args):
+        return make_key(*args)
 
 
 class StringField(RedisField):
@@ -66,12 +69,11 @@ class StringField(RedisField):
         return self.connection().set(key, self._instance.pk)
 
     def index_key(self, value):
-        args = {
-            "class_name": self._parent_class,
-            "value": value,
-            "field_name": self.name
-        }
-        return u"{class_name}:{field_name}:{value}".format(**args)
+        return self.make_key(
+            self._parent_class,
+            self.name,
+            value,
+        )
 
     def populate_instance_pk_from_index(self, value):
         key = self.index_key(value)

@@ -4,6 +4,7 @@ from copy import copy
 
 from limpyd import get_connection
 from limpyd.fields import *
+from limpyd.utils import make_key
 
 __all__ = ['RedisModel', 'StringField', 'SortedSetField']
 
@@ -90,12 +91,12 @@ class RedisModel(object):
 
     @property
     def key(self):
-        return "%s:%s" % (self.__class__.__name__.lower(), self.pk)
+        return self.make_key(self.__class__.__name__.lower(), self.pk)
 
     @property
     def pk(self):
         if not hasattr(self, "_pk"):
-            key = "%s:pk" % self.__class__.__name__.lower()
+            key = self.make_key(self.__class__.__name__.lower(), 'pk')
             self._pk = self.connection().incr(key)
             # We have created it, so add it to the collection
 #            print "Adding %s in %s collection" % (self._pk, self.__class__.__name__)
@@ -110,6 +111,10 @@ class RedisModel(object):
         value = kwargs.values()[0]
         field = getattr(cls, "_redis_attr_%s" % field_name)
         return field.exists(value)
+    
+    @classmethod
+    def make_key(cls, *args):
+        return make_key(*args)
 
 
 class TestModel(RedisModel):
