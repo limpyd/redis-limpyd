@@ -23,7 +23,7 @@ Example of configuration::
     from redis import model
     
     class Bike(model.RedisModel):
-        name = model.StringField(indexable=True)
+        name = model.HashableField(indexable=True, unique=True)
         wheels = model.StringField(default=2)
 
 

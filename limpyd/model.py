@@ -16,6 +16,7 @@ class MetaRedisModel(type):
         it = type.__new__(mcs, name, base, dct)
         # We make invisible for user that they where class property
         _fields = []
+        _hashable_fields = []
         attrs = dir(it)
         for attr_name in attrs:
             if attr_name.startswith("_"): continue
@@ -26,7 +27,10 @@ class MetaRedisModel(type):
                 attr._parent_class = name.lower()
                 setattr(it, "_redis_attr_%s" % attr_name, attr)
                 delattr(it, attr_name)
+                if isinstance(attr, HashableField):
+                    _hashable_fields.append(attr_name)
         setattr(it, "_fields", _fields)
+        setattr(it, "_hashable_fields", _hashable_fields)
         return it
 
 class RedisModel(object):
@@ -116,7 +120,32 @@ class RedisModel(object):
     def make_key(cls, *args):
         return make_key(*args)
 
+    # --- Hash management
+    # TODO Use RedisProxyCommand
+    @property
+    def hash_key(self):
+        return self.make_key(
+            self.__class__.__name__.lower(),
+            self.pk,
+            "hash",
+        )
+    
+    def hmget(self, *args):
+        if len(args) == 0:
+            args = self._hashable_fields
+        else:
+            if not any(arg in self._hashable_fields for arg in args):
+                raise ValueError("Only hashable fields can be used here.")
+        # from *args to on list arg
+        return self.connection().hmget(self.hash_key, args)
+
+    def hmset(self, **kwargs):
+        if not any(kwarg in self._hashable_fields for kwarg in kwargs.keys()):
+            raise ValueError("Only hashable fields can be used here.")
+        # from kwargs to one dict arg
+        return self.connection().hmset(self.hash_key, kwargs)
 
 class TestModel(RedisModel):
 
     name = StringField(indexable=True)
+    foo = HashableField()

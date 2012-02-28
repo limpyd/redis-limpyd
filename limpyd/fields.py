@@ -1,17 +1,16 @@
 from limpyd import get_connection
 from limpyd.utils import make_key
 
-__all__ = ['StringField', 'SortedSetField', 'RedisField']
+__all__ = [
+    'HashableField',
+    'RedisField',
+    'RedisProxyCommand',
+    'SortedSetField',
+    'StringField',
+]
 
-class RedisField(object):
-    """
-    Wrapper to help use the redis data structures.
-    """
-    
 
-    def __init__(self, *args, **kwargs):
-        self.indexable = False
-        self._instance = None
+class RedisProxyCommand(object):
 
     def __getattr__(self, name):
         """
@@ -20,9 +19,21 @@ class RedisField(object):
         return lambda *args, **kwargs: self._traverse_command(name, *args, **kwargs)
 
     def _traverse_command(self, name, *args, **kwargs):
+        """Add the key to the args and call the Redis command."""
         attr = getattr(self.connection(), "%s" % name)
         key = self.key()
         return attr(key, *args, **kwargs)
+
+
+class RedisField(RedisProxyCommand):
+    """
+    Wrapper to help use the redis data structures.
+    """
+
+    def __init__(self, *args, **kwargs):
+        self.indexable = False
+        self._instance = None
+
 
     def key(self):
         return self.make_key(
@@ -39,12 +50,12 @@ class RedisField(object):
 
     def exists(self, value):
         raise NotImplementedError("Only indexable fields can be used")
-    
+
     def __copy__(self):
         new_copy = self.__class__()
         new_copy.__dict__ = self.__dict__
         return new_copy
-    
+
     def make_key(self, *args):
         return make_key(*args)
 
@@ -94,6 +105,21 @@ class StringField(RedisField):
 
 
 class SortedSetField(RedisField):
-    pass        
+    pass
 
+
+class HashableField(RedisField):
+    """Field stored in the parent object hash."""
+
+    def key(self):
+        return self._instance.hash_key
+
+    def _traverse_command(self, name, *args, **kwargs):
+        """Add key AND the hash field to the args, and call the Redis command."""
+        attr = getattr(self.connection(), "%s" % name)
+        key = self.key()
+        # self.name is the name of the hash key
+        args = list(args)
+        args.insert(0, self.name)
+        return attr(key, *args, **kwargs)
 
