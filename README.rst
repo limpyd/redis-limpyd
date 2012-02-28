@@ -24,6 +24,7 @@ Example of configuration::
     
     class Bike(model.RedisModel):
         name = model.HashableField(indexable=True, unique=True)
+        color = model.HashableField()
         wheels = model.StringField(default=2)
 
 
@@ -39,3 +40,16 @@ So you can use it like this::
     >>> tricycle = Bike(name="tricycle")
     >>> tricycle.wheels.get()
     '3'
+    >>> tricycle.hmset(color="blue")
+    True
+    >>> tricycle.hmget('color')
+    ['blue']
+    >>> tricycle.hmget('color', 'name')
+    ['blue', 'tricycle']
+    >>> tricycle.color.hget()
+    'blue'
+    >>> tricycle.color.hset('yellow')
+    True
+    >>> tricycle.hmget('color')
+    ['yellow']
+    
