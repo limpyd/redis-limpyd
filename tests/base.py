@@ -1,9 +1,5 @@
 import unittest
 
-# HACK
-import sys, os
-sys.path.insert(0, os.getcwd())
-
 from limpyd import ConnectionSettings, TESTS_DB_ID, PROD_DB_ID, get_connection
 
 class LimpydBaseTest(unittest.TestCase):

@@ -115,8 +115,3 @@ class RedisModel(object):
 class TestModel(RedisModel):
 
     name = StringField(indexable=True)
-
-class Bike(RedisModel):
-    name = StringField(indexable=True)
-    wheels = StringField(default=2)
-

@@ -1,11 +1,11 @@
 import unittest
 
-# HACK
-import sys, os
-sys.path.insert(0, os.getcwd())
-
-from limpyd.model import Bike
+from limpyd import model
 from base import LimpydBaseTest
+
+class Bike(model.RedisModel):
+    name = model.StringField(indexable=True)
+    wheels = model.StringField(default=2)
 
 class CreationTest(LimpydBaseTest):
 
