@@ -1,5 +1,9 @@
+from logging import getLogger
+
 from limpyd import get_connection
 from limpyd.utils import make_key
+
+log = getLogger(__name__)
 
 __all__ = [
     'HashableField',
@@ -21,7 +25,8 @@ class RedisProxyCommand(object):
     def _traverse_command(self, name, *args, **kwargs):
         """Add the key to the args and call the Redis command."""
         attr = getattr(self.connection(), "%s" % name)
-        key = self.key()
+        key = self.key
+        log.debug(u"Requesting %s with key %s and args %s" % (name, key, args))
         return attr(key, *args, **kwargs)
 
 
@@ -34,7 +39,7 @@ class RedisField(RedisProxyCommand):
         self.indexable = False
         self._instance = None
 
-
+    @property
     def key(self):
         return self.make_key(
             self._instance.__class__.__name__.lower(),
@@ -111,15 +116,14 @@ class SortedSetField(RedisField):
 class HashableField(RedisField):
     """Field stored in the parent object hash."""
 
+    @property
     def key(self):
-        return self._instance.hash_key
+        return self._instance.key
 
     def _traverse_command(self, name, *args, **kwargs):
         """Add key AND the hash field to the args, and call the Redis command."""
-        attr = getattr(self.connection(), "%s" % name)
-        key = self.key()
-        # self.name is the name of the hash key
+        # self.name is the name of the hash key field
         args = list(args)
         args.insert(0, self.name)
-        return attr(key, *args, **kwargs)
+        return super(HashableField, self)._traverse_command(name, *args, **kwargs)
 

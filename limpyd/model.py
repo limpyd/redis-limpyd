@@ -14,7 +14,7 @@ class MetaRedisModel(type):
     """
     def __new__(mcs, name, base, dct):
         it = type.__new__(mcs, name, base, dct)
-        # We make invisible for user that they where class property
+        # We make invisible for user that fields where class properties
         _fields = []
         _hashable_fields = []
         attrs = dir(it)
@@ -33,7 +33,7 @@ class MetaRedisModel(type):
         setattr(it, "_hashable_fields", _hashable_fields)
         return it
 
-class RedisModel(object):
+class RedisModel(RedisProxyCommand):
     """
     Base redis model.
     """
@@ -46,13 +46,16 @@ class RedisModel(object):
 
     def __init__(self, *args, **kwargs):
         """
-        Fetch all data from redis storage.
+        Init or retrieve an object storage in Redis.
         """
         # Put back the fields with the original names
         for attr_name in self._fields:
             attr = copy(getattr(self, "_redis_attr_%s" % attr_name))
             attr._instance = self
             setattr(self, attr_name, attr)
+        
+        # Init the pk storage (will be a field later)
+        self._pk = None
         
         # If a kwargs is present, that means that we want to retrieve or create
         # the object
@@ -90,7 +93,8 @@ class RedisModel(object):
         return '%s:collection' % cls.__name__.lower()
 
     @classmethod
-    def collection(cls):
+    def collection(cls, **kwargs):
+        # TODO: implement filters from kwargs
         return cls.connection().smembers(cls.collection_key())
 
     @property
@@ -99,7 +103,7 @@ class RedisModel(object):
 
     @property
     def pk(self):
-        if not hasattr(self, "_pk"):
+        if not self._pk:
             key = self.make_key(self.__class__.__name__.lower(), 'pk')
             self._pk = self.connection().incr(key)
             # We have created it, so add it to the collection
@@ -121,9 +125,8 @@ class RedisModel(object):
         return make_key(*args)
 
     # --- Hash management
-    # TODO Use RedisProxyCommand
     @property
-    def hash_key(self):
+    def key(self):
         return self.make_key(
             self.__class__.__name__.lower(),
             self.pk,
@@ -137,13 +140,14 @@ class RedisModel(object):
             if not any(arg in self._hashable_fields for arg in args):
                 raise ValueError("Only hashable fields can be used here.")
         # from *args to on list arg
-        return self.connection().hmget(self.hash_key, args)
+        return self.connection().hmget(self.key, args)
 
     def hmset(self, **kwargs):
         if not any(kwarg in self._hashable_fields for kwarg in kwargs.keys()):
             raise ValueError("Only hashable fields can be used here.")
         # from kwargs to one dict arg
-        return self.connection().hmset(self.hash_key, kwargs)
+        return self.connection().hmset(self.key, kwargs)
+
 
 class TestModel(RedisModel):
 
