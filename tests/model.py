@@ -15,5 +15,17 @@ class CreationTest(LimpydBaseTest):
         self.assertEqual(bike.pk, 1)
 
 
+class IndexationTest(LimpydBaseTest):
+
+    def test_stringfield_indexable(self):
+        bike = Bike()
+        bike.name.set("monocycle")
+        self.assertFalse(Bike.exists(name="tricycle"))
+        self.assertTrue(Bike.exists(name="monocycle"))
+        bike.name.set("tricycle")
+        self.assertFalse(Bike.exists(name="monocycle"))
+        self.assertTrue(Bike.exists(name="tricycle"))
+
+
 if __name__ == '__main__':
     unittest.main()

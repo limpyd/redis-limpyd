@@ -80,6 +80,9 @@ class IndexableField(RedisField):
 
     def _traverse_command(self, name, *args, **kwargs):
         # TODO manage transaction
+        # TODO better handling of "set" actions
+        if self.indexable and ("set" in name or "append" in name):
+            self.deindex()
         result = super(IndexableField, self)._traverse_command(name, *args, **kwargs)
         if self.indexable and ("set" in name or "append" in name):
             self.index()
@@ -91,6 +94,18 @@ class IndexableField(RedisField):
         key = self.index_key(value)
 #        print "indexing %s with key %s" % (key, self._instance.pk)
         return self.connection().set(key, self._instance.pk)
+
+    def deindex(self):
+        """
+        Remove stored index if needed.
+        """
+        value = self.get()
+        if value:
+            value = value.decode('utf-8')
+            key = self.index_key(value)
+            return self.connection().delete(key)
+        else:
+            return True  # True?
 
     def index_key(self, value):
         # Ex. bikemodel:name:whatabike
