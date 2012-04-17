@@ -24,6 +24,7 @@ class RedisProxyCommand(object):
 
     def _traverse_command(self, name, *args, **kwargs):
         """Add the key to the args and call the Redis command."""
+        # TODO: implement instance level cache
         attr = getattr(self.connection(), "%s" % name)
         key = self.key
         log.debug(u"Requesting %s with key %s and args %s" % (name, key, args))
@@ -65,26 +66,34 @@ class RedisField(RedisProxyCommand):
         return make_key(*args)
 
 
-class StringField(RedisField):
+class IndexableField(RedisField):
+    """
+    Base field for the indexable fields.
+
+    Store data in index at save.
+    Retrieve instances from these indexes.
+    """
 
     def __init__(self, *args, **kwargs):
-        super(StringField, self).__init__(*args, **kwargs)
+        super(IndexableField, self).__init__(*args, **kwargs)
         self.indexable = "indexable" in kwargs and kwargs["indexable"] or False
 
     def _traverse_command(self, name, *args, **kwargs):
         # TODO manage transaction
-        result = super(StringField, self)._traverse_command(name, *args, **kwargs)
+        result = super(IndexableField, self)._traverse_command(name, *args, **kwargs)
         if self.indexable and ("set" in name or "append" in name):
             self.index()
         return result
 
     def index(self):
+        # TODO: manage uniqueness
         value = self.get().decode('utf-8')
         key = self.index_key(value)
 #        print "indexing %s with key %s" % (key, self._instance.pk)
         return self.connection().set(key, self._instance.pk)
 
     def index_key(self, value):
+        # Ex. bikemodel:name:whatabike
         return self.make_key(
             self._parent_class,
             self.name,
@@ -109,11 +118,15 @@ class StringField(RedisField):
         return pk is not None
 
 
+class StringField(IndexableField):
+    pass
+
+
 class SortedSetField(RedisField):
     pass
 
 
-class HashableField(RedisField):
+class HashableField(IndexableField):
     """Field stored in the parent object hash."""
 
     @property
@@ -127,3 +140,6 @@ class HashableField(RedisField):
         args.insert(0, self.name)
         return super(HashableField, self)._traverse_command(name, *args, **kwargs)
 
+    def get(self):
+        """get and set are made generic, to be used as a common API."""
+        return self.hget()

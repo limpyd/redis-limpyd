@@ -152,4 +152,4 @@ class RedisModel(RedisProxyCommand):
 class TestModel(RedisModel):
 
     name = StringField(indexable=True)
-    foo = HashableField()
+    foo = HashableField(indexable=True)
