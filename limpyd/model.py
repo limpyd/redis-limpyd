@@ -63,6 +63,9 @@ class RedisModel(RedisProxyCommand):
         # Init the pk storage (must be a field later)
         self._pk = None
 
+        # Prepare command internal caching
+        self._cache = {}
+
         # Validate arguments
         if len(args) > 0 and len(kwargs) > 0:
             raise ValueError('Cannot use args and kwargs to instanciate.')

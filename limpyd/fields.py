@@ -1,7 +1,7 @@
 from logging import getLogger
 
 from limpyd import get_connection
-from limpyd.utils import make_key
+from limpyd.utils import make_key, memoize_command
 
 log = getLogger(__name__)
 
@@ -36,6 +36,7 @@ class RedisProxyCommand(object):
         """
         return lambda *args, **kwargs: self._traverse_command(name, *args, **kwargs)
 
+    @memoize_command()
     def _traverse_command(self, name, *args, **kwargs):
         """Add the key to the args and call the Redis command."""
         # TODO: implement instance level cache
