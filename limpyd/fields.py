@@ -115,7 +115,7 @@ class IndexableField(RedisField):
 
     def __init__(self, *args, **kwargs):
         super(IndexableField, self).__init__(*args, **kwargs)
-        self.indexable = "indexable" in kwargs and kwargs["indexable"] or False
+        self.indexable = kwargs.get("indexable", False)
 
     def _traverse_command(self, name, *args, **kwargs):
         # TODO manage transaction
