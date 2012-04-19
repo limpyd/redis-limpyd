@@ -25,10 +25,30 @@ class RedisProxyCommand(object):
     def _traverse_command(self, name, *args, **kwargs):
         """Add the key to the args and call the Redis command."""
         # TODO: implement instance level cache
-        attr = getattr(self.connection(), "%s" % name)
+        attr = getattr(self.connection, "%s" % name)
         key = self.key
         log.debug(u"Requesting %s with key %s and args %s" % (name, key, args))
         return attr(key, *args, **kwargs)
+
+    class transaction(object):
+
+        def __init__(self, instance):
+            # instance is your model instance
+            self.instance = instance
+
+        def __enter__(self):
+            # Replace the current connection with a pipeline
+            # to buffer all the command made in the with statement
+            # Not working with getters: pipeline methods return pipeline instance, so
+            # a .get() made with a pipeline does not have the same behaviour
+            # than a .get() made with a client
+            connection = get_connection()
+            self.pipe = connection.pipeline()
+            self.instance._connection = self.pipe
+            return self.pipe
+
+        def __exit__(self, *exc_info):
+            self.pipe.execute()
 
 
 class RedisField(RedisProxyCommand):
@@ -48,11 +68,11 @@ class RedisField(RedisProxyCommand):
             self.name,
         )
 
+    @property
     def connection(self):
-        if self._instance:
-            return self._instance.connection()
-        else:
-            return get_connection()
+        if not self._instance:
+            raise TypeError('Cannot use connection without instance')
+        return self._instance.connection
 
     def exists(self, value):
         raise NotImplementedError("Only indexable fields can be used")
@@ -93,7 +113,7 @@ class IndexableField(RedisField):
         value = self.get().decode('utf-8')
         key = self.index_key(value)
 #        print "indexing %s with key %s" % (key, self._instance.pk)
-        return self.connection().set(key, self._instance.pk)
+        return self.connection.set(key, self._instance.pk)
 
     def deindex(self):
         """
@@ -103,7 +123,7 @@ class IndexableField(RedisField):
         if value:
             value = value.decode('utf-8')
             key = self.index_key(value)
-            return self.connection().delete(key)
+            return self.connection.delete(key)
         else:
             return True  # True?
 
@@ -118,18 +138,25 @@ class IndexableField(RedisField):
     def populate_instance_pk_from_index(self, value):
         key = self.index_key(value)
 #        print "Looking for pk from index key %s" % key
-        pk = self.connection().get(key)
+        pk = self.connection.get(key)
         if pk:
             self._instance._pk = pk
         else:
             raise ValueError("Can't retrieve instance pk with %s = %s" % (self.name, value))
 
     def exists(self, value):
+        """
+        Is there a key of this field with the given value?
+        
+        Ex. bikemodel:name:mybikename => {id_of_bike_instance}
+        """
         # TODO factorize with the previous
         if not self.indexable:
             raise ValueError("Only indexable fields can be used")
         key = self.index_key(value)
-        pk = self.connection().get(key)
+        # We are not in instanciated mode, so we can't use the instance connection
+        connection = get_connection()
+        pk = connection.get(key)
         return pk is not None
 
 

@@ -39,10 +39,6 @@ class RedisModel(RedisProxyCommand):
     """
     
     __metaclass__ = MetaRedisModel
-    
-    @classmethod
-    def connection(cls):
-        return get_connection()
 
     def __init__(self, *args, **kwargs):
         """
@@ -53,8 +49,11 @@ class RedisModel(RedisProxyCommand):
             attr = copy(getattr(self, "_redis_attr_%s" % attr_name))
             attr._instance = self
             setattr(self, attr_name, attr)
-        
-        # Init the pk storage (will be a field later)
+
+        # Prepare stored connection
+        self._connection = None
+
+        # Init the pk storage (must be a field later)
         self._pk = None
         
         # If a kwargs is present, that means that we want to retrieve or create
@@ -64,7 +63,7 @@ class RedisModel(RedisProxyCommand):
             value = kwargs.values()[0]
             if name == "pk":
                 # pk is not a field for now
-                exists = self.connection().sismember(self.collection_key(), value)
+                exists = self.connection.sismember(self.collection_key(), value)
                 if exists:
                     self._pk = value
                 else:
@@ -79,14 +78,11 @@ class RedisModel(RedisProxyCommand):
                         pass
         # TODO: is the purpose of this lib to instanciate the fields from the kwargs?
 
-    def save(self):
-        """
-        Save the object data, taking care of id management.
-        """
-        save_dict = {}
-        for attr_name in self._hashable_fields:
-            save_dict[attr_name] = getattr(self, attr_name)
-        self.connection().hmset(self.key, save_dict)
+    @property
+    def connection(self):
+        if self._connection is None:
+            self._connection = get_connection()
+        return self._connection
 
     @classmethod
     def collection_key(cls):
@@ -95,7 +91,9 @@ class RedisModel(RedisProxyCommand):
     @classmethod
     def collection(cls, **kwargs):
         # TODO: implement filters from kwargs
-        return cls.connection().smembers(cls.collection_key())
+        # We cannot use the current connection here, as we have no instance
+        connection = get_connection()
+        return connection.smembers(cls.collection_key())
 
     @property
     def key(self):
@@ -105,10 +103,10 @@ class RedisModel(RedisProxyCommand):
     def pk(self):
         if not self._pk:
             key = self.make_key(self.__class__.__name__.lower(), 'pk')
-            self._pk = self.connection().incr(key)
+            self._pk = self.connection.incr(key)
             # We have created it, so add it to the collection
 #            print "Adding %s in %s collection" % (self._pk, self.__class__.__name__)
-            self.connection().sadd(self.collection_key(), self._pk)
+            self.connection.sadd(self.collection_key(), self._pk)
         return self._pk
 
     @classmethod
@@ -140,13 +138,13 @@ class RedisModel(RedisProxyCommand):
             if not any(arg in self._hashable_fields for arg in args):
                 raise ValueError("Only hashable fields can be used here.")
         # from *args to on list arg
-        return self.connection().hmget(self.key, args)
+        return self.connection.hmget(self.key, args)
 
     def hmset(self, **kwargs):
         if not any(kwarg in self._hashable_fields for kwarg in kwargs.keys()):
             raise ValueError("Only hashable fields can be used here.")
         # from kwargs to one dict arg
-        return self.connection().hmset(self.key, kwargs)
+        return self.connection.hmset(self.key, kwargs)
 
 
 class TestModel(RedisModel):
