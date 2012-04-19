@@ -78,6 +78,8 @@ class RedisField(RedisProxyCommand):
     def __init__(self, *args, **kwargs):
         self.indexable = False
         self._instance = None
+        if "default" in kwargs:
+            self.default = kwargs["default"]
 
     @property
     def key(self):

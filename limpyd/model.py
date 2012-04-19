@@ -1,12 +1,16 @@
 # -*- coding:utf-8 -*-
 
 from copy import copy
+from logging import getLogger
 
 from limpyd import get_connection
 from limpyd.fields import *
 from limpyd.utils import make_key
 
 __all__ = ['RedisModel', 'StringField', 'SortedSetField']
+
+log = getLogger(__name__)
+
 
 class MetaRedisModel(MetaRedisProxy):
     """
@@ -70,7 +74,7 @@ class RedisModel(RedisProxyCommand):
         if len(args) > 0 and len(kwargs) > 0:
             raise ValueError('Cannot use args and kwargs to instanciate.')
 
-        # --- Instanciate from kwargs
+        # --- Instanciate new from kwargs
         if len(kwargs) > 0:
             for field_name, value in kwargs.iteritems():
                 field = getattr(self, field_name)
@@ -113,9 +117,24 @@ class RedisModel(RedisProxyCommand):
             key = self.make_key(self.__class__.__name__.lower(), 'pk')
             self._pk = self.connection.incr(key)
             # We have created it, so add it to the collection
-#            print "Adding %s in %s collection" % (self._pk, self.__class__.__name__)
+            log.debug("Adding %s in %s collection" % (self._pk, self.__class__.__name__))
             self.connection.sadd(self.collection_key(), self._pk)
+            # Default must be setted only at first initialization
+            self.set_defaults()
         return self._pk
+
+    def set_defaults(self):
+        """
+        Set default values to fields, if they are not yet populated.
+        """
+        for field_name in self._fields:
+            field = getattr(self, field_name)
+            if hasattr(field, "default"):
+                setter = getattr(field, field.proxy_setter)
+                getter = getattr(field, field.proxy_getter)
+                has_value = getter()
+                if has_value is None:
+                    setter(field.default)
 
     @classmethod
     def exists(cls, **kwargs):

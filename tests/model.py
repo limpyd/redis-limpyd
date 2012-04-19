@@ -29,6 +29,14 @@ class InitTest(LimpydBaseTest):
         bike = Bike(name="rosalie")
         self.assertEqual(bike.name.get(), "rosalie")
 
+    def test_should_have_default_value_if_not_setted(self):
+        bike = Bike(name="recumbent")
+        self.assertEqual(bike.wheels.get(), '2')
+
+    def test_default_value_should_not_override_setted_one(self):
+        bike = Bike(name="rosalie", wheels=4)
+        self.assertEqual(bike.wheels.get(), '4')
+
 
 class IndexationTest(LimpydBaseTest):
 
