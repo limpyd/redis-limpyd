@@ -42,6 +42,29 @@ class IndexationTest(LimpydBaseTest):
         self.assertTrue(Bike.exists(name="tricycle"))
 
 
+class CommandCacheTest(LimpydBaseTest):
+
+    def test_should_not_hit_redis_when_cached(self):
+        # Not sure the connection.info() is thread safe...
+        bike = Bike(name="randonneuse")
+        # First get
+        name = bike.name.get()
+        hits_before = self.connection.info()['keyspace_hits']
+        # Get again
+        name = bike.name.get()
+        hits_after = self.connection.info()['keyspace_hits']
+        self.assertEqual(name, "randonneuse")
+        self.assertEqual(hits_before, hits_after)
+
+    def test_should_flush_if_modifiers_command_is_called(self):
+        bike = Bike(name="draisienne")
+        name = bike.name.get()
+        self.assertEqual(name, "draisienne")
+        bike.name.set('tandem')
+        name = bike.name.get()
+        self.assertEqual(name, "tandem")
+
+
 class MetaRedisProxyTest(LimpydBaseTest):
 
     def test_available_commands(self):
