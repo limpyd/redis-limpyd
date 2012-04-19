@@ -85,6 +85,27 @@ class RedisField(RedisProxyCommand):
     def make_key(self, *args):
         return make_key(*args)
 
+    # Common fields API
+    def _get(self):
+        raise NotImplementedError("Getter not implemented for %s" % self.__class__)
+
+    def _set(self, value):
+        raise NotImplementedError("Setter not implemented for %s" % self.__class__)
+
+    def _del(self):
+        raise NotImplementedError("Del not implemented for %s" % self.__class__)
+
+    def _get_data(self):
+        return self._get()
+
+    def _set_data(self, value):
+        return self._set(value)
+
+    def _del_data(self):
+        return self._del()
+
+    data = property(_get_data, _set_data, _del_data, "Common Redis fields API.")
+
 
 class IndexableField(RedisField):
     """
@@ -110,7 +131,7 @@ class IndexableField(RedisField):
 
     def index(self):
         # TODO: manage uniqueness
-        value = self.get().decode('utf-8')
+        value = self.data
         key = self.index_key(value)
 #        print "indexing %s with key %s" % (key, self._instance.pk)
         return self.connection.set(key, self._instance.pk)
@@ -119,9 +140,8 @@ class IndexableField(RedisField):
         """
         Remove stored index if needed.
         """
-        value = self.get()
+        value = self.data
         if value:
-            value = value.decode('utf-8')
             key = self.index_key(value)
             return self.connection.delete(key)
         else:
@@ -161,11 +181,28 @@ class IndexableField(RedisField):
 
 
 class StringField(IndexableField):
-    pass
+
+    def _get(self):
+        value = self.get()
+        if value:
+            value = value.decode('utf-8')
+        return value
+
+    def _set(self, value):
+        return self.set(value)
 
 
 class SortedSetField(RedisField):
-    pass
+
+    def _get(self):
+        """
+        Return the all set.
+        """
+        return self.zrange(0, -1)
+
+    def _set(self, value):
+        # FIXME: delete all members before, to conform with a "set" behaviour?
+        return self.zadd(*value)
 
 
 class HashableField(IndexableField):
@@ -182,6 +219,13 @@ class HashableField(IndexableField):
         args.insert(0, self.name)
         return super(HashableField, self)._traverse_command(name, *args, **kwargs)
 
-    def get(self):
-        """get and set are made generic, to be used as a common API."""
-        return self.hget()
+
+    def _get(self):
+        value = self.hget()
+        if value:
+            value = value.decode('utf-8')
+        return value
+
+    def _set(self, value):
+        return self.hset(value)
+

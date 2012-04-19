@@ -43,7 +43,14 @@ class RedisModel(RedisProxyCommand):
     def __init__(self, *args, **kwargs):
         """
         Init or retrieve an object storage in Redis.
+
+        Here whats init manages:
+        - no args, no kwargs: just instanciate in a python way, no connection to
+          redis
+        - some kwargs == instanciate, connect, and set the properties received
+        - one arg == get from pk
         """
+        # --- Meta stuff
         # Put back the fields with the original names
         for attr_name in self._fields:
             attr = copy(getattr(self, "_redis_attr_%s" % attr_name))
@@ -55,28 +62,25 @@ class RedisModel(RedisProxyCommand):
 
         # Init the pk storage (must be a field later)
         self._pk = None
-        
-        # If a kwargs is present, that means that we want to retrieve or create
-        # the object
-        if len(kwargs) == 1:  # Only one kwargs to retrieve instance, for now
-            name = kwargs.keys()[0]
-            value = kwargs.values()[0]
-            if name == "pk":
-                # pk is not a field for now
-                exists = self.connection.sismember(self.collection_key(), value)
-                if exists:
-                    self._pk = value
-                else:
-                    raise ValueError("No %s found with pk %s" % (self.__class__.__name__, value))
+
+        # Validate arguments
+        if len(args) > 0 and len(kwargs) > 0:
+            raise ValueError('Cannot use args and kwargs to instanciate.')
+
+        # --- Instanciate from kwargs
+        if len(kwargs) > 0:
+            for field_name, value in kwargs.iteritems():
+                field = getattr(self, field_name)
+                field.data = value
+
+        # --- Instanciate from DB
+        if len(args) == 1:
+            value = args[0]
+            exists = self.connection.sismember(self.collection_key(), value)
+            if exists:
+                self._pk = value
             else:
-                field = getattr(self, name)
-                if field.indexable is True:
-                    try:
-                        field.populate_instance_pk_from_index(value)
-                    except ValueError:
-                        # No id, we have to create the object
-                        pass
-        # TODO: is the purpose of this lib to instanciate the fields from the kwargs?
+                raise ValueError("No %s found with pk %s" % (self.__class__.__name__, value))
 
     @property
     def connection(self):

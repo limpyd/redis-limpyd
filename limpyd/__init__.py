@@ -12,7 +12,7 @@ class ConnectionSettings(object):
     DB_ID = PROD_DB_ID
 
 def get_connection():
-    connection = redis.Redis(
+    connection = redis.StrictRedis(
         host=ConnectionSettings.HOST,
         port=ConnectionSettings.PORT,
         db=ConnectionSettings.DB_ID,
