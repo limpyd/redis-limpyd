@@ -8,7 +8,7 @@ from limpyd.utils import make_key
 
 __all__ = ['RedisModel', 'StringField', 'SortedSetField']
 
-class MetaRedisModel(type):
+class MetaRedisModel(MetaRedisProxy):
     """
     Manage fields.
     """
@@ -71,7 +71,8 @@ class RedisModel(RedisProxyCommand):
         if len(kwargs) > 0:
             for field_name, value in kwargs.iteritems():
                 field = getattr(self, field_name)
-                field.data = value
+                setter = getattr(field, field.proxy_setter)
+                setter(value)
 
         # --- Instanciate from DB
         if len(args) == 1:

@@ -9,12 +9,26 @@ __all__ = [
     'HashableField',
     'RedisField',
     'RedisProxyCommand',
+    'MetaRedisProxy',
     'SortedSetField',
     'StringField',
 ]
 
 
+class MetaRedisProxy(type):
+
+    def __new__(mcs, name, base, dct):
+        it = type.__new__(mcs, name, base, dct)
+        available_commands = set(it.available_getters + it.available_modifiers)
+        setattr(it, "available_commands", available_commands)
+        return it
+
+
 class RedisProxyCommand(object):
+
+    __metaclass__ = MetaRedisProxy
+    available_getters = tuple()
+    available_modifiers = tuple()
 
     def __getattr__(self, name):
         """
@@ -25,6 +39,8 @@ class RedisProxyCommand(object):
     def _traverse_command(self, name, *args, **kwargs):
         """Add the key to the args and call the Redis command."""
         # TODO: implement instance level cache
+        if not name in self.available_commands:
+            raise ValueError("%s is not an available command for %s" % (name, self.__class__.__name__))
         attr = getattr(self.connection, "%s" % name)
         key = self.key
         log.debug(u"Requesting %s with key %s and args %s" % (name, key, args))
@@ -56,6 +72,8 @@ class RedisField(RedisProxyCommand):
     Wrapper to help use the redis data structures.
     """
 
+    proxy_setter = None
+
     def __init__(self, *args, **kwargs):
         self.indexable = False
         self._instance = None
@@ -85,27 +103,6 @@ class RedisField(RedisProxyCommand):
     def make_key(self, *args):
         return make_key(*args)
 
-    # Common fields API
-    def _get(self):
-        raise NotImplementedError("Getter not implemented for %s" % self.__class__)
-
-    def _set(self, value):
-        raise NotImplementedError("Setter not implemented for %s" % self.__class__)
-
-    def _del(self):
-        raise NotImplementedError("Del not implemented for %s" % self.__class__)
-
-    def _get_data(self):
-        return self._get()
-
-    def _set_data(self, value):
-        return self._set(value)
-
-    def _del_data(self):
-        return self._del()
-
-    data = property(_get_data, _set_data, _del_data, "Common Redis fields API.")
-
 
 class IndexableField(RedisField):
     """
@@ -131,7 +128,8 @@ class IndexableField(RedisField):
 
     def index(self):
         # TODO: manage uniqueness
-        value = self.data
+        getter = getattr(self, self.proxy_getter)
+        value = getter().decode('utf-8')
         key = self.index_key(value)
 #        print "indexing %s with key %s" % (key, self._instance.pk)
         return self.connection.set(key, self._instance.pk)
@@ -140,8 +138,10 @@ class IndexableField(RedisField):
         """
         Remove stored index if needed.
         """
-        value = self.data
+        getter = getattr(self, self.proxy_getter)
+        value = getter()
         if value:
+            value = value.decode('utf-8')
             key = self.index_key(value)
             return self.connection.delete(key)
         else:
@@ -182,31 +182,26 @@ class IndexableField(RedisField):
 
 class StringField(IndexableField):
 
-    def _get(self):
-        value = self.get()
-        if value:
-            value = value.decode('utf-8')
-        return value
-
-    def _set(self, value):
-        return self.set(value)
+    proxy_getter = "get"
+    proxy_setter = "set"
+    available_getters = ('get', 'getbit', 'getrange', 'getset', 'strlen')
+    available_modifiers = ('append', 'decr', 'decrby', 'getset', 'incr', 'incrby', 'incrbyfloat', 'set', 'setbit', 'setnx', 'setrange')
 
 
 class SortedSetField(RedisField):
 
-    def _get(self):
-        """
-        Return the all set.
-        """
-        return self.zrange(0, -1)
-
-    def _set(self, value):
-        # FIXME: delete all members before, to conform with a "set" behaviour?
-        return self.zadd(*value)
+    proxy_setter = "zadd"
+    available_getters = ('zcard', 'zcount', 'zrange', 'zrangebyscore', 'zrank', 'zrevrange', 'zrevrangebyscore', 'zrevrank', 'zscore')
+    available_modifiers = ('zadd', 'zincrby', 'zrem', 'zremrangebyrank', 'zremrangebyscore')
 
 
 class HashableField(IndexableField):
     """Field stored in the parent object hash."""
+
+    proxy_getter = "hget"
+    proxy_setter = "hset"
+    available_getters = ('hexists', 'hget')
+    available_modifiers = ('hincrby', 'hincrbyfloat', 'hset', 'hsetnx')
 
     @property
     def key(self):
@@ -218,14 +213,3 @@ class HashableField(IndexableField):
         args = list(args)
         args.insert(0, self.name)
         return super(HashableField, self)._traverse_command(name, *args, **kwargs)
-
-
-    def _get(self):
-        value = self.hget()
-        if value:
-            value = value.decode('utf-8')
-        return value
-
-    def _set(self, value):
-        return self.hset(value)
-

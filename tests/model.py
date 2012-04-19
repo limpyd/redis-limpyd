@@ -42,5 +42,19 @@ class IndexationTest(LimpydBaseTest):
         self.assertTrue(Bike.exists(name="tricycle"))
 
 
+class MetaRedisProxyTest(LimpydBaseTest):
+
+    def test_available_commands(self):
+        """
+        available_commands must exists on Fields and it must contain getters and modifiers.
+        """
+        def check_available_commands(cls):
+            for command in cls.available_getters:
+                self.assertTrue(command in cls.available_commands)
+        check_available_commands(model.StringField)
+        check_available_commands(model.HashableField)
+        check_available_commands(model.SortedSetField)
+
+
 if __name__ == '__main__':
     unittest.main()
