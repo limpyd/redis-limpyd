@@ -119,11 +119,10 @@ class IndexableField(RedisField):
 
     def _traverse_command(self, name, *args, **kwargs):
         # TODO manage transaction
-        # TODO better handling of "set" actions
-        if self.indexable and ("set" in name or "append" in name):
+        if self.indexable and name in self.available_modifiers:
             self.deindex()
         result = super(IndexableField, self)._traverse_command(name, *args, **kwargs)
-        if self.indexable and ("set" in name or "append" in name):
+        if self.indexable and name in self.available_modifiers:
             self.index()
         return result
 
@@ -132,7 +131,7 @@ class IndexableField(RedisField):
         getter = getattr(self, self.proxy_getter)
         value = getter().decode('utf-8')
         key = self.index_key(value)
-#        print "indexing %s with key %s" % (key, self._instance.pk)
+        log.debug("indexing %s with key %s" % (key, self._instance.pk))
         return self.connection.set(key, self._instance.pk)
 
     def deindex(self):
