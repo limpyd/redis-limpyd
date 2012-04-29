@@ -1,7 +1,10 @@
+# -*- coding:utf-8 -*-
+
 from logging import getLogger
 
 from limpyd import get_connection
 from limpyd.utils import make_key, memoize_command
+from limpyd.exceptions import *
 
 log = getLogger(__name__)
 
@@ -29,6 +32,7 @@ class RedisProxyCommand(object):
     __metaclass__ = MetaRedisProxy
     available_getters = tuple()
     available_modifiers = tuple()
+    available_commands = available_getters + available_modifiers
 
     def __getattr__(self, name):
         """
@@ -41,7 +45,7 @@ class RedisProxyCommand(object):
         """Add the key to the args and call the Redis command."""
         # TODO: implement instance level cache
         if not name in self.available_commands:
-            raise ValueError("%s is not an available command for %s" % (name, self.__class__.__name__))
+            raise AttributeError("%s is not an available command for %s" % (name, self.__class__.__name__))
         attr = getattr(self.connection, "%s" % name)
         key = self.key
         log.debug(u"Requesting %s with key %s and args %s" % (name, key, args))
@@ -77,7 +81,6 @@ class RedisField(RedisProxyCommand):
 
     def __init__(self, *args, **kwargs):
         self.indexable = False
-        self._instance = None
         if "default" in kwargs:
             self.default = kwargs["default"]
 
@@ -106,6 +109,14 @@ class RedisField(RedisProxyCommand):
     def make_key(self, *args):
         return make_key(*args)
 
+    def delete(self):
+        """
+        Delete the field from redis.
+        """
+        # Default value, just delete the storage key
+        # (More job could be done by specific field classes)
+        self.connection.delete(self.key)
+
 
 class IndexableField(RedisField):
     """
@@ -131,7 +142,9 @@ class IndexableField(RedisField):
     def index(self):
         # TODO: manage uniqueness
         getter = getattr(self, self.proxy_getter)
-        value = getter().decode('utf-8')
+        value = getter()
+        if value:
+            value = value.decode('utf-8')
         key = self.index_key(value)
         log.debug("indexing %s with key %s" % (key, self._instance.pk))
         return self.connection.set(key, self._instance.pk)
@@ -149,8 +162,12 @@ class IndexableField(RedisField):
         else:
             return True  # True?
 
+    def delete(self):
+        self.deindex()
+        super(IndexableField, self).delete()
+
     def index_key(self, value):
-        # Ex. bikemodel:name:whatabike
+        # Ex. bikemodel:name:{bikename}
         return self.make_key(
             self._parent_class,
             self.name,
@@ -159,7 +176,6 @@ class IndexableField(RedisField):
 
     def populate_instance_pk_from_index(self, value):
         key = self.index_key(value)
-#        print "Looking for pk from index key %s" % key
         pk = self.connection.get(key)
         if pk:
             self._instance._pk = pk
@@ -189,6 +205,34 @@ class StringField(IndexableField):
     available_getters = ('get', 'getbit', 'getrange', 'getset', 'strlen')
     available_modifiers = ('append', 'decr', 'decrby', 'getset', 'incr', 'incrby', 'incrbyfloat', 'set', 'setbit', 'setnx', 'setrange')
 
+    def __init__(self, *args, **kwargs):
+        super(StringField, self).__init__(*args, **kwargs)
+        self.unique = kwargs.get("unique", False)
+        if self.unique:
+            if "default" in dir(self):  # do not use hasattr, as it will call getattr
+                raise ImplementationError('Cannot set "default" and "unique" together!')
+            self.indexable = True
+
+    def index(self):
+        # Has traverse_commande is blind, and can't infer the final value from
+        # commands like ``append`` or ``setrange``, we let the command process
+        # then check the result, and raise before modifying the indexes if the
+        # value was not unique, and then remove the key
+        # We should try a better algo
+        getter = getattr(self, self.proxy_getter)
+        value = getter()
+        if value:
+            value = value.decode('utf-8')  # FIXME centralize utf-8 handling?
+        key = self.index_key(value)
+        if self.unique:
+            # Lets check if the index key already exist for another instance
+            if self.connection.exists(key):
+                indexed_instance_pk = self.connection.get(key)
+                if indexed_instance_pk != self._instance.pk:
+                    self.connection.delete(self.key)
+                    raise UniquenessError('Key %s already exists (for instance %s)' % (key, indexed_instance_pk))
+        return super(StringField, self).index()
+
 
 class SortedSetField(RedisField):
 
@@ -197,7 +241,7 @@ class SortedSetField(RedisField):
     available_modifiers = ('zadd', 'zincrby', 'zrem', 'zremrangebyrank', 'zremrangebyscore')
 
 
-class HashableField(IndexableField):
+class HashableField(RedisField):
     """Field stored in the parent object hash."""
 
     proxy_getter = "hget"
@@ -215,3 +259,10 @@ class HashableField(IndexableField):
         args = list(args)
         args.insert(0, self.name)
         return super(HashableField, self)._traverse_command(name, *args, **kwargs)
+        
+    def delete(self):
+        """
+        We need to delete only the field in the parent hash.
+        """
+        self.connection.hdel(self.key, self.name)
+        super(HashableField, self).delete()

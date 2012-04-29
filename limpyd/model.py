@@ -1,11 +1,11 @@
 # -*- coding:utf-8 -*-
 
-from copy import copy
 from logging import getLogger
 
 from limpyd import get_connection
 from limpyd.fields import *
 from limpyd.utils import make_key
+from limpyd.exceptions import *
 
 __all__ = ['RedisModel', 'StringField', 'SortedSetField']
 
@@ -57,9 +57,13 @@ class RedisModel(RedisProxyCommand):
         # --- Meta stuff
         # Put back the fields with the original names
         for attr_name in self._fields:
-            attr = copy(getattr(self, "_redis_attr_%s" % attr_name))
-            attr._instance = self
-            setattr(self, attr_name, attr)
+            attr = getattr(self, "_redis_attr_%s" % attr_name)
+            # Copy it, to avoid sharing fields between model instances
+            newattr = attr.__class__(**attr.__dict__)
+            newattr.name = attr.name
+            newattr._parent_class = attr._parent_class
+            newattr._instance = self
+            setattr(self, attr_name, newattr)
 
         # Prepare stored connection
         self._connection = None
@@ -76,6 +80,17 @@ class RedisModel(RedisProxyCommand):
 
         # --- Instanciate new from kwargs
         if len(kwargs) > 0:
+            # First check unique fields
+            # (More robust than trying to manage a "pseudotransaction", as 
+            # redis do not has "real" transactions)
+            # Here we do not set anything, in case one unique field fails
+            for field_name, value in kwargs.iteritems():
+                field = getattr(self, field_name)
+                if field.unique and field.exists(value):
+                    raise UniquenessError(u"Field `%s` must be unique. "
+                                           "Value `%s` yet indexed." % (field.name, value))
+
+            # Do instanciate
             for field_name, value in kwargs.iteritems():
                 field = getattr(self, field_name)
                 setter = getattr(field, field.proxy_setter)
@@ -129,7 +144,7 @@ class RedisModel(RedisProxyCommand):
         """
         for field_name in self._fields:
             field = getattr(self, field_name)
-            if hasattr(field, "default"):
+            if "default" in dir(field):
                 setter = getattr(field, field.proxy_setter)
                 getter = getattr(field, field.proxy_getter)
                 has_value = getter()
@@ -176,5 +191,5 @@ class RedisModel(RedisProxyCommand):
 
 class TestModel(RedisModel):
 
-    name = StringField(indexable=True)
+    name = StringField(unique=True)
     foo = HashableField(indexable=True)

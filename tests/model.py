@@ -1,6 +1,9 @@
+# -*- coding:utf-8 -*-
+
 import unittest
 
 from limpyd import model
+from limpyd.exceptions import *
 from base import LimpydBaseTest
 
 class Bike(model.RedisModel):
@@ -17,6 +20,21 @@ class InitTest(LimpydBaseTest):
         bike = Bike()
         bike.name.set('rosalie')
         self.assertEqual(bike._pk, 1)
+
+    def test_instances_must_not_share_fields(self):
+        bike1 = Bike(name="rosalie")
+        self.assertEqual(bike1._pk, 1)
+        self.assertEqual(bike1.name.get(), "rosalie")
+        bike2 = Bike(name="velocipede")
+        self.assertEqual(bike2._pk, 2)
+        self.assertEqual(bike2.name.get(), "velocipede")
+
+    def test_field_instance_must_be_consistent(self):
+        bike1 = Bike(name="rosalie")
+        self.assertEqual(id(bike1), id(bike1.name._instance))
+        bike2 = Bike(name="velocipede")
+        self.assertEqual(id(bike2), id(bike2.name._instance))
+        self.assertNotEqual(id(bike1.name._instance), id(bike2.name._instance))
 
     def test_one_arg_should_retrieve_from_db(self):
         bike = Bike()
@@ -48,6 +66,42 @@ class IndexationTest(LimpydBaseTest):
         bike.name.set("tricycle")
         self.assertFalse(Bike.exists(name="monocycle"))
         self.assertTrue(Bike.exists(name="tricycle"))
+
+
+class CollectionTest(LimpydBaseTest):
+
+    pass #TODO
+
+
+class UniquenessTest(LimpydBaseTest):
+
+    class SailBoat(model.RedisModel):
+        name = model.StringField(unique=True)
+        length = model.StringField()
+
+    def test_cannot_set_unique_already_indexed_at_init(self):
+        boat1 = self.SailBoat(name="Pen Duick I", length=15.1)
+        # First check data
+        self.assertEqual(boat1.name.get(), "Pen Duick I")
+        self.assertEqual(boat1.length.get(), "15.1")
+        # Try to create a boat with the same name
+        with self.assertRaises(UniquenessError):
+            boat2 = self.SailBoat(name="Pen Duick I", length=15.1)
+        # Check data after
+        self.assertEqual(boat1.name.get(), "Pen Duick I")
+        self.assertEqual(boat1.length.get(), "15.1")
+
+    def test_cannot_set_unique_already_indexed_with_setter(self):
+        boat1 = self.SailBoat(name="Pen Duick I", length=15.1)
+        # First check data
+        self.assertEqual(boat1.name.get(), "Pen Duick I")
+        self.assertEqual(boat1.length.get(), "15.1")
+        boat2 = self.SailBoat(name="Pen Duick II", length=13.6)
+        with self.assertRaises(UniquenessError):
+            boat2.name.set("Pen Duick I")
+        # Check data after
+        self.assertEqual(boat1.name.get(), "Pen Duick I")
+        self.assertEqual(boat1.length.get(), "15.1")
 
 
 class CommandCacheTest(LimpydBaseTest):

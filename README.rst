@@ -11,6 +11,7 @@ For example:
 - Don't care about keys, `limpyd` do it for you
 - Retrieve objects from some of their attributes
 - Retrieve objects collection
+- CRUD abstraction
 - Keep the power of all the Redis data types in your own code
 
 .. warning::
