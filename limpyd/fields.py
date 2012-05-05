@@ -84,6 +84,12 @@ class RedisField(RedisProxyCommand):
         if "default" in kwargs:
             self.default = kwargs["default"]
 
+    def init_cache(self):
+        """
+        Create the field cache key, or flush it if it already exists.
+        """
+        self._instance._cache[self.name] = {}
+
     @property
     def key(self):
         return self.make_key(

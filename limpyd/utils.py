@@ -18,7 +18,7 @@ class memoize_command(object):
 
             # Cache per field name to be able to flush per field
             if not self.name in self._instance._cache:
-                self._instance._cache[self.name] = {}
+                self.init_cache()
             field_cache = self._instance._cache[self.name]
             # Warning: Some commands are both setter and modifiers (getset)
             command_name = args[0]

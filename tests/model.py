@@ -224,6 +224,31 @@ class CommandCacheTest(LimpydBaseTest):
         name = bike.name.get()
         self.assertEqual(name, "tandem")
 
+    def test_should_not_hit_cache_when_flushed(self):
+        bike = Bike(name="randonneuse", wheels=4)
+        # First get
+        name = bike.name.get()
+        wheels = bike.wheels.get()
+        hits_before = self.connection.info()['keyspace_hits']
+        # Get again
+        name = bike.name.get()
+        wheels = bike.wheels.get()
+        hits_after = self.connection.info()['keyspace_hits']
+        self.assertEqual(name, "randonneuse")
+        self.assertEqual(wheels, "4")
+        self.assertEqual(hits_before, hits_after)
+        # Flush cache for name
+        bike.name.init_cache()
+        name = bike.name.get()
+        hits_after_flush = self.connection.info()['keyspace_hits']
+        self.assertEqual(name, "randonneuse")
+        self.assertNotEqual(hits_before, hits_after_flush)
+        # Getting again the wheels must hit cache
+        wheels = bike.wheels.get()
+        hits_after_getting_wheels = self.connection.info()['keyspace_hits']
+        self.assertEqual(wheels, "4")
+        self.assertEqual(hits_after_flush, hits_after_getting_wheels)
+
 
 class MetaRedisProxyTest(LimpydBaseTest):
 
