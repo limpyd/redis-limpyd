@@ -70,7 +70,14 @@ class IndexationTest(LimpydBaseTest):
 
 class CollectionTest(LimpydBaseTest):
 
-    pass #TODO
+    def test_new_instance_should_be_added_in_collection(self):
+        self.assertEqual(Bike.collection(), set())
+        bike = Bike()
+        self.assertEqual(Bike.collection(), set())
+        bike1 = Bike(name="trotinette")
+        self.assertEqual(Bike.collection(), set(['1']))
+        bike2 = Bike(name="tommasini")
+        self.assertEqual(Bike.collection(), set(['1', '2']))
 
 
 class UniquenessTest(LimpydBaseTest):
