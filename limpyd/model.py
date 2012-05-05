@@ -111,17 +111,6 @@ class RedisModel(RedisProxyCommand):
             self._connection = get_connection()
         return self._connection
 
-    @classmethod
-    def collection_key(cls):
-        return '%s:collection' % cls.__name__.lower()
-
-    @classmethod
-    def collection(cls, **kwargs):
-        # TODO: implement filters from kwargs
-        # We cannot use the current connection here, as we have no instance
-        connection = get_connection()
-        return connection.smembers(cls.collection_key())
-
     @property
     def key(self):
         return self.make_key(self.__class__.__name__.lower(), self.pk)
@@ -150,6 +139,23 @@ class RedisModel(RedisProxyCommand):
                 has_value = getter()
                 if has_value is None:
                     setter(field.default)
+
+    @classmethod
+    def collection_key(cls):
+        return '%s:collection' % cls.__name__.lower()
+
+    @classmethod
+    def collection(cls, **kwargs):
+        # We cannot use the current connection here, as we have no instance
+        connection = get_connection()
+        index_keys = list()
+        for field_name, value in kwargs.iteritems():
+            field = getattr(cls, "_redis_attr_%s" % field_name)
+            index_keys.append(field.index_key(value))
+        if len(index_keys) == 0:
+            # No kwargs, we want all the collection
+            index_keys.append(cls.collection_key())
+        return connection.sinter(index_keys)
 
     @classmethod
     def exists(cls, **kwargs):

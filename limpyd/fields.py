@@ -157,15 +157,18 @@ class IndexableField(RedisField):
         key = self.index_key(value)
         if self.unique:
             # Lets check if the index key already exist for another instance
-            if self.connection.exists(key):
-                indexed_instance_pk = self.connection.get(key)
+            index = self.connection.smembers(key)
+            if len(index) > 1:
+                raise UniquenessError("Multiple values indexed for unique field %s: %s" % (self.name, index))
+            elif len(index) == 1:
+                indexed_instance_pk = index.pop()
                 if indexed_instance_pk != self._instance.pk:
                     self.connection.delete(self.key)
                     raise UniquenessError('Key %s already exists (for instance %s)' % (key, indexed_instance_pk))
         # Do index => create a key to be able to retrieve parent pk with
         # current field value
         log.debug("indexing %s with key %s" % (key, self._instance.pk))
-        return self.connection.set(key, self._instance.pk)
+        return self.connection.sadd(key, self._instance.pk)
 
     def deindex(self):
         """
@@ -176,7 +179,7 @@ class IndexableField(RedisField):
         if value:
             value = value.decode('utf-8')
             key = self.index_key(value)
-            return self.connection.delete(key)
+            return self.connection.srem(key, self._instance.pk)
         else:
             return True  # True?
 
@@ -186,6 +189,8 @@ class IndexableField(RedisField):
 
     def index_key(self, value):
         # Ex. bikemodel:name:{bikename}
+        if not self.indexable:
+            raise ValueError("Field %s is not indexable, cannot ask its index_key" % self.name)
         return self.make_key(
             self._parent_class,
             self.name,
@@ -212,8 +217,8 @@ class IndexableField(RedisField):
         key = self.index_key(value)
         # We are not in instanciated mode, so we can't use the instance connection
         connection = get_connection()
-        pk = connection.get(key)
-        return pk is not None
+        pks = connection.smembers(key)
+        return len(pks) == 1
 
 
 class StringField(IndexableField):

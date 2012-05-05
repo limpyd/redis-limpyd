@@ -10,6 +10,12 @@ class Bike(model.RedisModel):
     name = model.StringField(indexable=True)
     wheels = model.StringField(default=2)
 
+class Boat(model.RedisModel):
+    name = model.StringField(unique=True)
+    power = model.StringField(indexable=True, default="sail")
+    launched = model.StringField(indexable=True)
+    length = model.StringField()
+
 class InitTest(LimpydBaseTest):
 
     def test_instanciation_should_no_connect(self):
@@ -79,31 +85,42 @@ class CollectionTest(LimpydBaseTest):
         bike2 = Bike(name="tommasini")
         self.assertEqual(Bike.collection(), set(['1', '2']))
 
+    def test_filter_from_kwargs(self):
+        self.assertEqual(Boat.collection(), set())
+        boat1 = Boat(name="Pen Duick I", length=15.1, launched=1898)
+        boat2 = Boat(name="Pen Duick II", length=13.6, launched=1964)
+        boat3 = Boat(name="Pen Duick III", length=17.45, launched=1966)
+        boat4 = Boat(name="Rainbow Warrior I", power="engine", length=40, launched=1955)
+        self.assertEqual(len(Boat.collection()), 4)
+        self.assertEqual(len(Boat.collection(power="sail")), 3)
+        self.assertEqual(len(Boat.collection(power="sail", launched=1966)), 1)
+
+    def test_should_raise_if_filter_is_not_indexable_field(self):
+        boat = Boat(name="Pen Duick I", length=15.1)
+        with self.assertRaises(ValueError):
+            Boat.collection(length=15.1)
+
 
 class UniquenessTest(LimpydBaseTest):
 
-    class SailBoat(model.RedisModel):
-        name = model.StringField(unique=True)
-        length = model.StringField()
-
     def test_cannot_set_unique_already_indexed_at_init(self):
-        boat1 = self.SailBoat(name="Pen Duick I", length=15.1)
+        boat1 = Boat(name="Pen Duick I", length=15.1)
         # First check data
         self.assertEqual(boat1.name.get(), "Pen Duick I")
         self.assertEqual(boat1.length.get(), "15.1")
         # Try to create a boat with the same name
         with self.assertRaises(UniquenessError):
-            boat2 = self.SailBoat(name="Pen Duick I", length=15.1)
+            boat2 = Boat(name="Pen Duick I", length=15.1)
         # Check data after
         self.assertEqual(boat1.name.get(), "Pen Duick I")
         self.assertEqual(boat1.length.get(), "15.1")
 
     def test_cannot_set_unique_already_indexed_with_setter(self):
-        boat1 = self.SailBoat(name="Pen Duick I", length=15.1)
+        boat1 = Boat(name="Pen Duick I", length=15.1)
         # First check data
         self.assertEqual(boat1.name.get(), "Pen Duick I")
         self.assertEqual(boat1.length.get(), "15.1")
-        boat2 = self.SailBoat(name="Pen Duick II", length=13.6)
+        boat2 = Boat(name="Pen Duick II", length=13.6)
         with self.assertRaises(UniquenessError):
             boat2.name.set("Pen Duick I")
         # Check data after
