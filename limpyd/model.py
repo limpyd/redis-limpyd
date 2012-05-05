@@ -72,7 +72,7 @@ class RedisModel(RedisProxyCommand):
         self._pk = None
 
         # Prepare command internal caching
-        self._cache = {}
+        self.init_cache()
 
         # Validate arguments
         if len(args) > 0 and len(kwargs) > 0:
@@ -104,6 +104,12 @@ class RedisModel(RedisProxyCommand):
                 self._pk = value
             else:
                 raise ValueError("No %s found with pk %s" % (self.__class__.__name__, value))
+
+    def init_cache(self):
+        """
+        Call it to init or clear the command cache.
+        """
+        self._cache = {}
 
     @property
     def connection(self):

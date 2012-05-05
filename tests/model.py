@@ -209,6 +209,12 @@ class CommandCacheTest(LimpydBaseTest):
         hits_after = self.connection.info()['keyspace_hits']
         self.assertEqual(name, "randonneuse")
         self.assertEqual(hits_before, hits_after)
+        # Flush all cache from instance
+        bike.init_cache()
+        name = bike.name.get()
+        hits_after = self.connection.info()['keyspace_hits']
+        self.assertEqual(name, "randonneuse")
+        self.assertNotEqual(hits_before, hits_after)
 
     def test_should_flush_if_modifiers_command_is_called(self):
         bike = Bike(name="draisienne")
