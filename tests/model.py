@@ -101,6 +101,43 @@ class CollectionTest(LimpydBaseTest):
             Boat.collection(length=15.1)
 
 
+class GetTest(LimpydBaseTest):
+
+    def test_should_considere_one_arg_as_pk(self):
+        boat1 = Boat(name="Pen Duick I", length=15.1)
+        boat2 = Boat.get(boat1.pk)
+        self.assertEqual(boat1.pk, boat2.pk)
+        self.assertEqual(boat1.name.get(), boat2.name.get())
+
+    def test_should_filter_from_kwargs(self):
+        boat1 = Boat(name="Pen Duick I", length=15.1)
+        boat2 = Boat.get(name="Pen Duick I")
+        self.assertEqual(boat1.pk, boat2.pk)
+        self.assertEqual(boat1.name.get(), boat2.name.get())
+        boat3 = Boat.get(name="Pen Duick I", power="sail")
+        self.assertEqual(boat1.pk, boat3.pk)
+        self.assertEqual(boat1.name.get(), boat3.name.get())
+
+    def test_should_raise_if_more_than_one_match(self):
+        boat1 = Boat(name="Pen Duick I")
+        boat2 = Boat(name="Pen Duick II")
+        with self.assertRaises(ValueError):
+            boat3 = Boat.get(power="sail")
+
+    def test_should_raise_if_no_one_match(self):
+        boat1 = Boat(name="Pen Duick I")
+        with self.assertRaises(ValueError):
+            boat3 = Boat.get(name="Pen Duick II")
+
+    def test_should_not_accept_more_than_one_arg(self):
+        with self.assertRaises(ValueError):
+            boat = Boat.get(1, 2)
+
+    def test_should_not_accept_no_params(self):
+        with self.assertRaises(ValueError):
+            boat = Boat.get()
+
+
 class UniquenessTest(LimpydBaseTest):
 
     def test_cannot_set_unique_already_indexed_at_init(self):

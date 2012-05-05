@@ -146,6 +146,9 @@ class RedisModel(RedisProxyCommand):
 
     @classmethod
     def collection(cls, **kwargs):
+        """
+        Return a list of pk, eventually filtered by kwargs.
+        """
         # We cannot use the current connection here, as we have no instance
         connection = get_connection()
         index_keys = list()
@@ -159,10 +162,36 @@ class RedisModel(RedisProxyCommand):
 
     @classmethod
     def exists(cls, **kwargs):
+        """
+        A model with the values defined by kwargs exists in db?
+
+        `kwargs` are mandatory.
+        """
         if not kwargs:
             raise ValueError(u"`Exists` method requires at least one kwarg.")
         return len(cls.collection(**kwargs)) > 0
-    
+
+    @classmethod
+    def get(cls, *args, **kwargs):
+        """
+        Retrieve one instance from db according to given kwargs.
+
+        Optionnaly, one arg could be used to retrieve it from pk.
+        """
+        if len(args) == 1:  # Guess it's a pk
+            pk = args[0]
+        elif kwargs:
+            result = cls.collection(**kwargs)
+            if len(result) == 0:
+                raise ValueError(u"No object matching filter: %s" % kwargs)
+            elif len(result) > 1:
+                raise ValueError(u"More than one object matching filter: %s" % kwargs)
+            else:
+                pk = int(result.pop())
+        else:
+            raise ValueError("Invalid `get` usage with args %s and kwargs %s" % (args, kwargs))
+        return cls(pk)
+
     @classmethod
     def make_key(cls, *args):
         return make_key(*args)

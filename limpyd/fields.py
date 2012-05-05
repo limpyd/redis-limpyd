@@ -198,7 +198,7 @@ class IndexableField(RedisField):
         key = self.index_key(value)
         pk = self.connection.get(key)
         if pk:
-            self._instance._pk = pk
+            self._instance._pk = int(pk)
         else:
             raise ValueError("Can't retrieve instance pk with %s = %s" % (self.name, value))
 
