@@ -129,6 +129,11 @@ class IndexableField(RedisField):
     def __init__(self, *args, **kwargs):
         super(IndexableField, self).__init__(*args, **kwargs)
         self.indexable = kwargs.get("indexable", False)
+        self.unique = kwargs.get("unique", False)
+        if self.unique:
+            if "default" in dir(self):  # do not use hasattr, as it will call getattr
+                raise ImplementationError('Cannot set "default" and "unique" together!')
+            self.indexable = True
 
     def _traverse_command(self, name, *args, **kwargs):
         # TODO manage transaction
@@ -140,12 +145,25 @@ class IndexableField(RedisField):
         return result
 
     def index(self):
-        # TODO: manage uniqueness
+        # Has traverse_commande is blind, and can't infer the final value from
+        # commands like ``append`` or ``setrange``, we let the command process
+        # then check the result, and raise before modifying the indexes if the
+        # value was not unique, and then remove the key
+        # We should try a better algo
         getter = getattr(self, self.proxy_getter)
         value = getter()
         if value:
-            value = value.decode('utf-8')
+            value = value.decode('utf-8')  # FIXME centralize utf-8 handling?
         key = self.index_key(value)
+        if self.unique:
+            # Lets check if the index key already exist for another instance
+            if self.connection.exists(key):
+                indexed_instance_pk = self.connection.get(key)
+                if indexed_instance_pk != self._instance.pk:
+                    self.connection.delete(self.key)
+                    raise UniquenessError('Key %s already exists (for instance %s)' % (key, indexed_instance_pk))
+        # Do index => create a key to be able to retrieve parent pk with
+        # current field value
         log.debug("indexing %s with key %s" % (key, self._instance.pk))
         return self.connection.set(key, self._instance.pk)
 
@@ -204,34 +222,6 @@ class StringField(IndexableField):
     proxy_setter = "set"
     available_getters = ('get', 'getbit', 'getrange', 'getset', 'strlen')
     available_modifiers = ('append', 'decr', 'decrby', 'getset', 'incr', 'incrby', 'incrbyfloat', 'set', 'setbit', 'setnx', 'setrange')
-
-    def __init__(self, *args, **kwargs):
-        super(StringField, self).__init__(*args, **kwargs)
-        self.unique = kwargs.get("unique", False)
-        if self.unique:
-            if "default" in dir(self):  # do not use hasattr, as it will call getattr
-                raise ImplementationError('Cannot set "default" and "unique" together!')
-            self.indexable = True
-
-    def index(self):
-        # Has traverse_commande is blind, and can't infer the final value from
-        # commands like ``append`` or ``setrange``, we let the command process
-        # then check the result, and raise before modifying the indexes if the
-        # value was not unique, and then remove the key
-        # We should try a better algo
-        getter = getattr(self, self.proxy_getter)
-        value = getter()
-        if value:
-            value = value.decode('utf-8')  # FIXME centralize utf-8 handling?
-        key = self.index_key(value)
-        if self.unique:
-            # Lets check if the index key already exist for another instance
-            if self.connection.exists(key):
-                indexed_instance_pk = self.connection.get(key)
-                if indexed_instance_pk != self._instance.pk:
-                    self.connection.delete(self.key)
-                    raise UniquenessError('Key %s already exists (for instance %s)' % (key, indexed_instance_pk))
-        return super(StringField, self).index()
 
 
 class SortedSetField(RedisField):
