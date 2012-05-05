@@ -126,7 +126,7 @@ class GetTest(LimpydBaseTest):
 
     def test_should_raise_if_no_one_match(self):
         boat1 = Boat(name="Pen Duick I")
-        with self.assertRaises(ValueError):
+        with self.assertRaises(DoesNotExist):
             boat3 = Boat.get(name="Pen Duick II")
 
     def test_should_not_accept_more_than_one_arg(self):
@@ -136,6 +136,21 @@ class GetTest(LimpydBaseTest):
     def test_should_not_accept_no_params(self):
         with self.assertRaises(ValueError):
             boat = Boat.get()
+
+
+class GetOrConnectTest(LimpydBaseTest):
+
+    def test_should_get_if_object_exists(self):
+        boat = Boat(name="Pen Duick I")
+        boat_again, created = Boat.get_or_connect(name="Pen Duick I")
+        self.assertEqual(boat.pk, boat_again.pk)
+        self.assertFalse(created)
+
+    def test_should_connect_if_object_do_not_exists(self):
+        boat = Boat(name="Pen Duick I")
+        boat_again, created = Boat.get_or_connect(name="Pen Duick II")
+        self.assertNotEqual(boat.pk, boat_again.pk)
+        self.assertTrue(created)
 
 
 class UniquenessTest(LimpydBaseTest):

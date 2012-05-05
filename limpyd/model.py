@@ -183,7 +183,7 @@ class RedisModel(RedisProxyCommand):
         elif kwargs:
             result = cls.collection(**kwargs)
             if len(result) == 0:
-                raise ValueError(u"No object matching filter: %s" % kwargs)
+                raise DoesNotExist(u"No object matching filter: %s" % kwargs)
             elif len(result) > 1:
                 raise ValueError(u"More than one object matching filter: %s" % kwargs)
             else:
@@ -191,6 +191,20 @@ class RedisModel(RedisProxyCommand):
         else:
             raise ValueError("Invalid `get` usage with args %s and kwargs %s" % (args, kwargs))
         return cls(pk)
+
+    @classmethod
+    def get_or_connect(cls, **kwargs):
+        """
+        Try to retrieve an object in db, and create it if it does not exist.
+        """
+        try:
+            inst = cls.get(**kwargs)
+            created = False
+        except DoesNotExist:
+            inst = cls(**kwargs)
+            created = True
+        finally:
+            return inst, created
 
     @classmethod
     def make_key(cls, *args):
