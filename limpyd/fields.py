@@ -98,9 +98,6 @@ class RedisField(RedisProxyCommand):
             raise TypeError('Cannot use connection without instance')
         return self._instance.connection
 
-    def exists(self, value):
-        raise NotImplementedError("Only indexable fields can be used")
-
     def __copy__(self):
         new_copy = self.__class__()
         new_copy.__dict__ = self.__dict__
@@ -204,21 +201,6 @@ class IndexableField(RedisField):
             self._instance._pk = pk
         else:
             raise ValueError("Can't retrieve instance pk with %s = %s" % (self.name, value))
-
-    def exists(self, value):
-        """
-        Is there a key of this field with the given value?
-        
-        Ex. bikemodel:name:mybikename => {id_of_bike_instance}
-        """
-        # TODO factorize with the previous
-        if not self.indexable:
-            raise ValueError("Only indexable fields can be used")
-        key = self.index_key(value)
-        # We are not in instanciated mode, so we can't use the instance connection
-        connection = get_connection()
-        pks = connection.smembers(key)
-        return len(pks) == 1
 
 
 class StringField(IndexableField):

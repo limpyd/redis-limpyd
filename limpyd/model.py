@@ -86,7 +86,7 @@ class RedisModel(RedisProxyCommand):
             # Here we do not set anything, in case one unique field fails
             for field_name, value in kwargs.iteritems():
                 field = getattr(self, field_name)
-                if field.unique and field.exists(value):
+                if field.unique and self.exists(**{field_name:value}):
                     raise UniquenessError(u"Field `%s` must be unique. "
                                            "Value `%s` yet indexed." % (field.name, value))
 
@@ -159,12 +159,9 @@ class RedisModel(RedisProxyCommand):
 
     @classmethod
     def exists(cls, **kwargs):
-        if not len(kwargs) == 1:
-            raise ValueError("FIXME only one kwarg at a time")
-        field_name = kwargs.keys()[0]
-        value = kwargs.values()[0]
-        field = getattr(cls, "_redis_attr_%s" % field_name)
-        return field.exists(value)
+        if not kwargs:
+            raise ValueError(u"`Exists` method requires at least one kwarg.")
+        return len(cls.collection(**kwargs)) > 0
     
     @classmethod
     def make_key(cls, *args):

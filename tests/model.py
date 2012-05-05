@@ -128,6 +128,22 @@ class UniquenessTest(LimpydBaseTest):
         self.assertEqual(boat1.length.get(), "15.1")
 
 
+class ExistsTest(LimpydBaseTest):
+
+    def test_generic_exists_test(self):
+        boat1 = Boat(name="Pen Duick I", length=15.1, launched=1898)
+        boat2 = Boat(name="Pen Duick II", length=13.6, launched=1964)
+        boat3 = Boat(name="Pen Duick III", length=17.45, launched=1966)
+        self.assertEqual(Boat.exists(name="Pen Duick I"), True)
+        self.assertEqual(Boat.exists(name="Pen Duick I", launched=1898), True)
+        self.assertEqual(Boat.exists(name="Pen Duick II", launched=1898), False)
+        self.assertEqual(Boat.exists(name="Pen Duick IV"), False)
+
+    def test_should_raise_if_no_kwarg(self):
+        with self.assertRaises(ValueError):
+            Boat.exists()
+
+
 class CommandCacheTest(LimpydBaseTest):
 
     def test_should_not_hit_redis_when_cached(self):
