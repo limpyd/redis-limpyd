@@ -242,7 +242,7 @@ class HashableField(IndexableField):
         args = list(args)
         args.insert(0, self.name)
         return super(HashableField, self)._traverse_command(name, *args, **kwargs)
-        
+
     def delete(self):
         """
         We need to delete only the field in the parent hash.
