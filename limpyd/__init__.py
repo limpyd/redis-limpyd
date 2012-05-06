@@ -6,10 +6,12 @@ PROD_HOST = "localhost"
 PROD_PORT = 6379
 TESTS_DB_ID = 15
 
+
 class ConnectionSettings(object):
     HOST = PROD_HOST
     PORT = PROD_PORT
     DB_ID = PROD_DB_ID
+
 
 def get_connection():
     connection = redis.StrictRedis(

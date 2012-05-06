@@ -2,6 +2,7 @@ import unittest
 
 from limpyd import ConnectionSettings, TESTS_DB_ID, PROD_DB_ID, get_connection
 
+
 class LimpydBaseTest(unittest.TestCase):
 
     def setUp(self):
@@ -13,7 +14,6 @@ class LimpydBaseTest(unittest.TestCase):
         assert current_db_id != PROD_DB_ID
         assert current_db_id == TESTS_DB_ID
         self.connection.flushdb()
-    
+
     def tearDown(self):
         self.connection.flushdb()
-

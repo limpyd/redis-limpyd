@@ -7,7 +7,7 @@ from limpyd.fields import *
 from limpyd.utils import make_key
 from limpyd.exceptions import *
 
-__all__ = ['RedisModel', 'StringField', 'SortedSetField']
+__all__ = ['RedisModel', ]
 
 log = getLogger(__name__)
 
@@ -23,7 +23,8 @@ class MetaRedisModel(MetaRedisProxy):
         _hashable_fields = []
         attrs = dir(it)
         for attr_name in attrs:
-            if attr_name.startswith("_"): continue
+            if attr_name.startswith("_"):
+                continue
             attr = getattr(it, attr_name)
             if isinstance(attr, RedisField):
                 _fields.append(attr_name)
@@ -37,11 +38,12 @@ class MetaRedisModel(MetaRedisProxy):
         setattr(it, "_hashable_fields", _hashable_fields)
         return it
 
+
 class RedisModel(RedisProxyCommand):
     """
     Base redis model.
     """
-    
+
     __metaclass__ = MetaRedisModel
 
     def __init__(self, *args, **kwargs):
@@ -81,12 +83,12 @@ class RedisModel(RedisProxyCommand):
         # --- Instanciate new from kwargs
         if len(kwargs) > 0:
             # First check unique fields
-            # (More robust than trying to manage a "pseudotransaction", as 
+            # (More robust than trying to manage a "pseudotransaction", as
             # redis do not has "real" transactions)
             # Here we do not set anything, in case one unique field fails
             for field_name, value in kwargs.iteritems():
                 field = getattr(self, field_name)
-                if field.unique and self.exists(**{field_name:value}):
+                if field.unique and self.exists(**{field_name: value}):
                     raise UniquenessError(u"Field `%s` must be unique. "
                                            "Value `%s` yet indexed." % (field.name, value))
 
@@ -225,7 +227,7 @@ class RedisModel(RedisProxyCommand):
             self.pk,
             "hash",
         )
-    
+
     def hmget(self, *args):
         if len(args) == 0:
             args = self._hashable_fields
