@@ -3,23 +3,24 @@
 import unittest
 
 from limpyd import model
+from limpyd import fields
 from limpyd.exceptions import *
 from base import LimpydBaseTest
 
 
 class Bike(model.RedisModel):
-    name = model.StringField(indexable=True)
-    wheels = model.StringField(default=2)
+    name = fields.StringField(indexable=True)
+    wheels = fields.StringField(default=2)
 
 
 class Boat(model.RedisModel):
     """
     Use also HashableField.
     """
-    name = model.StringField(unique=True)
-    power = model.HashableField(indexable=True, default="sail")
-    launched = model.StringField(indexable=True)
-    length = model.StringField()
+    name = fields.StringField(unique=True)
+    power = fields.HashableField(indexable=True, default="sail")
+    launched = fields.StringField(indexable=True)
+    length = fields.StringField()
 
 
 class InitTest(LimpydBaseTest):
@@ -265,9 +266,11 @@ class MetaRedisProxyTest(LimpydBaseTest):
         def check_available_commands(cls):
             for command in cls.available_getters:
                 self.assertTrue(command in cls.available_commands)
-        check_available_commands(model.StringField)
-        check_available_commands(model.HashableField)
-        check_available_commands(model.SortedSetField)
+        check_available_commands(fields.StringField)
+        check_available_commands(fields.HashableField)
+        check_available_commands(fields.SortedSetField)
+        check_available_commands(fields.SetField)
+        check_available_commands(fields.ListField)
 
 
 if __name__ == '__main__':
