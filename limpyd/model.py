@@ -209,8 +209,9 @@ class RedisModel(RedisProxyCommand):
         except DoesNotExist:
             inst = cls(**kwargs)
             created = True
-        finally:
-            return inst, created
+        except Exception:
+            raise
+        return inst, created
 
     @classmethod
     def make_key(cls, *args):

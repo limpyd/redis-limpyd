@@ -6,15 +6,21 @@ from limpyd import model
 from limpyd.exceptions import *
 from base import LimpydBaseTest
 
+
 class Bike(model.RedisModel):
     name = model.StringField(indexable=True)
     wheels = model.StringField(default=2)
 
+
 class Boat(model.RedisModel):
+    """
+    Use also HashableField.
+    """
     name = model.StringField(unique=True)
-    power = model.StringField(indexable=True, default="sail")
+    power = model.HashableField(indexable=True, default="sail")
     launched = model.StringField(indexable=True)
     length = model.StringField()
+
 
 class InitTest(LimpydBaseTest):
 
@@ -224,7 +230,7 @@ class CommandCacheTest(LimpydBaseTest):
         name = bike.name.get()
         self.assertEqual(name, "tandem")
 
-    def test_should_not_hit_cache_when_flushed(self):
+    def test_should_not_hit_cache_when_flushed_for_field(self):
         bike = Bike(name="randonneuse", wheels=4)
         # First get
         name = bike.name.get()
@@ -237,7 +243,7 @@ class CommandCacheTest(LimpydBaseTest):
         self.assertEqual(name, "randonneuse")
         self.assertEqual(wheels, "4")
         self.assertEqual(hits_before, hits_after)
-        # Flush cache for name
+        # Flush cache for field `name`
         bike.name.init_cache()
         name = bike.name.get()
         hits_after_flush = self.connection.info()['keyspace_hits']

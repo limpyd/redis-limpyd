@@ -224,7 +224,7 @@ class SortedSetField(RedisField):
     available_modifiers = ('zadd', 'zincrby', 'zrem', 'zremrangebyrank', 'zremrangebyscore')
 
 
-class HashableField(RedisField):
+class HashableField(IndexableField):
     """Field stored in the parent object hash."""
 
     proxy_getter = "hget"
