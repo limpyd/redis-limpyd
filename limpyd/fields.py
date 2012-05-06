@@ -15,6 +15,8 @@ __all__ = [
     'MetaRedisProxy',
     'SortedSetField',
     'StringField',
+    'ListField',
+    'SetField',
 ]
 
 
@@ -222,6 +224,19 @@ class SortedSetField(RedisField):
     proxy_setter = "zadd"
     available_getters = ('zcard', 'zcount', 'zrange', 'zrangebyscore', 'zrank', 'zrevrange', 'zrevrangebyscore', 'zrevrank', 'zscore')
     available_modifiers = ('zadd', 'zincrby', 'zrem', 'zremrangebyrank', 'zremrangebyscore')
+
+
+class SetField(RedisField):
+
+    proxy_setter = "sadd"
+    available_getters = ('scard', 'sismember', 'smembers', 'srandmember')
+    available_modifiers = ('sadd', 'spop', 'srem',)
+
+
+class ListField(RedisField):
+    proxy_setter = "lpush"
+    available_getters = ('lindex', 'llen', 'lrange')
+    available_modifiers = ('linsert', 'lpop', 'lpush', 'lpushx', 'lrem', 'lset', 'ltrim', 'rpop', 'rpush', 'rpushx')
 
 
 class HashableField(IndexableField):
