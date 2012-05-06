@@ -120,10 +120,6 @@ class RedisModel(RedisProxyCommand):
         return self._connection
 
     @property
-    def key(self):
-        return self.make_key(self.__class__.__name__.lower(), self.pk)
-
-    @property
     def pk(self):
         if not self._pk:
             key = self.make_key(self.__class__.__name__.lower(), 'pk')
