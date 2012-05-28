@@ -69,7 +69,7 @@ class RedisModel(RedisProxyCommand):
             newattr.name = attr.name
             newattr._parent_class = attr._parent_class
             newattr._instance = self
-            newattr.cacheable = self.cacheable
+            newattr.cacheable = newattr.cacheable and self.cacheable
             setattr(self, attr_name, newattr)
 
         # Prepare stored connection
