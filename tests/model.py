@@ -13,6 +13,10 @@ class Bike(model.RedisModel):
     wheels = fields.StringField(default=2)
 
 
+class MotorBike(Bike):
+    power = fields.StringField()
+
+
 class Boat(model.RedisModel):
     """
     Use also HashableField.
@@ -271,6 +275,33 @@ class MetaRedisProxyTest(LimpydBaseTest):
         check_available_commands(fields.SortedSetField)
         check_available_commands(fields.SetField)
         check_available_commands(fields.ListField)
+
+
+class InheritanceTest(LimpydBaseTest):
+
+    def test_fields(self):
+        """
+        Test that all fields are properly set on each model
+        """
+        bike = Bike()
+        self.assertEqual(len(bike._fields), 2)
+        self.assertEqual(set(bike._fields), set(['name', 'wheels']))
+        motorbike = MotorBike()
+        self.assertEqual(len(motorbike._fields), 3)
+        self.assertEqual(set(motorbike._fields), set(['name', 'wheels', 'power']))
+        boat = Boat()
+        self.assertEqual(len(boat._fields), 4)
+        self.assertEqual(set(boat._fields), set(['name', 'launched', 'power', 'length']))
+
+    def test_values(self):
+        """
+        Test that all values are correctly set on the good models
+        """
+        bike = Bike(name="rosalie", wheels=4)
+        motorbike = MotorBike(name='davidson', wheels=2, power='not enough')
+        self.assertEqual(bike.wheels.get(), '4')
+        self.assertEqual(motorbike.wheels.get(), '2')
+        self.assertEqual(motorbike.power.get(), 'not enough')
 
 
 if __name__ == '__main__':

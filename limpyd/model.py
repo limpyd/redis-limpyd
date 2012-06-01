@@ -1,6 +1,7 @@
 # -*- coding:utf-8 -*-
 
 from logging import getLogger
+from copy import copy
 
 from limpyd import get_connection
 from limpyd.fields import *
@@ -19,8 +20,8 @@ class MetaRedisModel(MetaRedisProxy):
     def __new__(mcs, name, base, dct):
         it = type.__new__(mcs, name, base, dct)
         # We make invisible for user that fields where class properties
-        _fields = []
-        _hashable_fields = []
+        _fields = copy(it._fields) if hasattr(it, '_fields') else []
+        _hashable_fields = copy(it._hashable_fields) if hasattr(it, '_hashable_fields') else []
         attrs = dir(it)
         for attr_name in attrs:
             if attr_name.startswith("_"):
