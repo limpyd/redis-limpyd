@@ -72,6 +72,10 @@ class InitTest(LimpydBaseTest):
         bike = Bike(name="rosalie", wheels=4)
         self.assertEqual(bike.wheels.get(), '4')
 
+    def test_wrong_field_name_cannot_be_used(self):
+        with self.assertRaises(ValueError):
+            bike = Bike(power="human")
+
 
 class IndexationTest(LimpydBaseTest):
 

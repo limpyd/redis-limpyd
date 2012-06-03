@@ -88,7 +88,8 @@ class RedisModel(RedisProxyCommand):
             # Here we do not set anything, in case one unique field fails
             for field_name, value in kwargs.iteritems():
                 if field_name not in self._fields:
-                    raise ValueError(u"`%s` is not a valid field name" % field_name)
+                    raise ValueError(u"`%s` is not a valid field name "
+                                      "for `%s`." % (field_name, self.__class__.__name__))
                 field = getattr(self, field_name)
                 if field.unique and self.exists(**{field_name: value}):
                     raise UniquenessError(u"Field `%s` must be unique. "
