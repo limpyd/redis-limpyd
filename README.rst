@@ -14,9 +14,9 @@ For example:
 - CRUD abstraction
 - Keep the power of all the Redis data types in your own code
 
-.. warning::
 
-   This is full R&D, so *do not* try to use it in production right know!
+
+**This is full R&D, so *do not* try to use it in production right now!**
 
 
 Example of configuration::
