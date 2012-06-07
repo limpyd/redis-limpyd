@@ -324,11 +324,11 @@ class InheritanceTest(LimpydBaseTest):
         Test that all fields are properly set on each model
         """
         bike = Bike()
-        self.assertEqual(len(bike._fields), 2)
-        self.assertEqual(set(bike._fields), set(['name', 'wheels']))
+        self.assertEqual(len(bike._fields), 3)
+        self.assertEqual(set(bike._fields), set(['name', 'wheels', 'passengers']))
         motorbike = MotorBike()
-        self.assertEqual(len(motorbike._fields), 3)
-        self.assertEqual(set(motorbike._fields), set(['name', 'wheels', 'power']))
+        self.assertEqual(len(motorbike._fields), 4)
+        self.assertEqual(set(motorbike._fields), set(['name', 'wheels', 'power', 'passengers']))
         boat = Boat()
         self.assertEqual(len(boat._fields), 4)
         self.assertEqual(set(boat._fields), set(['name', 'launched', 'power', 'length']))
