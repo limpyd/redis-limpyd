@@ -11,6 +11,7 @@ from base import LimpydBaseTest
 class Bike(model.RedisModel):
     name = fields.StringField(indexable=True)
     wheels = fields.StringField(default=2)
+    passengers = fields.StringField(default=1, cacheable=False)
 
 
 class MotorBike(Bike):
@@ -21,6 +22,8 @@ class Boat(model.RedisModel):
     """
     Use also HashableField.
     """
+    cacheable = False
+
     name = fields.StringField(unique=True)
     power = fields.HashableField(indexable=True, default="sail")
     launched = fields.StringField(indexable=True)
@@ -263,6 +266,39 @@ class CommandCacheTest(LimpydBaseTest):
         hits_after_getting_wheels = self.connection.info()['keyspace_hits']
         self.assertEqual(wheels, "4")
         self.assertEqual(hits_after_flush, hits_after_getting_wheels)
+
+    def test_not_cached_field_should_not_hit_cache(self):
+        bike = Bike(name="tandem", wheels=2, passengers=2)
+        # First get
+        name = bike.name.get()
+        passengers = bike.passengers.get()
+        hits_before = self.connection.info()['keyspace_hits']
+        # Get again
+        name = bike.name.get()
+        passengers = bike.passengers.get()
+        hits_after = self.connection.info()['keyspace_hits']
+        self.assertEqual(name, "tandem")
+        self.assertEqual(passengers, "2")
+        hits_attended = hits_before + 1  # one field, `passengers`, should miss cache
+        self.assertEqual(hits_after, hits_attended)
+
+    def test_not_cached_model_should_not_hit_cache(self):
+        boat = Boat(name="Pen Duick I", length=15.1, launched=1898)
+        # First get
+        name = boat.name.get()
+        length = boat.length.get()
+        launched = boat.launched.get()
+        hits_before = self.connection.info()['keyspace_hits']
+        # Get again
+        name = boat.name.get()
+        length = boat.length.get()
+        launched = boat.launched.get()
+        hits_after = self.connection.info()['keyspace_hits']
+        self.assertEqual(name, "Pen Duick I")
+        self.assertEqual(length, "15.1")
+        self.assertEqual(launched, "1898")
+        hits_attended = hits_before + 3  # the 3 fields should miss cache
+        self.assertEqual(hits_after, hits_attended)
 
 
 class MetaRedisProxyTest(LimpydBaseTest):

@@ -46,6 +46,8 @@ class RedisModel(RedisProxyCommand):
 
     __metaclass__ = MetaRedisModel
 
+    cacheable = True
+
     def __init__(self, *args, **kwargs):
         """
         Init or retrieve an object storage in Redis.
@@ -56,6 +58,8 @@ class RedisModel(RedisProxyCommand):
         - some kwargs == instanciate, connect, and set the properties received
         - one arg == get from pk
         """
+        self.cacheable = self.__class__.cacheable
+
         # --- Meta stuff
         # Put back the fields with the original names
         for attr_name in self._fields:
@@ -65,6 +69,7 @@ class RedisModel(RedisProxyCommand):
             newattr.name = attr.name
             newattr._parent_class = attr._parent_class
             newattr._instance = self
+            newattr.cacheable = newattr.cacheable and self.cacheable
             setattr(self, attr_name, newattr)
 
         # Prepare stored connection
@@ -114,7 +119,8 @@ class RedisModel(RedisProxyCommand):
         """
         Call it to init or clear the command cache.
         """
-        self._cache = {}
+        if self.cacheable:
+            self._cache = {}
 
     @property
     def connection(self):

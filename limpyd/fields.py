@@ -83,6 +83,7 @@ class RedisField(RedisProxyCommand):
 
     def __init__(self, *args, **kwargs):
         self.indexable = False
+        self.cacheable = kwargs.get('cacheable', True)
         if "default" in kwargs:
             self.default = kwargs["default"]
 
@@ -90,7 +91,8 @@ class RedisField(RedisProxyCommand):
         """
         Create the field cache key, or flush it if it already exists.
         """
-        self._instance._cache[self.name] = {}
+        if self.cacheable and self._instance.cacheable:
+            self._instance._cache[self.name] = {}
 
     @property
     def key(self):
