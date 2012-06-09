@@ -343,6 +343,17 @@ class InheritanceTest(LimpydBaseTest):
         self.assertEqual(motorbike.wheels.get(), '2')
         self.assertEqual(motorbike.power.get(), 'not enough')
 
+    def test_inheritance_collections(self):
+        """
+        Test that each model has its own collections
+        """
+        bike = Bike(name="rosalie", wheels=4)
+        motorbike = MotorBike(name='davidson', wheels=2, power='not enough')
+        self.assertEqual(len(Bike.collection(name="rosalie")), 1)
+        self.assertEqual(len(Bike.collection(name="davidson")), 0)
+        self.assertEqual(len(MotorBike.collection(name="rosalie")), 0)
+        self.assertEqual(len(MotorBike.collection(name="davidson")), 1)
+
 
 if __name__ == '__main__':
     unittest.main()
