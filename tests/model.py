@@ -319,7 +319,7 @@ class MetaRedisProxyTest(LimpydBaseTest):
 
 class InheritanceTest(LimpydBaseTest):
 
-    def test_fields(self):
+    def test_inheritance_fields(self):
         """
         Test that all fields are properly set on each model
         """
@@ -333,7 +333,7 @@ class InheritanceTest(LimpydBaseTest):
         self.assertEqual(len(boat._fields), 4)
         self.assertEqual(set(boat._fields), set(['name', 'launched', 'power', 'length']))
 
-    def test_values(self):
+    def test_inheritance_values(self):
         """
         Test that all values are correctly set on the good models
         """
