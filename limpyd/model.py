@@ -1,6 +1,7 @@
 # -*- coding:utf-8 -*-
 
 from logging import getLogger
+from copy import copy
 
 from limpyd import get_connection
 from limpyd.fields import *
@@ -65,9 +66,7 @@ class RedisModel(RedisProxyCommand):
         for attr_name in self._fields:
             attr = getattr(self, "_redis_attr_%s" % attr_name)
             # Copy it, to avoid sharing fields between model instances
-            newattr = attr.__class__(**attr.__dict__)
-            newattr.name = attr.name
-            newattr._parent_class = attr._parent_class
+            newattr = copy(attr)
             newattr._instance = self
             # Force field.cacheable to False if it's False for the model
             newattr.cacheable = newattr.cacheable and self.cacheable

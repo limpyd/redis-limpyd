@@ -109,8 +109,10 @@ class RedisField(RedisProxyCommand):
         return self._instance.connection
 
     def __copy__(self):
-        new_copy = self.__class__()
-        new_copy.__dict__ = self.__dict__
+        new_copy = self.__class__(**self.__dict__)
+        for attr_name in ('name', '_instance', '_parent_class'):
+            if hasattr(self, attr_name):
+                setattr(new_copy, attr_name, getattr(self, attr_name))
         return new_copy
 
     def make_key(self, *args):
