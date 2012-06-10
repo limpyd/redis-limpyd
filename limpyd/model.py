@@ -17,12 +17,13 @@ class MetaRedisModel(MetaRedisProxy):
     """
     Manage fields.
     """
-    def __new__(mcs, name, base, dct):
-        it = type.__new__(mcs, name, base, dct)
+    def __new__(mcs, name, base, attrs):
+        it = type.__new__(mcs, name, base, attrs)
+        field_parent_class = name.lower()
+
         # We make invisible for user that fields where class properties
         _fields = list(it._fields) if hasattr(it, '_fields') else []
         _hashable_fields = list(it._hashable_fields) if hasattr(it, '_hashable_fields') else []
-        attrs = dir(it)
         for attr_name in attrs:
             if attr_name.startswith("_"):
                 continue
@@ -35,6 +36,21 @@ class MetaRedisModel(MetaRedisProxy):
                 delattr(it, attr_name)
                 if isinstance(attr, HashableField):
                     _hashable_fields.append(attr_name)
+
+        # Each field need to access its parent model, even if the model is
+        # the class and not an instance (for collections)
+        # So we have to set the current class as the parent_class of each field,
+        # and to do so we have to have to create a copy of the field to hold
+        # this value (no share of fields between model classes), to avoid
+        # collision in collections names
+        for field_name in _fields:
+            key = "_redis_attr_%s" % field_name
+            field = getattr(it, key)
+            if field._parent_class != field_parent_class:
+                ownfield = copy(field)
+                ownfield._parent_class = field_parent_class
+                setattr(it, key, ownfield)
+
         setattr(it, "_fields", _fields)
         setattr(it, "_hashable_fields", _hashable_fields)
         return it
