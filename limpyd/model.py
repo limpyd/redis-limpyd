@@ -47,6 +47,7 @@ class RedisModel(RedisProxyCommand):
     __metaclass__ = MetaRedisModel
 
     cacheable = True
+    DoesNotExist = DoesNotExist
 
     def __init__(self, *args, **kwargs):
         """
