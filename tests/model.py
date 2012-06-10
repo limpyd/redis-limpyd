@@ -319,7 +319,7 @@ class MetaRedisProxyTest(LimpydBaseTest):
 
 class InheritanceTest(LimpydBaseTest):
 
-    def test_fields(self):
+    def test_inheritance_fields(self):
         """
         Test that all fields are properly set on each model
         """
@@ -333,7 +333,7 @@ class InheritanceTest(LimpydBaseTest):
         self.assertEqual(len(boat._fields), 4)
         self.assertEqual(set(boat._fields), set(['name', 'launched', 'power', 'length']))
 
-    def test_values(self):
+    def test_inheritance_values(self):
         """
         Test that all values are correctly set on the good models
         """
@@ -342,6 +342,17 @@ class InheritanceTest(LimpydBaseTest):
         self.assertEqual(bike.wheels.get(), '4')
         self.assertEqual(motorbike.wheels.get(), '2')
         self.assertEqual(motorbike.power.get(), 'not enough')
+
+    def test_inheritance_collections(self):
+        """
+        Test that each model has its own collections
+        """
+        bike = Bike(name="rosalie", wheels=4)
+        motorbike = MotorBike(name='davidson', wheels=2, power='not enough')
+        self.assertEqual(len(Bike.collection(name="rosalie")), 1)
+        self.assertEqual(len(Bike.collection(name="davidson")), 0)
+        self.assertEqual(len(MotorBike.collection(name="rosalie")), 0)
+        self.assertEqual(len(MotorBike.collection(name="davidson")), 1)
 
 
 if __name__ == '__main__':

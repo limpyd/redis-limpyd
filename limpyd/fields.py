@@ -109,8 +109,16 @@ class RedisField(RedisProxyCommand):
         return self._instance.connection
 
     def __copy__(self):
-        new_copy = self.__class__()
-        new_copy.__dict__ = self.__dict__
+        """
+        In the RedisModel metaclass and constructor, we need to copy the fields
+        to new ones. It can be done via the copy function of the copy module.
+        This __copy__ method handles the copy by creating a new field with same
+        attributes, without ignoring private attributes
+        """
+        new_copy = self.__class__(**self.__dict__)
+        for attr_name in ('name', '_instance', '_parent_class'):
+            if hasattr(self, attr_name):
+                setattr(new_copy, attr_name, getattr(self, attr_name))
         return new_copy
 
     def make_key(self, *args):
