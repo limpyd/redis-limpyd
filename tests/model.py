@@ -2,6 +2,8 @@
 
 import unittest
 
+from datetime import datetime
+
 from limpyd import model
 from limpyd import fields
 from limpyd.exceptions import *
@@ -315,6 +317,36 @@ class MetaRedisProxyTest(LimpydBaseTest):
         check_available_commands(fields.SortedSetField)
         check_available_commands(fields.SetField)
         check_available_commands(fields.ListField)
+
+
+class PostCommandTest(LimpydBaseTest):
+
+    class MyModel(model.RedisModel):
+        name = fields.HashableField()
+        last_modification_date = fields.HashableField()
+
+        def post_command(self, sender, name, result, args, kwargs):
+            if isinstance(sender, fields.RedisField) and sender.name == "name":
+                if name in sender.available_modifiers:
+                    self.last_modification_date.hset(datetime.now())
+                elif name == "hget":
+                    result = "modifed_result"
+            return result
+
+    def test_instance_post_command_is_called(self):
+        inst = self.MyModel()
+        self.assertIsNone(inst.last_modification_date.hget())
+        inst.name.hset("foo")
+        # If post command has been called, last_modification_date must have changed
+        self.assertIsNotNone(inst.last_modification_date.hget())
+        last_modification_date = inst.last_modification_date.hget()
+        # Change field again
+        inst.name.hset("bar")
+        self.assertNotEqual(last_modification_date, inst.last_modification_date.hget())
+
+    def test_result_is_returned(self):
+        inst = self.MyModel(name="foo")
+        self.assertEqual("modifed_result", inst.name.hget())
 
 
 class InheritanceTest(LimpydBaseTest):

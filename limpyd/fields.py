@@ -51,7 +51,18 @@ class RedisProxyCommand(object):
         attr = getattr(self.connection, "%s" % name)
         key = self.key
         log.debug(u"Requesting %s with key %s and args %s" % (name, key, args))
-        return attr(key, *args, **kwargs)
+        result = attr(key, *args, **kwargs)
+        result = self.post_command(
+            sender=self,
+            name=name,
+            result=result,
+            args=args,
+            kwargs=kwargs
+        )
+        return result
+
+    def post_command(self, sender, name, result, args, kwargs):
+        return result
 
     class transaction(object):
 
@@ -131,6 +142,16 @@ class RedisField(RedisProxyCommand):
         # Default value, just delete the storage key
         # (More job could be done by specific field classes)
         self.connection.delete(self.key)
+
+    def post_command(self, sender, name, result, args, kwargs):
+        # By default, let the instance manage the post_modify signal
+        return self._instance.post_command(
+                   sender=self,
+                   name=name,
+                   result=result,
+                   args=args,
+                   kwargs=kwargs
+               )
 
 
 class IndexableField(RedisField):
