@@ -257,6 +257,14 @@ class RedisModel(RedisProxyCommand):
         return connection.sinter(index_keys)
 
     @classmethod
+    def instances(cls, **kwargs):
+        """
+        Like collection method, but yield instances.
+        """
+        for pk in cls.collection(**kwargs):
+            yield cls(pk)
+
+    @classmethod
     def _field_is_pk(cls, name):
         """
         Check if the given field is the one from the primary key.

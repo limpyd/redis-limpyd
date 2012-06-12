@@ -120,6 +120,19 @@ class CollectionTest(LimpydBaseTest):
         with self.assertRaises(ValueError):
             Boat.collection(length=15.1)
 
+    def test_instances_should_return_instances(self):
+        """
+        Test the `instances` method.
+        """
+        self.assertEqual(Boat.collection(), set())
+        boat1 = Boat(name="Pen Duick I", length=15.1, launched=1898)
+        boat2 = Boat(name="Pen Duick II", length=13.6, launched=1964)
+        boat3 = Boat(name="Pen Duick III", length=17.45, launched=1966)
+        boat4 = Boat(name="Rainbow Warrior I", power="engine", length=40, launched=1955)
+        for instance in Boat.instances():
+            self.assertTrue(isinstance(instance, Boat))
+            self.assertIn(instance.get_pk(), Boat.collection())
+
 
 class GetTest(LimpydBaseTest):
 
