@@ -28,36 +28,47 @@ class MetaRedisModel(MetaRedisProxy):
         # Did we have already pk field ?
         pk_field = getattr(it, '_redis_attr_pk', None)
 
-        # First loop on new attributes for this class to find fields and primary key
-        local_fields = []
+        # First loop on new attributes for this class to find fields and
+        # primary key, and validate the eventually found PKField
+        own_fields = []
         for attr_name in attrs:
             if attr_name.startswith("_"):
                 continue
             attr = getattr(it, attr_name)
             if not isinstance(attr, RedisField):
                 continue
-            attr.name = attr_name
+            attr.name = attr_name  # each field must know its name
             if isinstance(attr, PKField):
                 # Check and save the primary key
                 if pk_field:
-                    # We have a new pk_field, check if the previous one was auto
-                    # added to the model to remove it
+                    # If a PKField already exists, remove the previously auto-added
                     if pk_field._auto_added:
                         _fields.remove(pk_field.name)
                     else:
                         raise ImplementationError(
                             'Only one PKField field is allowed on %s' % name)
                 pk_field = attr
-            local_fields.append(attr)
+            own_fields.append(attr)
+
+        # We have to store the name of the class on which a field is attached
+        # to compute needed redis keys.
+        # For this, a model and its subclasses must not share fields, so we
+        # copy existing ones (from the parent class) to the current class.
+        for field_name in _fields:
+            key = "_redis_attr_%s" % field_name
+            field = getattr(it, key)
+            ownfield = copy(field)
+            ownfield._parent_class = field_parent_class
+            setattr(it, key, ownfield)
 
         # Auto create missing primary key (it will always be called in RedisModel)
         if not pk_field:
             pk_field = AutoPKField()
             pk_field._auto_added = True
-            local_fields.append(pk_field)
+            own_fields.append(pk_field)
 
-        # Loop on fields to prepare them
-        for field in local_fields:
+        # Loop on new fields to prepare them
+        for field in own_fields:
             field._parent_class = field_parent_class
             _fields.append(field.name)
             setattr(it, "_redis_attr_%s" % field.name, field)
@@ -65,20 +76,6 @@ class MetaRedisModel(MetaRedisProxy):
                 delattr(it, field.name)
             if isinstance(attr, HashableField):
                 _hashable_fields.append(field.name)
-
-        # Each field need to access its parent model, even if the model is
-        # the class and not an instance (for collections)
-        # So we have to set the current class as the parent_class of each field,
-        # and to do so we have to have to create a copy of the field to hold
-        # this value (no share of fields between model classes), to avoid
-        # collision in collections names
-        for field_name in _fields:
-            key = "_redis_attr_%s" % field_name
-            field = getattr(it, key)
-            if field._parent_class != field_parent_class:
-                ownfield = copy(field)
-                ownfield._parent_class = field_parent_class
-                setattr(it, key, ownfield)
 
         # Save usefull attributes on the final model
         setattr(it, "_fields", _fields)
