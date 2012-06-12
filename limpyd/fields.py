@@ -370,6 +370,10 @@ class PKField(RedisField):
         """
         Override the default setter to check uniqueness, deny updating, and add
         the new pk to the model's collection.
+        The value is not saved as a field in redis, because we don't need this.
+        On an instance, we have the _pk attribute with the pk value, and when
+        we ask for a collection, we get somes pks which can be used to instanciate
+        new objects (holding the pk value in _pk)
         """
         # Deny updating of an already set pk
         if self._set:
@@ -386,21 +390,19 @@ class PKField(RedisField):
         self._instance._pk = value
         self._set = True
 
-        # Save the pk in Redis
-        result = self._traverse_command('set', value)
-
         # We have a new pk, so add it to the collection
         log.debug("Adding %s in %s collection" % (value, self._parent_class))
         self.connection.sadd(self.collection_key, value)
 
-        # Finally return the result of the Redis set command
-        return result
+        # Finally return 1 as we did a real redis call to the set command
+        return 1
 
     def get(self):
         """
-        Call the default getter but normalize the result before returning it
+        We do not call the default getter as we have the value cached in the
+        instance in its _pk attribute
         """
-        return self.normalize(self._traverse_command('get'))
+        return self.normalize(self._instance._pk)
 
 
 class AutoPKField(PKField):
