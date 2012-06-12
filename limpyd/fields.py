@@ -421,5 +421,5 @@ class AutoPKField(PKField):
         if value is not None:
             raise ValueError('The pk for %s is "auto-increment", you must not fill it' % \
                             self._parent_class)
-        key = self._instance.make_key(self._parent_class, 'pk')
+        key = self._instance.make_key(self._parent_class, 'max_pk')
         return self.connection.incr(key)
