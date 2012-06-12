@@ -50,11 +50,11 @@ class MetaRedisModel(MetaRedisProxy):
                 pk_field = attr
             local_fields.append(attr)
 
-        # Auto create missing primary key
+        # Auto create missing primary key (it will always be called in RedisModel)
         if not pk_field:
             pk_field = AutoPKField()
             pk_field._auto_added = True
-            local_fields.insert(0, pk_field)
+            local_fields.append(pk_field)
 
         # Loop on fields to prepare them
         for field in local_fields:
@@ -83,7 +83,6 @@ class MetaRedisModel(MetaRedisProxy):
         # Save usefull attributes on the final model
         setattr(it, "_fields", _fields)
         setattr(it, "_hashable_fields", _hashable_fields)
-        setattr(it, "_pk_field", pk_field.name)
         if pk_field.name != 'pk':
             setattr(it, "_redis_attr_pk", getattr(it, "_redis_attr_%s" % pk_field.name))
 
@@ -124,8 +123,9 @@ class RedisModel(RedisProxyCommand):
             setattr(self, attr_name, newattr)
 
         # The `pk` field always exists, even if the real pk has another name
-        if self._pk_field != 'pk':
-            setattr(self, 'pk', getattr(self, self._pk_field))
+        pk_field_name = getattr(self, "_redis_attr_pk").name
+        if pk_field_name != 'pk':
+            setattr(self, 'pk', getattr(self, pk_field_name))
         # Cache of the pk value
         self._pk = None
 
@@ -147,7 +147,8 @@ class RedisModel(RedisProxyCommand):
             # Here we do not set anything, in case one unique field fails
             for field_name, value in kwargs.iteritems():
                 if field_name == 'pk':
-                    field_name = self._pk_field
+                    # always use the real field name, not always pk
+                    field_name = pk_field_name
                 if field_name not in self._fields:
                     raise ValueError(u"`%s` is not a valid field name "
                                       "for `%s`." % (field_name, self.__class__.__name__))
