@@ -15,27 +15,56 @@ log = getLogger(__name__)
 
 class MetaRedisModel(MetaRedisProxy):
     """
-    Manage fields.
+    We make invisible for user that fields were class properties
     """
     def __new__(mcs, name, base, attrs):
         it = type.__new__(mcs, name, base, attrs)
         field_parent_class = name.lower()
 
-        # We make invisible for user that fields where class properties
+        # init (or get from parents) lists of redis fields
         _fields = list(it._fields) if hasattr(it, '_fields') else []
         _hashable_fields = list(it._hashable_fields) if hasattr(it, '_hashable_fields') else []
+
+        # Did we have already pk field ?
+        pk_field = getattr(it, '_redis_attr_pk', None)
+
+        # First loop on new attributes for this class to find fields and primary key
+        local_fields = []
         for attr_name in attrs:
             if attr_name.startswith("_"):
                 continue
             attr = getattr(it, attr_name)
-            if isinstance(attr, RedisField):
-                _fields.append(attr_name)
-                attr.name = attr_name
-                attr._parent_class = name.lower()
-                setattr(it, "_redis_attr_%s" % attr_name, attr)
-                delattr(it, attr_name)
-                if isinstance(attr, HashableField):
-                    _hashable_fields.append(attr_name)
+            if not isinstance(attr, RedisField):
+                continue
+            attr.name = attr_name
+            if isinstance(attr, PKField):
+                # Check and save the primary key
+                if pk_field:
+                    # We have a new pk_field, check if the previous one was auto
+                    # added to the model to remove it
+                    if pk_field._auto_added:
+                        _fields.remove(pk_field.name)
+                    else:
+                        raise ImplementationError(
+                            'Only one PKField field is allowed on %s' % name)
+                pk_field = attr
+            local_fields.append(attr)
+
+        # Auto create missing primary key
+        if not pk_field:
+            pk_field = AutoPKField()
+            pk_field._auto_added = True
+            local_fields.insert(0, pk_field)
+
+        # Loop on fields to prepare them
+        for field in local_fields:
+            field._parent_class = field_parent_class
+            _fields.append(field.name)
+            setattr(it, "_redis_attr_%s" % field.name, field)
+            if field.name in attrs:
+                delattr(it, field.name)
+            if isinstance(attr, HashableField):
+                _hashable_fields.append(field.name)
 
         # Each field need to access its parent model, even if the model is
         # the class and not an instance (for collections)
@@ -51,8 +80,13 @@ class MetaRedisModel(MetaRedisProxy):
                 ownfield._parent_class = field_parent_class
                 setattr(it, key, ownfield)
 
+        # Save usefull attributes on the final model
         setattr(it, "_fields", _fields)
         setattr(it, "_hashable_fields", _hashable_fields)
+        setattr(it, "_pk_field", pk_field.name)
+        if pk_field.name != 'pk':
+            setattr(it, "_redis_attr_pk", getattr(it, "_redis_attr_%s" % pk_field.name))
+
         return it
 
 
@@ -89,11 +123,14 @@ class RedisModel(RedisProxyCommand):
             newattr.cacheable = newattr.cacheable and self.cacheable
             setattr(self, attr_name, newattr)
 
+        # The `pk` field always exists, even if the real pk has another name
+        if self._pk_field != 'pk':
+            setattr(self, 'pk', getattr(self, self._pk_field))
+        # Cache of the pk value
+        self._pk = None
+
         # Prepare stored connection
         self._connection = None
-
-        # Init the pk storage (must be a field later)
-        self._pk = None
 
         # Prepare command internal caching
         self.init_cache()
@@ -109,6 +146,8 @@ class RedisModel(RedisProxyCommand):
             # redis do not has "real" transactions)
             # Here we do not set anything, in case one unique field fails
             for field_name, value in kwargs.iteritems():
+                if field_name == 'pk':
+                    field_name = self._pk_field
                 if field_name not in self._fields:
                     raise ValueError(u"`%s` is not a valid field name "
                                       "for `%s`." % (field_name, self.__class__.__name__))
@@ -126,9 +165,8 @@ class RedisModel(RedisProxyCommand):
         # --- Instanciate from DB
         if len(args) == 1:
             value = args[0]
-            exists = self.connection.sismember(self.collection_key(), value)
-            if exists:
-                self._pk = value
+            if self.exists(pk=value):
+                self._pk = self.pk.normalize(value)
             else:
                 raise ValueError("No %s found with pk %s" % (self.__class__.__name__, value))
 
@@ -145,14 +183,9 @@ class RedisModel(RedisProxyCommand):
             self._connection = get_connection()
         return self._connection
 
-    @property
-    def pk(self):
+    def get_pk(self):
         if not self._pk:
-            key = self.make_key(self.__class__.__name__.lower(), 'pk')
-            self._pk = self.connection.incr(key)
-            # We have created it, so add it to the collection
-            log.debug("Adding %s in %s collection" % (self._pk, self.__class__.__name__))
-            self.connection.sadd(self.collection_key(), self._pk)
+            self.pk.set(None)
             # Default must be setted only at first initialization
             self.set_defaults()
         return self._pk
@@ -171,24 +204,65 @@ class RedisModel(RedisProxyCommand):
                     setter(field.default)
 
     @classmethod
-    def collection_key(cls):
-        return '%s:collection' % cls.__name__.lower()
-
-    @classmethod
     def collection(cls, **kwargs):
         """
-        Return a list of pk, eventually filtered by kwargs.
+        Return a set of pk, eventually filtered by kwargs.
+        Specific work is done if the pk is in the kwargs
         """
         # We cannot use the current connection here, as we have no instance
         connection = get_connection()
-        index_keys = list()
+
+        # Exclude primary key from fields
+        query_fields = {}
+        check_pk, pk_value = False, None
+
         for field_name, value in kwargs.iteritems():
+            if cls._field_is_pk(field_name):
+                pk_value = value
+                check_pk = True
+            else:
+                query_fields[field_name] = value
+
+        # Specific work if we have a pk
+        if check_pk:
+            try:
+                # try to get the object
+                obj = cls(pk_value)
+            except ValueError:
+                # A non existing pk = empty result
+                return set()
+            else:
+                # Existing object, check all fields
+                if query_fields:
+                    for field_name, value in query_fields.iteritems():
+                        field = getattr(obj, field_name)
+                        getter = getattr(field, field.proxy_getter)
+                        if getter() != value:
+                            return set()
+
+                # no others fields, or all passed tests, return the pk
+                return set([obj.pk.normalize(pk_value)])
+
+        elif not query_fields:
+            # No pk, no other kwargs, return all the collection
+            return cls._redis_attr_pk.collection()
+
+        # Prepare a list of sets for each query parameter
+        index_keys = []
+        for field_name, value in query_fields.iteritems():
             field = getattr(cls, "_redis_attr_%s" % field_name)
             index_keys.append(field.index_key(value))
-        if len(index_keys) == 0:
-            # No kwargs, we want all the collection
-            index_keys.append(cls.collection_key())
+
+        # Return intersection of all sets to get matching entries
         return connection.sinter(index_keys)
+
+    @classmethod
+    def _field_is_pk(cls, name):
+        """
+        Check if the given field is the one from the primary key.
+        It can be the plain "pk" name, or the real pk field name
+        """
+        return name in ('pk', cls._redis_attr_pk.name)
 
     @classmethod
     def exists(cls, **kwargs):
@@ -199,6 +273,11 @@ class RedisModel(RedisProxyCommand):
         """
         if not kwargs:
             raise ValueError(u"`Exists` method requires at least one kwarg.")
+
+        # special case to check for a simple pk
+        if len(kwargs) == 1 and cls._field_is_pk(kwargs.keys()[0]):
+            return cls._redis_attr_pk.exists(kwargs.values()[0])
+
         return len(cls.collection(**kwargs)) > 0
 
     @classmethod
@@ -217,7 +296,7 @@ class RedisModel(RedisProxyCommand):
             elif len(result) > 1:
                 raise ValueError(u"More than one object matching filter: %s" % kwargs)
             else:
-                pk = int(result.pop())
+                pk = result.pop()
         else:
             raise ValueError("Invalid `get` usage with args %s and kwargs %s" % (args, kwargs))
         return cls(pk)
@@ -246,7 +325,7 @@ class RedisModel(RedisProxyCommand):
     def key(self):
         return self.make_key(
             self.__class__.__name__.lower(),
-            self.pk,
+            self.get_pk(),
             "hash",
         )
 

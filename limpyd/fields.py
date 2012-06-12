@@ -17,6 +17,8 @@ __all__ = [
     'StringField',
     'ListField',
     'SetField',
+    'PKField',
+    'AutoPKField',
 ]
 
 
@@ -91,6 +93,7 @@ class RedisField(RedisProxyCommand):
     """
 
     proxy_setter = None
+    unique = False
 
     def __init__(self, *args, **kwargs):
         self.indexable = False
@@ -109,7 +112,7 @@ class RedisField(RedisProxyCommand):
     def key(self):
         return self.make_key(
             self._instance.__class__.__name__.lower(),
-            self._instance.pk,
+            self._instance.get_pk(),
             self.name,
         )
 
@@ -198,13 +201,13 @@ class IndexableField(RedisField):
                 raise UniquenessError("Multiple values indexed for unique field %s: %s" % (self.name, index))
             elif len(index) == 1:
                 indexed_instance_pk = index.pop()
-                if indexed_instance_pk != self._instance.pk:
+                if indexed_instance_pk != self._instance.get_pk():
                     self.connection.delete(self.key)
                     raise UniquenessError('Key %s already exists (for instance %s)' % (key, indexed_instance_pk))
         # Do index => create a key to be able to retrieve parent pk with
         # current field value
-        log.debug("indexing %s with key %s" % (key, self._instance.pk))
-        return self.connection.sadd(key, self._instance.pk)
+        log.debug("indexing %s with key %s" % (key, self._instance.get_pk()))
+        return self.connection.sadd(key, self._instance.get_pk())
 
     def deindex(self):
         """
@@ -215,7 +218,7 @@ class IndexableField(RedisField):
         if value:
             value = value.decode('utf-8')
             key = self.index_key(value)
-            return self.connection.srem(key, self._instance.pk)
+            return self.connection.srem(key, self._instance.get_pk())
         else:
             return True  # True?
 
@@ -295,3 +298,126 @@ class HashableField(IndexableField):
         """
         self.connection.hdel(self.key, self.name)
         super(HashableField, self).delete()
+
+
+class PKField(RedisField):
+    """
+    This type of field is used as a primary key.
+    There must be one, and only one instance of this field (or a subclass) on a
+    model.
+    If no PKField is defined on a model, an AutoPKField is automatically added.
+    A PKField has no auto-increment, a pk must be passed to constructor.
+    """
+
+    # Use only a simple getter and setter. We take all control on the setter.
+    proxy_getter = "get"
+    proxy_setter = "set"
+    available_getters = ('get',)
+    available_modifiers = ('set',)
+
+    name = 'pk'  # Default name ok the pk, can be changed by declaring a new PKField
+    unique = True  # Not an indexable field, but can be usefull in loops
+    _auto_increment = False  # False for PKField, True for AutoPKField
+    _auto_added = False  # True only if automatically added by limpyd
+    _set = False  # True when set for the first (and unique) time
+
+    def __copy__(self):
+        """
+        Overload the behaviour of the copy method to copy specific fields
+        """
+        new_copy = super(PKField, self).__copy__()
+        new_copy._auto_increment = self._auto_increment
+        new_copy._auto_added = self._auto_added
+        return new_copy
+
+    def normalize(self, value):
+        """
+        Simple method to always have the same kind of value
+        It can be overriden by converting to int
+        """
+        return str(value)
+
+    def get_new(self, value):
+        """
+        Validate that a given new pk to set is always set, and return it
+        """
+        if value is None:
+            raise ValueError('The pk for %s is not "auto-increment", you must fill it' % \
+                            self._parent_class)
+        return value
+
+    @property
+    def collection_key(self):
+        """
+        Property that return the name of the key in Redis where are stored
+        all the exinsting pk for the model hosting this PKField
+        """
+        return '%s:collection' % self._parent_class
+
+    def exists(self, value):
+        """
+        Return True if the given pk value exists for the given class
+        """
+        return get_connection().sismember(self.collection_key, value)
+
+    def collection(self):
+        """
+        Return all available primary keys for the given class
+        """
+        return get_connection().smembers(self.collection_key)
+
+    def set(self, value):
+        """
+        Override the default setter to check uniqueness, deny updating, and add
+        the new pk to the model's collection.
+        """
+        # Deny updating of an already set pk
+        if self._set:
+            raise ValueError('A primary key cannot be updated')
+
+        # Validate and return the value to be used as a pk
+        value = self.normalize(self.get_new(value))
+
+        # Check that this pk does not already exist
+        if self.exists(value):
+            raise UniquenessError('PKField %s already exists for model %s)' % (value, self._instance.__class__))
+
+        # Tell the model the pk is now set
+        self._instance._pk = value
+        self._set = True
+
+        # Save the pk in Redis
+        result = self._traverse_command('set', value)
+
+        # We have a new pk, so add it to the collection
+        log.debug("Adding %s in %s collection" % (value, self._parent_class))
+        self.connection.sadd(self.collection_key, value)
+
+        # Finally return the result of the Redis set command
+        return result
+
+    def get(self):
+        """
+        Call the default getter but normalize the result before returning it
+        """
+        return self.normalize(self._traverse_command('get'))
+
+
+class AutoPKField(PKField):
+    """
+    A subclass of PKField that implement auto-increment. Models with an
+    AutoPKField cannot pass pk to constructors, they are always set by
+    incrementing the last pk used
+    """
+    _auto_increment = True
+
+    def get_new(self, value):
+        """
+        Validate that a given new pk to set is always set to None, then return
+        a new pk
+        """
+        if value is not None:
+            raise ValueError('The pk for %s is "auto-increment", you must not fill it' % \
+                            self._parent_class)
+        key = self._instance.make_key(self._parent_class, 'pk')
+        return self.connection.incr(key)
