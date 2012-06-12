@@ -213,38 +213,32 @@ class RedisModel(RedisProxyCommand):
         # We cannot use the current connection here, as we have no instance
         connection = get_connection()
 
-        # Exclude primary key from fields
-        query_fields = {}
-        check_pk, pk_value = False, None
+        query_fields = kwargs.copy()
 
+        # Loop a first time to check if we have a pk and if so, do specific work
         for field_name, value in kwargs.iteritems():
+
             if cls._field_is_pk(field_name):
-                pk_value = value
-                check_pk = True
-            else:
-                query_fields[field_name] = value
+                query_fields.pop(field_name)
+                try:
+                    # try to get the object
+                    obj = cls(value)
+                except ValueError:
+                    # A non existing pk = empty result
+                    return set()
+                else:
+                    # Existing object, check all fields
+                    if query_fields:
+                        for obj_field_name, obj_value in query_fields.iteritems():
+                            field = getattr(obj, obj_field_name)
+                            getter = getattr(field, field.proxy_getter)
+                            if getter() != obj_value:
+                                return set()
 
-        # Specific work if we have a pk
-        if check_pk:
-            try:
-                # try to get the object
-                obj = cls(pk_value)
-            except ValueError:
-                # A non existing pk = empty result
-                return set()
-            else:
-                # Existing object, check all fields
-                if query_fields:
-                    for field_name, value in query_fields.iteritems():
-                        field = getattr(obj, field_name)
-                        getter = getattr(field, field.proxy_getter)
-                        if getter() != value:
-                            return set()
+                    # no others fields, or all test ok, return the pk
+                    return set([obj.pk.normalize(value)])
 
-                # no others fields, or all passed tests, return the pk
-                return set([obj.pk.normalize(pk_value)])
-
-        elif not query_fields:
+        if not query_fields:
             # No pk, no other kwargs, return all the collection
             return cls._redis_attr_pk.collection()
 
