@@ -28,36 +28,47 @@ class MetaRedisModel(MetaRedisProxy):
         # Did we have already pk field ?
         pk_field = getattr(it, '_redis_attr_pk', None)
 
-        # First loop on new attributes for this class to find fields and primary key
-        local_fields = []
+        # First loop on new attributes for this class to find fields and
+        # primary key, and validate the eventually found PKField
+        own_fields = []
         for attr_name in attrs:
             if attr_name.startswith("_"):
                 continue
             attr = getattr(it, attr_name)
             if not isinstance(attr, RedisField):
                 continue
-            attr.name = attr_name
+            attr.name = attr_name  # each field must know its name
             if isinstance(attr, PKField):
                 # Check and save the primary key
                 if pk_field:
-                    # We have a new pk_field, check if the previous one was auto
-                    # added to the model to remove it
+                    # If a PKField already exists, remove the previously auto-added
                     if pk_field._auto_added:
                         _fields.remove(pk_field.name)
                     else:
                         raise ImplementationError(
                             'Only one PKField field is allowed on %s' % name)
                 pk_field = attr
-            local_fields.append(attr)
+            own_fields.append(attr)
 
-        # Auto create missing primary key
+        # We have to store the name of the class on which a field is attached
+        # to compute needed redis keys.
+        # For this, a model and its subclasses must not share fields, so we
+        # copy existing ones (from the parent class) to the current class.
+        for field_name in _fields:
+            key = "_redis_attr_%s" % field_name
+            field = getattr(it, key)
+            ownfield = copy(field)
+            ownfield._parent_class = field_parent_class
+            setattr(it, key, ownfield)
+
+        # Auto create missing primary key (it will always be called in RedisModel)
         if not pk_field:
             pk_field = AutoPKField()
             pk_field._auto_added = True
-            local_fields.insert(0, pk_field)
+            own_fields.append(pk_field)
 
-        # Loop on fields to prepare them
-        for field in local_fields:
+        # Loop on new fields to prepare them
+        for field in own_fields:
             field._parent_class = field_parent_class
             _fields.append(field.name)
             setattr(it, "_redis_attr_%s" % field.name, field)
@@ -66,24 +77,9 @@ class MetaRedisModel(MetaRedisProxy):
             if isinstance(attr, HashableField):
                 _hashable_fields.append(field.name)
 
-        # Each field need to access its parent model, even if the model is
-        # the class and not an instance (for collections)
-        # So we have to set the current class as the parent_class of each field,
-        # and to do so we have to have to create a copy of the field to hold
-        # this value (no share of fields between model classes), to avoid
-        # collision in collections names
-        for field_name in _fields:
-            key = "_redis_attr_%s" % field_name
-            field = getattr(it, key)
-            if field._parent_class != field_parent_class:
-                ownfield = copy(field)
-                ownfield._parent_class = field_parent_class
-                setattr(it, key, ownfield)
-
         # Save usefull attributes on the final model
         setattr(it, "_fields", _fields)
         setattr(it, "_hashable_fields", _hashable_fields)
-        setattr(it, "_pk_field", pk_field.name)
         if pk_field.name != 'pk':
             setattr(it, "_redis_attr_pk", getattr(it, "_redis_attr_%s" % pk_field.name))
 
@@ -124,8 +120,9 @@ class RedisModel(RedisProxyCommand):
             setattr(self, attr_name, newattr)
 
         # The `pk` field always exists, even if the real pk has another name
-        if self._pk_field != 'pk':
-            setattr(self, 'pk', getattr(self, self._pk_field))
+        pk_field_name = getattr(self, "_redis_attr_pk").name
+        if pk_field_name != 'pk':
+            setattr(self, 'pk', getattr(self, pk_field_name))
         # Cache of the pk value
         self._pk = None
 
@@ -147,7 +144,8 @@ class RedisModel(RedisProxyCommand):
             # Here we do not set anything, in case one unique field fails
             for field_name, value in kwargs.iteritems():
                 if field_name == 'pk':
-                    field_name = self._pk_field
+                    # always use the real field name, not always pk
+                    field_name = pk_field_name
                 if field_name not in self._fields:
                     raise ValueError(u"`%s` is not a valid field name "
                                       "for `%s`." % (field_name, self.__class__.__name__))
@@ -212,38 +210,35 @@ class RedisModel(RedisProxyCommand):
         # We cannot use the current connection here, as we have no instance
         connection = get_connection()
 
-        # Exclude primary key from fields
-        query_fields = {}
-        check_pk, pk_value = False, None
+        query_fields = kwargs.copy()
 
-        for field_name, value in kwargs.iteritems():
-            if cls._field_is_pk(field_name):
-                pk_value = value
-                check_pk = True
-            else:
-                query_fields[field_name] = value
-
-        # Specific work if we have a pk
-        if check_pk:
+        # Check if we have a pk and if so, do specific work
+        pk_fields = [k for k in kwargs.keys() if cls._field_is_pk(k)]
+        if pk_fields:
+            if len(pk_fields) > 1:
+                raise ValueError("You must use only one pk field in filtering")
+            field_name = pk_fields[0]
+            value = kwargs[field_name]
+            query_fields.pop(field_name)
             try:
                 # try to get the object
-                obj = cls(pk_value)
+                obj = cls(value)
             except ValueError:
                 # A non existing pk = empty result
                 return set()
             else:
                 # Existing object, check all fields
                 if query_fields:
-                    for field_name, value in query_fields.iteritems():
-                        field = getattr(obj, field_name)
+                    for obj_field_name, obj_value in query_fields.iteritems():
+                        field = getattr(obj, obj_field_name)
                         getter = getattr(field, field.proxy_getter)
-                        if getter() != value:
+                        if getter() != obj_value:
                             return set()
 
-                # no others fields, or all passed tests, return the pk
-                return set([obj.pk.normalize(pk_value)])
+                # no others fields, or all test ok, return the pk
+                return set([obj.pk.normalize(value)])
 
-        elif not query_fields:
+        if not query_fields:
             # No pk, no other kwargs, return all the collection
             return cls._redis_attr_pk.collection()
 
