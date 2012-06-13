@@ -212,28 +212,31 @@ class RedisModel(RedisProxyCommand):
 
         query_fields = kwargs.copy()
 
-        # Loop a first time to check if we have a pk and if so, do specific work
-        for field_name, value in kwargs.iteritems():
+        # Check if we have a pk and if so, do specific work
+        pk_fields = [k for k in kwargs.keys() if cls._field_is_pk(k)]
+        if pk_fields:
+            if len(pk_fields) > 1:
+                raise ValueError("You must use only one pk field in filtering")
+            field_name = pk_fields[0]
+            value = kwargs[field_name]
+            query_fields.pop(field_name)
+            try:
+                # try to get the object
+                obj = cls(value)
+            except ValueError:
+                # A non existing pk = empty result
+                return set()
+            else:
+                # Existing object, check all fields
+                if query_fields:
+                    for obj_field_name, obj_value in query_fields.iteritems():
+                        field = getattr(obj, obj_field_name)
+                        getter = getattr(field, field.proxy_getter)
+                        if getter() != obj_value:
+                            return set()
 
-            if cls._field_is_pk(field_name):
-                query_fields.pop(field_name)
-                try:
-                    # try to get the object
-                    obj = cls(value)
-                except ValueError:
-                    # A non existing pk = empty result
-                    return set()
-                else:
-                    # Existing object, check all fields
-                    if query_fields:
-                        for obj_field_name, obj_value in query_fields.iteritems():
-                            field = getattr(obj, obj_field_name)
-                            getter = getattr(field, field.proxy_getter)
-                            if getter() != obj_value:
-                                return set()
-
-                    # no others fields, or all test ok, return the pk
-                    return set([obj.pk.normalize(value)])
+                # no others fields, or all test ok, return the pk
+                return set([obj.pk.normalize(value)])
 
         if not query_fields:
             # No pk, no other kwargs, return all the collection
