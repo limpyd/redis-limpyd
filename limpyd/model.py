@@ -3,7 +3,7 @@
 from logging import getLogger
 from copy import copy
 
-from limpyd import get_connection
+from limpyd import DEFAULT_CONNECTION_SETTINGS
 from limpyd.fields import *
 from limpyd.utils import make_key
 from limpyd.exceptions import *
@@ -19,7 +19,7 @@ class MetaRedisModel(MetaRedisProxy):
     """
     def __new__(mcs, name, base, attrs):
         it = type.__new__(mcs, name, base, attrs)
-        field_parent_class = name.lower()
+        it._name = name.lower()
 
         # init (or get from parents) lists of redis fields
         _fields = list(it._fields) if hasattr(it, '_fields') else []
@@ -58,7 +58,7 @@ class MetaRedisModel(MetaRedisProxy):
             key = "_redis_attr_%s" % field_name
             field = getattr(it, key)
             ownfield = copy(field)
-            ownfield._parent_class = field_parent_class
+            ownfield._model = it
             setattr(it, key, ownfield)
 
         # Auto create missing primary key (it will always be called in RedisModel)
@@ -69,7 +69,7 @@ class MetaRedisModel(MetaRedisProxy):
 
         # Loop on new fields to prepare them
         for field in own_fields:
-            field._parent_class = field_parent_class
+            field._model = it
             _fields.append(field.name)
             setattr(it, "_redis_attr_%s" % field.name, field)
             if field.name in attrs:
@@ -95,6 +95,8 @@ class RedisModel(RedisProxyCommand):
 
     cacheable = True
     DoesNotExist = DoesNotExist
+
+    CONNECTION_SETTINGS = DEFAULT_CONNECTION_SETTINGS
 
     def __init__(self, *args, **kwargs):
         """
@@ -125,9 +127,6 @@ class RedisModel(RedisProxyCommand):
             setattr(self, 'pk', getattr(self, pk_field_name))
         # Cache of the pk value
         self._pk = None
-
-        # Prepare stored connection
-        self._connection = None
 
         # Prepare command internal caching
         self.init_cache()
@@ -175,12 +174,6 @@ class RedisModel(RedisProxyCommand):
         if self.cacheable:
             self._cache = {}
 
-    @property
-    def connection(self):
-        if self._connection is None:
-            self._connection = get_connection()
-        return self._connection
-
     def get_pk(self):
         if not self._pk:
             self.pk.set(None)
@@ -207,9 +200,6 @@ class RedisModel(RedisProxyCommand):
         Return a set of pk, eventually filtered by kwargs.
         Specific work is done if the pk is in the kwargs
         """
-        # We cannot use the current connection here, as we have no instance
-        connection = get_connection()
-
         query_fields = kwargs.copy()
 
         # Check if we have a pk and if so, do specific work
@@ -249,7 +239,7 @@ class RedisModel(RedisProxyCommand):
             index_keys.append(field.index_key(value))
 
         # Return intersection of all sets to get matching entries
-        return connection.sinter(index_keys)
+        return cls.get_connection().sinter(index_keys)
 
     @classmethod
     def _field_is_pk(cls, name):
