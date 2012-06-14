@@ -9,23 +9,26 @@ __version__ = ".".join(map(str, VERSION))
 
 import redis
 
-# TODO Make it customisable
-PROD_DB_ID = 0
-PROD_HOST = "localhost"
-PROD_PORT = 6379
-TESTS_DB_ID = 15
+
+DEFAULT_CONNECTION_SETTINGS = dict(
+    host="localhost",
+    port=6379,
+    db=0
+)
+
+TEST_CONNECTION_SETTINGS = DEFAULT_CONNECTION_SETTINGS.copy()
+TEST_CONNECTION_SETTINGS['db'] = 15
 
 
-class ConnectionSettings(object):
-    HOST = PROD_HOST
-    PORT = PROD_PORT
-    DB_ID = PROD_DB_ID
-
-
-def get_connection():
-    connection = redis.StrictRedis(
-        host=ConnectionSettings.HOST,
-        port=ConnectionSettings.PORT,
-        db=ConnectionSettings.DB_ID,
-    )
-    return connection
+def redis_connect(settings):
+    """
+    Connect to redis and cache the new connection
+    """
+    # compute a unique key for this settings, for caching. Work on the whole
+    # dict without directly using known keys to allow the use of unix socket
+    # connection or any other (future ?) way to connect to redis
+    connection_key = ':'.join([str(settings[k]) for k in sorted(settings)])
+    if connection_key not in redis_connect.cache:
+        redis_connect.cache[connection_key] = redis.StrictRedis(**settings)
+    return redis_connect.cache[connection_key]
+redis_connect.cache = {}

@@ -7,10 +7,18 @@ from datetime import datetime
 from limpyd import model
 from limpyd import fields
 from limpyd.exceptions import *
-from base import LimpydBaseTest
+from base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
 
 
-class Bike(model.RedisModel):
+class TestModelConnectionMixin(object):
+    """
+    Use it in first class for all RedisModel created for tests, or define
+    the following settings in each
+    """
+    CONNECTION_SETTINGS = TEST_CONNECTION_SETTINGS
+
+
+class Bike(TestModelConnectionMixin, model.RedisModel):
     name = fields.StringField(indexable=True)
     wheels = fields.StringField(default=2)
     passengers = fields.StringField(default=1, cacheable=False)
@@ -20,7 +28,7 @@ class MotorBike(Bike):
     power = fields.StringField()
 
 
-class Boat(model.RedisModel):
+class Boat(TestModelConnectionMixin, model.RedisModel):
     """
     Use also HashableField.
     """
@@ -334,7 +342,7 @@ class MetaRedisProxyTest(LimpydBaseTest):
 
 class PostCommandTest(LimpydBaseTest):
 
-    class MyModel(model.RedisModel):
+    class MyModel(TestModelConnectionMixin, model.RedisModel):
         name = fields.HashableField()
         last_modification_date = fields.HashableField()
 
@@ -402,13 +410,13 @@ class InheritanceTest(LimpydBaseTest):
 
 class PKFieldTest(LimpydBaseTest):
 
-    class AutoPkModel(model.RedisModel):
+    class AutoPkModel(TestModelConnectionMixin, model.RedisModel):
         name = fields.StringField(indexable=True)
 
     class RedefinedAutoPkModel(AutoPkModel):
         id = fields.AutoPKField()
 
-    class NotAutoPkModel(model.RedisModel):
+    class NotAutoPkModel(TestModelConnectionMixin, model.RedisModel):
         pk = fields.PKField()
         name = fields.StringField(indexable=True)
 
@@ -532,6 +540,31 @@ class PKFieldTest(LimpydBaseTest):
         # collection via pk or id
         self.assertEqual(self.RedefinedNotAutoPkField.collection(pk=1), set(['1', ]))
         self.assertEqual(self.RedefinedNotAutoPkField.collection(id=2), set(['2', ]))
+
+
+class ConnectionTest(LimpydBaseTest):
+
+    def test_connection_is_the_one_defined(self):
+        defined_config = TEST_CONNECTION_SETTINGS
+        current_config = self.connection.connection_pool.connection_kwargs
+        bike = Bike(name="rosalie", wheels=4)
+        obj_config = bike.connection.connection_pool.connection_kwargs
+        class_config = Bike.CONNECTION_SETTINGS
+        for arg in ('host', 'port', 'db'):
+            self.assertEqual(defined_config[arg], current_config[arg])
+            self.assertEqual(defined_config[arg], obj_config[arg])
+            self.assertEqual(defined_config[arg], class_config[arg])
+
+    def test_connection_should_be_shared(self):
+        first_connected = self.connection.info()['connected_clients']
+        bike = Bike(name="rosalie", wheels=4)
+        self.assertEqual(first_connected, self.connection.info()['connected_clients'])
+        Bike.collection(name="rosalie")
+        self.assertEqual(first_connected, self.connection.info()['connected_clients'])
+        bike.name.set("randonneuse")
+        self.assertEqual(first_connected, self.connection.info()['connected_clients'])
+        boat = Boat(name="Pen Duick I", length=15.1, launched=1898)
+        self.assertEqual(bike.connection, boat.connection)
 
 
 if __name__ == '__main__':
