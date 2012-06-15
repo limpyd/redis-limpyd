@@ -542,6 +542,132 @@ class PKFieldTest(LimpydBaseTest):
         self.assertEqual(self.RedefinedNotAutoPkField.collection(id=2), set(['2', ]))
 
 
+class DeleteTest(LimpydBaseTest):
+
+    def test_stringfield_keys_are_deleted(self):
+
+        class Train(TestModelConnectionMixin, model.RedisModel):
+            name = fields.StringField(unique=True)
+            kind = fields.StringField(indexable=True)
+            wagons = fields.StringField(default=10)
+
+        # Check that db is empty
+        self.assertEqual(len(self.connection.keys()), 0)
+        # Create two models, to check also that the other is not
+        # impacted by the delete of some field
+        train1 = Train(name="Occitan", kind="Corail")
+        train2 = Train(name="Teoz", kind="Corail")
+        # Check that data is stored
+        # Here we must have 11 keys:
+        # - the pk collection
+        # - the train model max id
+        # - the 2 name fields
+        # - the 2 name index
+        # - the 2 kind fields
+        # - the kind index for "Corail"
+        # - the 2 wagons fields
+        self.assertEqual(len(self.connection.keys()), 11)
+        # If we delete the name field, only 9 key must remain
+        # the train1.name field and the name:"Occitan" index are deleted
+        train1.name.delete()
+        self.assertEqual(len(self.connection.keys()), 9)
+        self.assertEqual(train1.name.get(), None)
+        self.assertFalse(Train.exists(name="Occitan"))
+        self.assertEqual(train1.wagons.get(), '10')
+        self.assertEqual(train2.name.get(), 'Teoz')
+        self.assertEqual(len(self.connection.keys()), 9)
+        # Now if we delete the train1.kind, only one key is deleted
+        # The kind:"Corail" is still used by train2
+        train1.kind.delete()
+        self.assertEqual(len(self.connection.keys()), 8)
+        self.assertEqual(len(Train.collection(kind="Corail")), 1)
+
+    def test_hashablefield_keys_are_deleted(self):
+
+        class Train(TestModelConnectionMixin, model.RedisModel):
+            name = fields.HashableField(unique=True)
+            kind = fields.HashableField(indexable=True)
+            wagons = fields.HashableField(default=10)
+
+        # Check that db is empty
+        self.assertEqual(len(self.connection.keys()), 0)
+        # Create two models, to check also that the other is not
+        # impacted by the delete of some field
+        train1 = Train(name="Occitan", kind="Corail")
+        train2 = Train(name="Teoz", kind="Corail")
+        # Check that data is stored
+        # Here we must have 7 keys:
+        # - the pk collection
+        # - the pk max id
+        # - 2 trains hash key
+        # - the 2 names index (one by value)
+        # - the kind index
+        self.assertEqual(len(self.connection.keys()), 7)
+        # The train1 hash must have three fields (name, kind and wagons)
+        self.assertEqual(self.connection.hlen(train1.key), 3)
+        # If we delete the train1 name, only 6 key must remain
+        # (the name index for "Occitan" must be deleted)
+        train1.name.delete()
+        self.assertEqual(len(self.connection.keys()), 6)
+        self.assertEqual(self.connection.hlen(train1.key), 2)
+        self.assertEqual(train1.name.hget(), None)
+        self.assertFalse(Train.exists(name="Occitan"))
+        self.assertEqual(train1.wagons.hget(), '10')
+        self.assertEqual(train2.name.hget(), 'Teoz')
+        self.assertEqual(len(self.connection.keys()), 6)
+        # Now if we delete the train1.kind, no key is deleted
+        # Only the hash field must be deleted
+        # The kind:"Corail" is still used by train2
+        train1.kind.delete()
+        self.assertEqual(len(self.connection.keys()), 6)
+        self.assertEqual(self.connection.hlen(train1.key), 1)
+        self.assertEqual(len(Train.collection(kind="Corail")), 1)
+
+    def test_pkfield_cannot_be_deleted(self):
+
+        class Train(TestModelConnectionMixin, model.RedisModel):
+            name = fields.HashableField(unique=True)
+
+        train = Train(name="TGV")
+        with self.assertRaises(ImplementationError):
+            train.pk.delete()
+
+    def test_model_delete(self):
+
+        class Train(TestModelConnectionMixin, model.RedisModel):
+            name = fields.HashableField(unique=True)
+            kind = fields.StringField(indexable=True)
+            wagons = fields.HashableField(default=10)
+
+        # Check that db is empty
+        self.assertEqual(len(self.connection.keys()), 0)
+        # Create two models, to check also that the other is not
+        # impacted by the delete of some field
+        train1 = Train(name="Occitan", kind="Corail")
+        train2 = Train(name="Teoz", kind="Corail")
+        # Check that data is stored
+        # Here we must have 9 keys:
+        # - the pk collection
+        # - the pk max id
+        # - 2 trains hash key
+        # - the 2 names index (one by value)
+        # - the two kind keys
+        # - the kind:Corail index
+        self.assertEqual(len(self.connection.keys()), 9)
+        # If we delete the train1, only 6 key must remain
+        train1.delete()
+        self.assertEqual(len(self.connection.keys()), 6)
+        self.assertEqual(train1.name.hget(), None)
+        self.assertEqual(train1.kind.get(), None)
+        self.assertEqual(train1.wagons.hget(), None)
+        self.assertFalse(Train.exists(name="Occitan"))
+        self.assertTrue(Train.exists(name="Teoz"))
+        self.assertEqual(train2.name.hget(), 'Teoz')
+        self.assertEqual(len(self.connection.keys()), 6)
+        self.assertEqual(len(Train.collection(kind="Corail")), 1)
+        self.assertEqual(len(Train.collection()), 1)
+
+
 class ConnectionTest(LimpydBaseTest):
 
     def test_connection_is_the_one_defined(self):

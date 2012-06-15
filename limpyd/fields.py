@@ -82,6 +82,24 @@ class RedisProxyCommand(object):
         """
         return self.get_connection()
 
+    def init_cache(self):
+        # Implemented in fields and models.
+        pass
+
+    def get_cache(self):
+        # Implemented in fields and models.
+        pass
+
+    def has_cache(self):
+        """
+        Is the cache already initialized?
+        """
+        try:
+            cache = self.get_cache()
+            return True
+        except (KeyError, AttributeError):
+            return False
+
     class transaction(object):
 
         def __init__(self, instance):
@@ -121,8 +139,14 @@ class RedisField(RedisProxyCommand):
         """
         Create the field cache key, or flush it if it already exists.
         """
-        if self.cacheable and self._instance.cacheable:
+        if self.cacheable:
             self._instance._cache[self.name] = {}
+
+    def get_cache(self):
+        """
+        Return the local cache dict.
+        """
+        return self._instance._cache[self.name]
 
     @property
     def key(self):
@@ -158,8 +182,15 @@ class RedisField(RedisProxyCommand):
         """
         Delete the field from redis.
         """
-        # Default value, just delete the storage key
-        # (More job could be done by specific field classes)
+        self._delete_key()
+        if self.cacheable:
+            # delete cache
+            self.init_cache()
+
+    def _delete_key(self):
+        """
+        Delete the field specific key.
+        """
         self.connection.delete(self.key)
 
     def post_command(self, sender, name, result, args, kwargs):
@@ -239,7 +270,8 @@ class IndexableField(RedisField):
             return True  # True?
 
     def delete(self):
-        self.deindex()
+        if self.indexable:
+            self.deindex()
         super(IndexableField, self).delete()
 
     def index_key(self, value):
@@ -308,12 +340,11 @@ class HashableField(IndexableField):
         args.insert(0, self.name)
         return super(HashableField, self)._traverse_command(name, *args, **kwargs)
 
-    def delete(self):
+    def _delete_key(self):
         """
         We need to delete only the field in the parent hash.
         """
         self.connection.hdel(self.key, self.name)
-        super(HashableField, self).delete()
 
 
 class PKField(RedisField):
@@ -419,6 +450,9 @@ class PKField(RedisField):
         instance in its _pk attribute
         """
         return self.normalize(self._instance._pk)
+
+    def delete(self):
+        raise ImplementationError('PKField cannot be deleted directly.')
 
 
 class AutoPKField(PKField):

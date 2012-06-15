@@ -174,6 +174,12 @@ class RedisModel(RedisProxyCommand):
         if self.cacheable:
             self._cache = {}
 
+    def get_cache(self):
+        """
+        Return the local cache dict.
+        """
+        return self._cache[self.name]
+
     def get_pk(self):
         if not self._pk:
             self.pk.set(None)
@@ -336,6 +342,21 @@ class RedisModel(RedisProxyCommand):
             raise ValueError("Only hashable fields can be used here.")
         # from kwargs to one dict arg
         return self.connection.hmset(self.key, kwargs)
+
+    def delete(self):
+        """
+        Delete the instance from redis storage.
+        """
+        # Delete each field
+        for field_name in self._fields:
+            field = getattr(self, field_name)
+            if not isinstance(field, PKField):
+                # pk has no stored key
+                field.delete()
+        # Remove the pk from the model collection
+        self.connection.srem(self._redis_attr_pk.collection_key, self._pk)
+        # Deactivate the instance
+        delattr(self, "_pk")
 
 
 class TestModel(RedisModel):

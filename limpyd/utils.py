@@ -15,15 +15,15 @@ class memoize_command(object):
         def wrapper(self, *args, **kwargs):
             # self here is a field instance
 
-            if not self.cacheable or not self._instance.cacheable:
+            if not self.cacheable:
                 return func(self, *args, **kwargs)
 
             haxh = frozenset(args + tuple(kwargs.items()))
 
             # Cache per field name to be able to flush per field
-            if not self.name in self._instance._cache:
+            if not self.has_cache():
                 self.init_cache()
-            field_cache = self._instance._cache[self.name]
+            field_cache = self.get_cache()
             # Warning: Some commands are both setter and modifiers (getset)
             command_name = args[0]
             if command_name in self.available_modifiers:
