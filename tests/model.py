@@ -101,6 +101,11 @@ class IndexationTest(LimpydBaseTest):
         self.assertFalse(Bike.exists(name="monocycle"))
         self.assertTrue(Bike.exists(name="tricycle"))
 
+    def test_unicode_string_is_indexable(self):
+        bike = Bike(name=u"vélo")
+        self.assertFalse(Bike.exists(name="velo"))
+        self.assertTrue(Bike.exists(name=u"vélo"))
+
 
 class CollectionTest(LimpydBaseTest):
 
