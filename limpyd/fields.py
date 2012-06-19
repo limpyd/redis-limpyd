@@ -182,16 +182,17 @@ class RedisField(RedisProxyCommand):
         """
         Delete the field from redis.
         """
-        self._delete_key()
+        result = self._delete_key()
         if self.cacheable:
             # delete cache
             self.init_cache()
+        return result
 
     def _delete_key(self):
         """
         Delete the field specific key.
         """
-        self.connection.delete(self.key)
+        return self.connection.delete(self.key)
 
     def post_command(self, sender, name, result, args, kwargs):
         # By default, let the instance manage the post_modify signal
@@ -272,7 +273,7 @@ class IndexableField(RedisField):
     def delete(self):
         if self.indexable:
             self.deindex()
-        super(IndexableField, self).delete()
+        return super(IndexableField, self).delete()
 
     def index_key(self, value):
         # Ex. bikemodel:name:{bikename}
@@ -344,7 +345,14 @@ class HashableField(IndexableField):
         """
         We need to delete only the field in the parent hash.
         """
-        self.connection.hdel(self.key, self.name)
+        return self.connection.hdel(self.key, self.name)
+
+    def hdel(self):
+        """
+        A simple proxy to the main delete method, but here to provide the real
+        redis command name
+        """
+        return self.delete()
 
 
 class PKField(RedisField):
