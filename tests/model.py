@@ -10,15 +10,15 @@ from limpyd.exceptions import *
 from base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
 
 
-class TestModelConnectionMixin(object):
+class TestDatabaseMixin(object):
     """
     Use it in first class for all RedisModel created for tests, or define
-    the following settings in each
+    the following database
     """
-    CONNECTION_SETTINGS = TEST_CONNECTION_SETTINGS
+    database = LimpydBaseTest.database
 
 
-class Bike(TestModelConnectionMixin, model.RedisModel):
+class Bike(TestDatabaseMixin, model.RedisModel):
     name = fields.StringField(indexable=True)
     wheels = fields.StringField(default=2)
     passengers = fields.StringField(default=1, cacheable=False)
@@ -28,7 +28,7 @@ class MotorBike(Bike):
     power = fields.StringField()
 
 
-class Boat(TestModelConnectionMixin, model.RedisModel):
+class Boat(TestDatabaseMixin, model.RedisModel):
     """
     Use also HashableField.
     """
@@ -347,7 +347,7 @@ class MetaRedisProxyTest(LimpydBaseTest):
 
 class PostCommandTest(LimpydBaseTest):
 
-    class MyModel(TestModelConnectionMixin, model.RedisModel):
+    class MyModel(TestDatabaseMixin, model.RedisModel):
         name = fields.HashableField()
         last_modification_date = fields.HashableField()
 
@@ -415,13 +415,13 @@ class InheritanceTest(LimpydBaseTest):
 
 class PKFieldTest(LimpydBaseTest):
 
-    class AutoPkModel(TestModelConnectionMixin, model.RedisModel):
+    class AutoPkModel(TestDatabaseMixin, model.RedisModel):
         name = fields.StringField(indexable=True)
 
     class RedefinedAutoPkModel(AutoPkModel):
         id = fields.AutoPKField()
 
-    class NotAutoPkModel(TestModelConnectionMixin, model.RedisModel):
+    class NotAutoPkModel(TestDatabaseMixin, model.RedisModel):
         pk = fields.PKField()
         name = fields.StringField(indexable=True)
 
@@ -551,7 +551,7 @@ class DeleteTest(LimpydBaseTest):
 
     def test_stringfield_keys_are_deleted(self):
 
-        class Train(TestModelConnectionMixin, model.RedisModel):
+        class Train(TestDatabaseMixin, model.RedisModel):
             name = fields.StringField(unique=True)
             kind = fields.StringField(indexable=True)
             wagons = fields.StringField(default=10)
@@ -589,7 +589,7 @@ class DeleteTest(LimpydBaseTest):
 
     def test_hashablefield_keys_are_deleted(self):
 
-        class Train(TestModelConnectionMixin, model.RedisModel):
+        class Train(TestDatabaseMixin, model.RedisModel):
             name = fields.HashableField(unique=True)
             kind = fields.HashableField(indexable=True)
             wagons = fields.HashableField(default=10)
@@ -630,7 +630,7 @@ class DeleteTest(LimpydBaseTest):
 
     def test_pkfield_cannot_be_deleted(self):
 
-        class Train(TestModelConnectionMixin, model.RedisModel):
+        class Train(TestDatabaseMixin, model.RedisModel):
             name = fields.HashableField(unique=True)
 
         train = Train(name="TGV")
@@ -639,7 +639,7 @@ class DeleteTest(LimpydBaseTest):
 
     def test_model_delete(self):
 
-        class Train(TestModelConnectionMixin, model.RedisModel):
+        class Train(TestDatabaseMixin, model.RedisModel):
             name = fields.HashableField(unique=True)
             kind = fields.StringField(indexable=True)
             wagons = fields.HashableField(default=10)
@@ -680,7 +680,7 @@ class ConnectionTest(LimpydBaseTest):
         current_config = self.connection.connection_pool.connection_kwargs
         bike = Bike(name="rosalie", wheels=4)
         obj_config = bike.connection.connection_pool.connection_kwargs
-        class_config = Bike.CONNECTION_SETTINGS
+        class_config = Bike.database.connection_settings
         for arg in ('host', 'port', 'db'):
             self.assertEqual(defined_config[arg], current_config[arg])
             self.assertEqual(defined_config[arg], obj_config[arg])
@@ -697,6 +697,17 @@ class ConnectionTest(LimpydBaseTest):
         boat = Boat(name="Pen Duick I", length=15.1, launched=1898)
         self.assertEqual(bike.connection, boat.connection)
 
+
+class PipelineTest(LimpydBaseTest):
+
+    def test_simple_pipeline_without_transaction(self):
+        bike = Bike(name="rosalie", wheels=4)
+        bike2 = Bike(name="velocipede")
+        with self.database.pipeline(transaction=False) as pipe:
+            bike.name.get()
+            bike2.name.get()
+            names = pipe.execute()
+        self.assertEqual(names, ["rosalie", "velocipede"])
 
 if __name__ == '__main__':
     unittest.main()

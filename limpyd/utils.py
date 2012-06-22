@@ -15,7 +15,7 @@ class memoize_command(object):
         def wrapper(self, *args, **kwargs):
             # self here is a field instance
 
-            if not self.cacheable:
+            if not self.cacheable or self.database.pipeline_mode:
                 return func(self, *args, **kwargs)
 
             haxh = frozenset(args + tuple(kwargs.items()))

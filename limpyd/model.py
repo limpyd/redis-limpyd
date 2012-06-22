@@ -3,10 +3,10 @@
 from logging import getLogger
 from copy import copy
 
-from limpyd import DEFAULT_CONNECTION_SETTINGS
 from limpyd.fields import *
 from limpyd.utils import make_key
 from limpyd.exceptions import *
+from limpyd.database import RedisDatabase
 
 __all__ = ['RedisModel', ]
 
@@ -18,7 +18,14 @@ class MetaRedisModel(MetaRedisProxy):
     We make invisible for user that fields were class properties
     """
     def __new__(mcs, name, base, attrs):
+        is_root = RedisProxyCommand in base
+
         it = type.__new__(mcs, name, base, attrs)
+
+        if not is_root and (not hasattr(it, 'database') or not isinstance(it.database, RedisDatabase)):
+            raise ImplementationError(
+                'You must define a database for the model %s' % name)
+
         it._name = name.lower()
 
         # init (or get from parents) lists of redis fields
@@ -95,8 +102,6 @@ class RedisModel(RedisProxyCommand):
 
     cacheable = True
     DoesNotExist = DoesNotExist
-
-    CONNECTION_SETTINGS = DEFAULT_CONNECTION_SETTINGS
 
     def __init__(self, *args, **kwargs):
         """
@@ -357,9 +362,3 @@ class RedisModel(RedisProxyCommand):
         self.connection.srem(self._redis_attr_pk.collection_key, self._pk)
         # Deactivate the instance
         delattr(self, "_pk")
-
-
-class TestModel(RedisModel):
-
-    name = StringField(unique=True)
-    foo = HashableField(indexable=True)

@@ -2,7 +2,6 @@
 
 from logging import getLogger
 
-from limpyd import redis_connect, DEFAULT_CONNECTION_SETTINGS
 from limpyd.utils import make_key, memoize_command
 from limpyd.exceptions import *
 
@@ -69,10 +68,9 @@ class RedisProxyCommand(object):
     @classmethod
     def get_connection(cls):
         """
-        Create (or get from cache) a redis connection with settings set on the
-        class via CONNECTION_SETTINGS, or use the default ones
+        Return the connection from the database
         """
-        return redis_connect(getattr(cls, 'CONNECTION_SETTINGS', {}) or DEFAULT_CONNECTION_SETTINGS)
+        return cls.database.connection
 
     @property
     def connection(self):
@@ -99,26 +97,6 @@ class RedisProxyCommand(object):
             return True
         except (KeyError, AttributeError):
             return False
-
-    class transaction(object):
-
-        def __init__(self, instance):
-            # instance is your model instance
-            self.instance = instance
-
-        def __enter__(self):
-            # Replace the current connection with a pipeline
-            # to buffer all the command made in the with statement
-            # Not working with getters: pipeline methods return pipeline instance, so
-            # a .get() made with a pipeline does not have the same behaviour
-            # than a .get() made with a client
-            connection = get_connection()
-            self.pipe = connection.pipeline()
-            self.instance._connection = self.pipe
-            return self.pipe
-
-        def __exit__(self, *exc_info):
-            self.pipe.execute()
 
 
 class RedisField(RedisProxyCommand):
@@ -155,6 +133,12 @@ class RedisField(RedisProxyCommand):
             self._instance.get_pk(),
             self.name,
         )
+
+    @property
+    def database(self):
+        if not self._model:
+            raise TypeError('A field cannot use a database if not linked to a model')
+        return self._model.database
 
     @property
     def connection(self):
@@ -336,7 +320,6 @@ class HashableField(IndexableField):
 
     def _traverse_command(self, name, *args, **kwargs):
         """Add key AND the hash field to the args, and call the Redis command."""
-        # self.name is the name of the hash key field
         args = list(args)
         args.insert(0, self.name)
         return super(HashableField, self)._traverse_command(name, *args, **kwargs)
