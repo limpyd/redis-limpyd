@@ -135,6 +135,20 @@ class RedisField(RedisProxyCommand):
         if "default" in kwargs:
             self.default = kwargs["default"]
 
+    def proxy_get(self):
+        """
+        A helper to easily call the proxy_getter of the field
+        """
+        getter = getattr(self, self.proxy_getter)
+        return getter()
+
+    def proxy_set(self, value):
+        """
+        A helper to easily call the proxy_setter of the field
+        """
+        setter = getattr(self, self.proxy_setter)
+        return setter(value)
+
     def init_cache(self):
         """
         Create the field cache key, or flush it if it already exists.
@@ -237,8 +251,7 @@ class IndexableField(RedisField):
         # then check the result, and raise before modifying the indexes if the
         # value was not unique, and then remove the key
         # We should try a better algo
-        getter = getattr(self, self.proxy_getter)
-        value = getter()
+        value = self.proxy_get()
         if value:
             value = value.decode('utf-8')  # FIXME centralize utf-8 handling?
         key = self.index_key(value)
@@ -261,8 +274,7 @@ class IndexableField(RedisField):
         """
         Remove stored index if needed.
         """
-        getter = getattr(self, self.proxy_getter)
-        value = getter()
+        value = self.proxy_get()
         if value:
             value = value.decode('utf-8')
             key = self.index_key(value)
