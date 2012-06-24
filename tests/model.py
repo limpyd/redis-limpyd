@@ -662,9 +662,10 @@ class DeleteTest(LimpydBaseTest):
         # If we delete the train1, only 6 key must remain
         train1.delete()
         self.assertEqual(len(self.connection.keys()), 6)
-        self.assertEqual(train1.name.hget(), None)
-        self.assertEqual(train1.kind.get(), None)
-        self.assertEqual(train1.wagons.hget(), None)
+        with self.assertRaises(DoesNotExist):
+            train1.name.hget()
+        with self.assertRaises(DoesNotExist):
+            train1.kind.get()
         self.assertFalse(Train.exists(name="Occitan"))
         self.assertTrue(Train.exists(name="Teoz"))
         self.assertEqual(train2.name.hget(), 'Teoz')

@@ -42,7 +42,9 @@ class RedisProxyCommand(object):
         """
         Return the function in redis when not found in the abstractmodel.
         """
-        return lambda *args, **kwargs: self._traverse_command(name, *args, **kwargs)
+        if name in self.available_commands:
+            return lambda *args, **kwargs: self._traverse_command(name, *args, **kwargs)
+        return self.__getattribute__(name)
 
     @memoize_command()
     def _traverse_command(self, name, *args, **kwargs):
@@ -232,7 +234,7 @@ class IndexableField(RedisField):
         self.indexable = kwargs.get("indexable", False)
         self.unique = kwargs.get("unique", False)
         if self.unique:
-            if "default" in dir(self):  # do not use hasattr, as it will call getattr
+            if hasattr(self, "default"):
                 raise ImplementationError('Cannot set "default" and "unique" together!')
             self.indexable = True
 

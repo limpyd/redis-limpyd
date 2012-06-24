@@ -180,6 +180,8 @@ class RedisModel(RedisProxyCommand):
         return self._cache[self.name]
 
     def get_pk(self):
+        if not hasattr(self, '_pk'):
+            raise DoesNotExist("The current object doesn't exists anymore")
         if not self._pk:
             self.pk.set(None)
             # Default must be setted only at first initialization
@@ -192,7 +194,7 @@ class RedisModel(RedisProxyCommand):
         """
         for field_name in self._fields:
             field = getattr(self, field_name)
-            if "default" in dir(field):
+            if hasattr(field, "default"):
                 has_value = field.proxy_get()
                 if has_value is None:
                     field.proxy_set(field.default)
