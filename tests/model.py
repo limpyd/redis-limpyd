@@ -90,6 +90,21 @@ class InitTest(LimpydBaseTest):
             bike = Bike(power="human")
 
 
+class GetAttrTest(LimpydBaseTest):
+
+    def test_get_redis_command(self):
+        bike = Bike(name="monocycle")
+        self.assertEqual(getattr(bike.name, 'get')(), "monocycle")
+        with self.assertRaises(AttributeError):
+            getattr(bike.name, 'hget')
+
+    def test_get_normal_attr(self):
+        bike = Bike(name="monocycle")
+        self.assertEqual(getattr(bike, '_pk'), bike.pk.get())
+        with self.assertRaises(AttributeError):
+            getattr(bike, '_not_an_attr')
+
+
 class IndexationTest(LimpydBaseTest):
 
     def test_stringfield_indexable(self):
