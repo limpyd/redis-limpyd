@@ -129,7 +129,7 @@ class RedisField(RedisProxyCommand):
     @property
     def key(self):
         return self.make_key(
-            self._instance.__class__.__name__.lower(),
+            self._instance._name,
             self._instance.get_pk(),
             self.name,
         )

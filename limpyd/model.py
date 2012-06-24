@@ -22,11 +22,15 @@ class MetaRedisModel(MetaRedisProxy):
 
         it = type.__new__(mcs, name, base, attrs)
 
-        if not is_root and (not hasattr(it, 'database') or not isinstance(it.database, RedisDatabase)):
-            raise ImplementationError(
-                'You must define a database for the model %s' % name)
-
-        it._name = name.lower()
+        if not is_root:
+            if not hasattr(it, 'database') or not isinstance(it.database, RedisDatabase):
+                raise ImplementationError(
+                    'You must define a database for the model %s' % name)
+            if not getattr(it, 'namespace', None):
+                raise ImplementationError(
+                    'You must define a namespace for the model %s' % name)
+            it._name = ':'.join((it.namespace, name.lower()))
+            it.database._add_model(it)
 
         # init (or get from parents) lists of redis fields
         _fields = list(it._fields) if hasattr(it, '_fields') else []
@@ -100,6 +104,7 @@ class RedisModel(RedisProxyCommand):
 
     __metaclass__ = MetaRedisModel
 
+    namespace = None  # all models in an app may have the same namespace
     cacheable = True
     DoesNotExist = DoesNotExist
 
@@ -328,7 +333,7 @@ class RedisModel(RedisProxyCommand):
     @property
     def key(self):
         return self.make_key(
-            self.__class__.__name__.lower(),
+            self._name,
             self.get_pk(),
             "hash",
         )

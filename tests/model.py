@@ -16,6 +16,7 @@ class TestDatabaseMixin(object):
     the following database
     """
     database = LimpydBaseTest.database
+    namespace = "tests"
 
 
 class Bike(TestDatabaseMixin, model.RedisModel):
@@ -552,6 +553,7 @@ class DeleteTest(LimpydBaseTest):
     def test_stringfield_keys_are_deleted(self):
 
         class Train(TestDatabaseMixin, model.RedisModel):
+            namespace = "test_stringfield_keys_are_deleted"
             name = fields.StringField(unique=True)
             kind = fields.StringField(indexable=True)
             wagons = fields.StringField(default=10)
@@ -590,6 +592,7 @@ class DeleteTest(LimpydBaseTest):
     def test_hashablefield_keys_are_deleted(self):
 
         class Train(TestDatabaseMixin, model.RedisModel):
+            namespace = "test_hashablefield_keys_are_deleted"
             name = fields.HashableField(unique=True)
             kind = fields.HashableField(indexable=True)
             wagons = fields.HashableField(default=10)
@@ -631,6 +634,7 @@ class DeleteTest(LimpydBaseTest):
     def test_pkfield_cannot_be_deleted(self):
 
         class Train(TestDatabaseMixin, model.RedisModel):
+            namespace = "test_pkfield_cannot_be_deleted"
             name = fields.HashableField(unique=True)
 
         train = Train(name="TGV")
@@ -640,6 +644,7 @@ class DeleteTest(LimpydBaseTest):
     def test_model_delete(self):
 
         class Train(TestDatabaseMixin, model.RedisModel):
+            namespace = "test_model_delete"
             name = fields.HashableField(unique=True)
             kind = fields.StringField(indexable=True)
             wagons = fields.HashableField(default=10)

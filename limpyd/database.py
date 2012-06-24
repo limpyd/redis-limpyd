@@ -12,10 +12,23 @@ log = getLogger(__name__)
 class RedisDatabase(object):
     _connection = None
     pipeline_mode = False
+    # _models keep an entry for each defined model on this database
+    _models = dict()
 
     def __init__(self, connection_settings=None):
         self.connection_settings = connection_settings or DEFAULT_CONNECTION_SETTINGS
         super(RedisDatabase, self).__init__()
+
+    def _add_model(self, model):
+        """
+        Save this model as one existing on this database, to deny many models
+        with same namespace and name
+        """
+        if model._name in self._models:
+            raise ImplementationError(
+                'A model with namespace "%s" and name "%s" is already defined '
+                'on this database' % (model.namespace, model.__name__))
+        self._models[model._name] = model
 
     @property
     def connection(self):
