@@ -21,12 +21,24 @@ __all__ = [
 ]
 
 
+def make_func(name):
+    """
+    Return a function which call _traverse_command for the given name.
+    Used to bind redis commands to our own calls
+    """
+    def func(self, *args, **kwargs):
+        return self._traverse_command(name, *args, **kwargs)
+    return func
+
+
 class MetaRedisProxy(type):
 
     def __new__(mcs, name, base, dct):
         it = type.__new__(mcs, name, base, dct)
         available_commands = set(it.available_getters + it.available_modifiers)
         setattr(it, "available_commands", available_commands)
+        for command_name in [c for c in available_commands if not hasattr(it, c)]:
+            setattr(it, command_name, make_func(command_name))
         return it
 
 
@@ -36,12 +48,6 @@ class RedisProxyCommand(object):
     available_getters = tuple()
     available_modifiers = tuple()
     available_commands = available_getters + available_modifiers
-
-    def __getattr__(self, name):
-        """
-        Return the function in redis when not found in the abstractmodel.
-        """
-        return lambda *args, **kwargs: self._traverse_command(name, *args, **kwargs)
 
     @memoize_command()
     def _traverse_command(self, name, *args, **kwargs):
@@ -112,6 +118,20 @@ class RedisField(RedisProxyCommand):
         self.cacheable = kwargs.get('cacheable', True)
         if "default" in kwargs:
             self.default = kwargs["default"]
+
+    def proxy_get(self):
+        """
+        A helper to easily call the proxy_getter of the field
+        """
+        getter = getattr(self, self.proxy_getter)
+        return getter()
+
+    def proxy_set(self, value):
+        """
+        A helper to easily call the proxy_setter of the field
+        """
+        setter = getattr(self, self.proxy_setter)
+        return setter(value)
 
     def init_cache(self):
         """
@@ -202,7 +222,7 @@ class IndexableField(RedisField):
         self.indexable = kwargs.get("indexable", False)
         self.unique = kwargs.get("unique", False)
         if self.unique:
-            if "default" in dir(self):  # do not use hasattr, as it will call getattr
+            if hasattr(self, "default"):
                 raise ImplementationError('Cannot set "default" and "unique" together!')
             self.indexable = True
 
@@ -221,8 +241,7 @@ class IndexableField(RedisField):
         # then check the result, and raise before modifying the indexes if the
         # value was not unique, and then remove the key
         # We should try a better algo
-        getter = getattr(self, self.proxy_getter)
-        value = getter()
+        value = self.proxy_get()
         if value:
             value = value.decode('utf-8')  # FIXME centralize utf-8 handling?
         key = self.index_key(value)
@@ -245,8 +264,7 @@ class IndexableField(RedisField):
         """
         Remove stored index if needed.
         """
-        getter = getattr(self, self.proxy_getter)
-        value = getter()
+        value = self.proxy_get()
         if value:
             value = value.decode('utf-8')
             key = self.index_key(value)

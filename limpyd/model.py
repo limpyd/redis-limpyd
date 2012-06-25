@@ -166,8 +166,7 @@ class RedisModel(RedisProxyCommand):
             # Do instanciate
             for field_name, value in kwargs.iteritems():
                 field = getattr(self, field_name)
-                setter = getattr(field, field.proxy_setter)
-                setter(value)
+                field.proxy_set(value)
 
         # --- Instanciate from DB
         if len(args) == 1:
@@ -191,6 +190,8 @@ class RedisModel(RedisProxyCommand):
         return self._cache[self.name]
 
     def get_pk(self):
+        if not hasattr(self, '_pk'):
+            raise DoesNotExist("The current object doesn't exists anymore")
         if not self._pk:
             self.pk.set(None)
             # Default must be setted only at first initialization
@@ -203,12 +204,10 @@ class RedisModel(RedisProxyCommand):
         """
         for field_name in self._fields:
             field = getattr(self, field_name)
-            if "default" in dir(field):
-                setter = getattr(field, field.proxy_setter)
-                getter = getattr(field, field.proxy_getter)
-                has_value = getter()
+            if hasattr(field, "default"):
+                has_value = field.proxy_get()
                 if has_value is None:
-                    setter(field.default)
+                    field.proxy_set(field.default)
 
     @classmethod
     def collection(cls, **kwargs):
@@ -237,8 +236,7 @@ class RedisModel(RedisProxyCommand):
                 if query_fields:
                     for obj_field_name, obj_value in query_fields.iteritems():
                         field = getattr(obj, obj_field_name)
-                        getter = getattr(field, field.proxy_getter)
-                        if getter() != obj_value:
+                        if field.proxy_get() != obj_value:
                             return set()
 
                 # no others fields, or all test ok, return the pk

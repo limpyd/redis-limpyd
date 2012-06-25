@@ -91,6 +91,21 @@ class InitTest(LimpydBaseTest):
             bike = Bike(power="human")
 
 
+class GetAttrTest(LimpydBaseTest):
+
+    def test_get_redis_command(self):
+        bike = Bike(name="monocycle")
+        self.assertEqual(getattr(bike.name, 'get')(), "monocycle")
+        with self.assertRaises(AttributeError):
+            getattr(bike.name, 'hget')
+
+    def test_get_normal_attr(self):
+        bike = Bike(name="monocycle")
+        self.assertEqual(getattr(bike, '_pk'), bike.pk.get())
+        with self.assertRaises(AttributeError):
+            getattr(bike, '_not_an_attr')
+
+
 class IndexationTest(LimpydBaseTest):
 
     def test_stringfield_indexable(self):
@@ -667,9 +682,10 @@ class DeleteTest(LimpydBaseTest):
         # If we delete the train1, only 6 key must remain
         train1.delete()
         self.assertEqual(len(self.connection.keys()), 6)
-        self.assertEqual(train1.name.hget(), None)
-        self.assertEqual(train1.kind.get(), None)
-        self.assertEqual(train1.wagons.hget(), None)
+        with self.assertRaises(DoesNotExist):
+            train1.name.hget()
+        with self.assertRaises(DoesNotExist):
+            train1.kind.get()
         self.assertFalse(Train.exists(name="Occitan"))
         self.assertTrue(Train.exists(name="Teoz"))
         self.assertEqual(train2.name.hget(), 'Teoz')
@@ -713,6 +729,23 @@ class PipelineTest(LimpydBaseTest):
             bike2.name.get()
             names = pipe.execute()
         self.assertEqual(names, ["rosalie", "velocipede"])
+
+
+class ProxyTest(LimpydBaseTest):
+
+    def proxy_get_should_call_real_getter(self):
+        bike = Bike(name="rosalie", wheels=4)
+        self.assertEqual(bike.name.proxy_get(), "rosalie")
+        boat = Boat(name="Rainbow Warrior I", power="engine", length=40, launched=1955)
+        self.assertEqual(boat.power.proxy_get(), "engine")
+
+    def proxy_set_should_call_real_setter(self):
+        bike = Bike(name="rosalia", wheels=4)
+        bike.name.proxy_set('rosalie')
+        self.assertEqual(bike.name.get(), "rosaie")
+        boat = Boat(name="Rainbow Warrior I", power="human", length=40, launched=1955)
+        boat.power.proxy_set('engine')
+        self.assertEqual(boat.power.hget(), "engine")
 
 if __name__ == '__main__':
     unittest.main()
