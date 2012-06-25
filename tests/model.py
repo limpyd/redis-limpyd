@@ -90,6 +90,21 @@ class InitTest(LimpydBaseTest):
             bike = Bike(power="human")
 
 
+class GetAttrTest(LimpydBaseTest):
+
+    def test_get_redis_command(self):
+        bike = Bike(name="monocycle")
+        self.assertEqual(getattr(bike.name, 'get')(), "monocycle")
+        with self.assertRaises(AttributeError):
+            getattr(bike.name, 'hget')
+
+    def test_get_normal_attr(self):
+        bike = Bike(name="monocycle")
+        self.assertEqual(getattr(bike, '_pk'), bike.pk.get())
+        with self.assertRaises(AttributeError):
+            getattr(bike, '_not_an_attr')
+
+
 class IndexationTest(LimpydBaseTest):
 
     def test_stringfield_indexable(self):
@@ -662,9 +677,10 @@ class DeleteTest(LimpydBaseTest):
         # If we delete the train1, only 6 key must remain
         train1.delete()
         self.assertEqual(len(self.connection.keys()), 6)
-        self.assertEqual(train1.name.hget(), None)
-        self.assertEqual(train1.kind.get(), None)
-        self.assertEqual(train1.wagons.hget(), None)
+        with self.assertRaises(DoesNotExist):
+            train1.name.hget()
+        with self.assertRaises(DoesNotExist):
+            train1.kind.get()
         self.assertFalse(Train.exists(name="Occitan"))
         self.assertTrue(Train.exists(name="Teoz"))
         self.assertEqual(train2.name.hget(), 'Teoz')
