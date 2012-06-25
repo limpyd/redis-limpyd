@@ -22,12 +22,24 @@ __all__ = [
 ]
 
 
+def make_func(name):
+    """
+    Return a function which call _traverse_command for the given name.
+    Used to bind redis commands to our own calls
+    """
+    def func(self, *args, **kwargs):
+        return self._traverse_command(name, *args, **kwargs)
+    return func
+
+
 class MetaRedisProxy(type):
 
     def __new__(mcs, name, base, dct):
         it = type.__new__(mcs, name, base, dct)
         available_commands = set(it.available_getters + it.available_modifiers)
         setattr(it, "available_commands", available_commands)
+        for command_name in [c for c in available_commands if not hasattr(it, c)]:
+            setattr(it, command_name, make_func(command_name))
         return it
 
 
@@ -37,19 +49,6 @@ class RedisProxyCommand(object):
     available_getters = tuple()
     available_modifiers = tuple()
     available_commands = available_getters + available_modifiers
-
-    def __getattr__(self, name):
-        """
-        Return the function in redis when not found in the abstractmodel.
-        """
-        try:
-            result = self.__getattribute__(name)
-        except AttributeError, e:
-            if name in self.available_commands:
-                return lambda *args, **kwargs: self._traverse_command(name, *args, **kwargs)
-            else:
-                raise e
-        return result
 
     @memoize_command()
     def _traverse_command(self, name, *args, **kwargs):
