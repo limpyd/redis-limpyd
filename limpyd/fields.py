@@ -42,9 +42,14 @@ class RedisProxyCommand(object):
         """
         Return the function in redis when not found in the abstractmodel.
         """
-        if name in self.available_commands:
-            return lambda *args, **kwargs: self._traverse_command(name, *args, **kwargs)
-        return self.__getattribute__(name)
+        try:
+            result = self.__getattribute__(name)
+        except AttributeError, e:
+            if name in self.available_commands:
+                return lambda *args, **kwargs: self._traverse_command(name, *args, **kwargs)
+            else:
+                raise e
+        return result
 
     @memoize_command()
     def _traverse_command(self, name, *args, **kwargs):
