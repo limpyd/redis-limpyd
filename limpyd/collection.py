@@ -19,13 +19,33 @@ class CollectionManager(object):
 
     def __init__(self, cls):
         self.cls = cls
-        self._collection = None
+        # lazy_collection could be:
+        # - None => means not populated
+        # - a set() => means we already have the pks
+        # - one or more keys => we have to get or intersect the set in redis
+        self._lazy_collection = None
         self._instances = False  # True when instances are asked
                                  # instead of raw pks
 
     def __iter__(self):
         for pk in self._collection:
             yield self.cls(pk) if self._instances else pk
+
+    @property
+    def _collection(self):
+        """
+        Effectively retrieve data according to lazy_collection.
+        """
+        conn = self.cls.get_connection()
+        collection = set()
+        if isinstance(self._lazy_collection, dict):
+            if "key" in self._lazy_collection:
+                collection = conn.smembers(self._lazy_collection['key'])
+            elif "keys" in self._lazy_collection:
+                collection = conn.sinter(self._lazy_collection['keys'])
+        elif isinstance(self._lazy_collection, set):
+            collection = self._lazy_collection
+        return list(collection)
 
     def __call__(self, **filters):
         """
@@ -46,7 +66,9 @@ class CollectionManager(object):
         # --- No filters, return the whole collection
         if not query_fields:
             # No pk, no other kwargs, return all the collection
-            self._collection = self.cls._redis_attr_pk.collection()
+            self._lazy_collection = {
+                "key": self.cls._redis_attr_pk.collection_key
+            }
 
 
         # --- There is a pk in the filters
@@ -61,7 +83,7 @@ class CollectionManager(object):
                 obj = self.cls(value)
             except ValueError:  # FIXME use DoesNotExist
                 # A non existing pk = empty result
-                self._collection = set()
+                self._lazy_collection = set()
             else:
                 # Existing object, check all fields
                 fail = False
@@ -71,11 +93,11 @@ class CollectionManager(object):
                         if field.proxy_get() != obj_value:
                             # Some asked field value differs from the object
                             # Nothing can be returned
-                            self._collection = set()
+                            self._lazy_collection = set()
                             fail = True
                             break
                 if not fail:
-                    self._collection = set([obj.pk.normalize(value)])
+                    self._lazy_collection = set([obj.pk.normalize(value)])
 
         # --- Filters
         else:
@@ -86,7 +108,7 @@ class CollectionManager(object):
                 index_keys.append(field.index_key(value))
 
             # Return intersection of all sets to get matching entries
-            self._collection = self.cls.get_connection().sinter(index_keys)
+            self._lazy_collection = {"keys": index_keys}
         return self
 
     def __len__(self):
