@@ -61,11 +61,21 @@ class CollectionManager(object):
         conn = self.cls.get_connection()
         if "keys" in self._lazy_collection:
             if self._sort is not None:
-                tmp_key = self._unique_key()
-                conn.sinterstore(tmp_key, self._lazy_collection['keys'])
-                collection = conn.sort(tmp_key, **self._sort)
-                conn.delete(tmp_key)
+                if len(self._lazy_collection['keys']) > 1:
+                    # Optimization: store only if there is more
+                    # than one set
+                    tmp_key = self._unique_key()
+                    conn.sinterstore(tmp_key, self._lazy_collection['keys'])
+                    collection = conn.sort(tmp_key, **self._sort)
+                    conn.delete(tmp_key)
+                else:
+                    collection = conn.sort(
+                        self._lazy_collection['keys'][0],
+                        **self._sort
+                    )
             else:
+                # FIXME: should we call sinter only when there is more
+                # than one key (for optimization)?
                 collection = conn.sinter(self._lazy_collection['keys'])
         elif "pk" in self._lazy_collection:
             if self._sort is not None:
