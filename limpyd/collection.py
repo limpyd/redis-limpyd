@@ -2,6 +2,7 @@
 
 from logging import getLogger
 
+from limpyd.utils import unique_key
 
 class CollectionManager(object):
     """
@@ -26,30 +27,58 @@ class CollectionManager(object):
         self._lazy_collection = None
         self._instances = False  # True when instances are asked
                                  # instead of raw pks
+        self._sort = {}
 
     def __iter__(self):
-        for pk in self._collection:
-            yield self.cls(pk) if self._instances else pk
+        return self._collection.__iter__()
+
+    def __getitem__(self, arg):
+        if isinstance(arg, slice):
+            # A slice has been requested
+            # so add it to the sort parameters
+            # and return the collection (a scliced collection is no more
+            # chainable, so we do not return `self`)
+            start = arg.start or 0
+            stop = arg.stop  # FIXME: what to do if no stop given?
+            self._sort['start'] = start
+            # Redis expects a number of element, not python style stop value
+            self._sort['num'] = arg.stop - start
+            return self._collection
+        else:
+            # A single item has been requested
+            return self._collection[arg]
 
     @property
     def _collection(self):
         """
         Effectively retrieve data according to lazy_collection.
+        Sorting is not available if a pk as been requested (this is linked
+        to the fact that pk have no index, due to optimization reasons).
         """
         conn = self.cls.get_connection()
-        collection = set()
-        if isinstance(self._lazy_collection, dict):
-            if "key" in self._lazy_collection:
-                collection = conn.smembers(self._lazy_collection['key'])
-            elif "keys" in self._lazy_collection:
+        if "keys" in self._lazy_collection:
+            if self._sort:
+                tmp_key = self._unique_key()
+                conn.sinterstore(tmp_key, self._lazy_collection['keys'])
+                collection = conn.sort(tmp_key, **self._sort)
+                conn.delete(tmp_key)
+            else:
                 collection = conn.sinter(self._lazy_collection['keys'])
-        elif isinstance(self._lazy_collection, set):
-            collection = self._lazy_collection
-        return list(collection)
+        elif "pk" in self._lazy_collection:
+            if self._sort:
+                raise ImplementationError("Cannot sort when using a pk parameter.")
+            collection = set([self._lazy_collection['pk']])
+        else:
+            # Empty result
+            collection = set()
+        if self._instances:
+            return [self.cls(pk) for pk in collection]
+        else:
+            return list(collection)
 
     def __call__(self, **filters):
         """
-        Define self._collection according to filters
+        Define self._lazy_collection according to filters
         """
         # FIXME should we really implement the pk + filters option?
         # It could be cleaner to leave this kind of specific usage to the
@@ -67,7 +96,7 @@ class CollectionManager(object):
         if not query_fields:
             # No pk, no other kwargs, return all the collection
             self._lazy_collection = {
-                "key": self.cls._redis_attr_pk.collection_key
+                "keys": [self.cls._redis_attr_pk.collection_key]
             }
 
 
@@ -83,7 +112,7 @@ class CollectionManager(object):
                 obj = self.cls(value)
             except ValueError:  # FIXME use DoesNotExist
                 # A non existing pk = empty result
-                self._lazy_collection = set()
+                self._lazy_collection = {}
             else:
                 # Existing object, check all fields
                 fail = False
@@ -93,11 +122,13 @@ class CollectionManager(object):
                         if field.proxy_get() != obj_value:
                             # Some asked field value differs from the object
                             # Nothing can be returned
-                            self._lazy_collection = set()
+                            self._lazy_collection = {}
                             fail = True
                             break
                 if not fail:
-                    self._lazy_collection = set([obj.pk.normalize(value)])
+                    self._lazy_collection = {
+                        "pk": obj.pk.normalize(value)
+                    }
 
         # --- Filters
         else:
@@ -123,3 +154,13 @@ class CollectionManager(object):
     def instances(self):
         self._instances = True
         return self
+
+    def sort(self, **parameters):
+        self._sort = parameters
+        return self
+
+    def _unique_key(self):
+        """
+        Create a unique key.
+        """
+        return unique_key(self.cls.get_connection())

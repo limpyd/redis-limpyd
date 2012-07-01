@@ -122,46 +122,6 @@ class IndexationTest(LimpydBaseTest):
         self.assertTrue(Bike.exists(name=u"vélo"))
 
 
-class CollectionTest(LimpydBaseTest):
-
-    def test_new_instance_should_be_added_in_collection(self):
-        self.assertEqual(set(Bike.collection()), set())
-        bike = Bike()
-        self.assertEqual(set(Bike.collection()), set())
-        bike1 = Bike(name="trotinette")
-        self.assertEqual(set(Bike.collection()), set(['1']))
-        bike2 = Bike(name="tommasini")
-        self.assertEqual(set(Bike.collection()), set(['1', '2']))
-
-    def test_filter_from_kwargs(self):
-        self.assertEqual(set(Boat.collection()), set())
-        boat1 = Boat(name="Pen Duick I", length=15.1, launched=1898)
-        boat2 = Boat(name="Pen Duick II", length=13.6, launched=1964)
-        boat3 = Boat(name="Pen Duick III", length=17.45, launched=1966)
-        boat4 = Boat(name="Rainbow Warrior I", power="engine", length=40, launched=1955)
-        self.assertEqual(len(Boat.collection()), 4)
-        self.assertEqual(len(Boat.collection(power="sail")), 3)
-        self.assertEqual(len(Boat.collection(power="sail", launched=1966)), 1)
-
-    def test_should_raise_if_filter_is_not_indexable_field(self):
-        boat = Boat(name="Pen Duick I", length=15.1)
-        with self.assertRaises(ValueError):
-            Boat.collection(length=15.1)
-
-    def test_instances_should_return_instances(self):
-        """
-        Test the `instances` method.
-        """
-        self.assertEqual(set(Boat.collection()), set())
-        boat1 = Boat(name="Pen Duick I", length=15.1, launched=1898)
-        boat2 = Boat(name="Pen Duick II", length=13.6, launched=1964)
-        boat3 = Boat(name="Pen Duick III", length=17.45, launched=1966)
-        boat4 = Boat(name="Rainbow Warrior I", power="engine", length=40, launched=1955)
-        for instance in Boat.instances():
-            self.assertTrue(isinstance(instance, Boat))
-            self.assertIn(instance.get_pk(), Boat.collection())
-
-
 class GetTest(LimpydBaseTest):
 
     def test_should_considere_one_arg_as_pk(self):
