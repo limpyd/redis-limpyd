@@ -42,6 +42,28 @@ class CollectionTest(CollectionBaseTest):
         with self.assertRaises(ValueError):
             Boat.collection(length=15.1)
 
+    def test_collection_should_be_lazy(self):
+        # Simple collection
+        hits_before = self.connection.info()['keyspace_hits']
+        collection = Boat.collection()
+        hits_after = self.connection.info()['keyspace_hits']
+        self.assertEqual(hits_before, hits_after)
+        # Instances
+        hits_before = self.connection.info()['keyspace_hits']
+        collection = Boat.instances()
+        hits_after = self.connection.info()['keyspace_hits']
+        self.assertEqual(hits_before, hits_after)
+        # Filtered
+        hits_before = self.connection.info()['keyspace_hits']
+        collection = Boat.collection(power="sail")
+        hits_after = self.connection.info()['keyspace_hits']
+        self.assertEqual(hits_before, hits_after)
+        # Slice it, it will be evaluated
+        hits_before = self.connection.info()['keyspace_hits']
+        collection = Boat.collection()[:2]
+        hits_after = self.connection.info()['keyspace_hits']
+        self.assertNotEqual(hits_before, hits_after)
+
 
 class SortTest(CollectionBaseTest):
     """
