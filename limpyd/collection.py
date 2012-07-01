@@ -7,27 +7,26 @@ from limpyd.utils import unique_key
 class CollectionManager(object):
     """
     Retrieve objects collection, optionnaly slice and order it.
+    CollectionManager is lazy: it will call redis only when evaluating it
+    (iterating, slicing, forcing as list...)
 
-    ..API:
-        MyModel.collection() => return the whole collection.
-        MyModel.collection().sort('field') => return the collection sorted.
-        MyModel.collection().sort('field')[:10] => slice the sorted collection.
-        MyModel.collection().instances() => return the instances
+    API:
+    MyModel.collection(**filters) => return the whole collection, eventually filtered.
+    MyModel.collection().sort(by='field') => return the collection sorted.
+    MyModel.collection().sort(by='field')[:10] => slice the sorted collection.
+    MyModel.collection().instances() => return the instances
 
-    ..note:
-        only sorted collection are sliceable.
+    Note:
+    Slicing a collection will force a sort.
     """
 
     def __init__(self, cls):
         self.cls = cls
-        # lazy_collection could be:
-        # - None => means not populated
-        # - a set() => means we already have the pks
-        # - one or more keys => we have to get or intersect the set in redis
-        self._lazy_collection = None
+        self._lazy_collection = None  # Store infos to make the requested
+                                      # collection.
         self._instances = False  # True when instances are asked
                                  # instead of raw pks
-        self._sort = None
+        self._sort = None  # Will store sorting parameters
 
     def __iter__(self):
         return self._collection.__iter__()
@@ -44,7 +43,8 @@ class CollectionManager(object):
             if self._sort is None:
                 self._sort= {}
             self._sort['start'] = start
-            # Redis expects a number of element, not python style stop value
+            # Redis expects a number of elements
+            # not a python style stop value
             self._sort['num'] = arg.stop - start
             return self._collection
         else:
@@ -80,9 +80,7 @@ class CollectionManager(object):
             return list(collection)
 
     def __call__(self, **filters):
-        """
-        Define self._lazy_collection according to filters
-        """
+        """Define self._lazy_collection according to filters."""
         # FIXME should we really implement the pk + filters option?
         # It could be cleaner to leave this kind of specific usage to the
         # implementer of the lib
@@ -177,6 +175,7 @@ class CollectionManager(object):
 
     def sort(self, **parameters):
         """
+        Parameters:
         `by`: pass either a field name or a wildcard string to sort on
               use `-` to make a desc sort.
         `alpha`: set it to True to sort lexicographilcally instead of numerically.
