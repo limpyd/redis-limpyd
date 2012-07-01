@@ -27,7 +27,7 @@ class CollectionManager(object):
         self._lazy_collection = None
         self._instances = False  # True when instances are asked
                                  # instead of raw pks
-        self._sort = {}
+        self._sort = None
 
     def __iter__(self):
         return self._collection.__iter__()
@@ -40,6 +40,9 @@ class CollectionManager(object):
             # chainable, so we do not return `self`)
             start = arg.start or 0
             stop = arg.stop  # FIXME: what to do if no stop given?
+            # if sort has not been called, force a sort
+            if self._sort is None:
+                self._sort= {}
             self._sort['start'] = start
             # Redis expects a number of element, not python style stop value
             self._sort['num'] = arg.stop - start
@@ -57,7 +60,7 @@ class CollectionManager(object):
         """
         conn = self.cls.get_connection()
         if "keys" in self._lazy_collection:
-            if self._sort:
+            if self._sort is not None:
                 tmp_key = self._unique_key()
                 conn.sinterstore(tmp_key, self._lazy_collection['keys'])
                 collection = conn.sort(tmp_key, **self._sort)
@@ -65,7 +68,7 @@ class CollectionManager(object):
             else:
                 collection = conn.sinter(self._lazy_collection['keys'])
         elif "pk" in self._lazy_collection:
-            if self._sort:
+            if self._sort is not None:
                 raise ImplementationError("Cannot sort when using a pk parameter.")
             collection = set([self._lazy_collection['pk']])
         else:
@@ -155,7 +158,30 @@ class CollectionManager(object):
         self._instances = True
         return self
 
+    def _coerce_by_parameter(self, parameters):
+        if "by" in parameters:
+            by = parameters['by']
+            # Manage desc option
+            if by.startswith('-'):
+                parameters['desc'] = True
+                by = by[1:]
+            try:
+                # Is it a field name?
+                field = getattr(self.cls, "_redis_attr_%s" % by)
+            except AttributeError:
+                # It's not a field, so keep the original string
+                pass
+            else:
+                parameters['by'] = field.sort_wildcard
+        return parameters
+
     def sort(self, **parameters):
+        """
+        `by`: pass either a field name or a wildcard string to sort on
+              use `-` to make a desc sort.
+        `alpha`: set it to True to sort lexicographilcally instead of numerically.
+        """
+        parameters = self._coerce_by_parameter(parameters)
         self._sort = parameters
         return self
 

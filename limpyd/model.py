@@ -283,6 +283,17 @@ class RedisModel(RedisProxyCommand):
             "hash",
         )
 
+    @classmethod
+    def sort_wildcard(cls):
+        """
+        Used to sort Hashfield. See Hashfield.sort_widlcard.
+        """
+        return cls.make_key(
+            cls.__name__.lower(),
+            "*",
+            "hash",
+        )
+
     def hmget(self, *args):
         if len(args) == 0:
             args = self._hashable_fields

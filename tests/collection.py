@@ -6,7 +6,7 @@ from limpyd import model
 from limpyd import fields
 from limpyd.exceptions import *
 from base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
-from model import Boat, Bike
+from model import Boat, Bike, TestModelConnectionMixin
 
 
 class CollectionBaseTest(LimpydBaseTest):
@@ -59,15 +59,71 @@ class SortTest(CollectionBaseTest):
 
     def test_sort_without_argument_should_be_numeric(self):
         self.assertEqual(
-            set(Boat.collection().sort()),
-            set(['1', '2', '3', '4'])
+            list(Boat.collection().sort()),
+            ['1', '2', '3', '4']
         )
 
     def test_sort_should_be_scliceable(self):
         self.assertEqual(
-            set(Boat.collection().sort()[1:3]),
-            set(['2', '3'])
-        )        
+            list(Boat.collection().sort()[1:3]),
+            ['2', '3']
+        )
+
+    def test_sort_by_stringfield(self):
+        self.assertEqual(
+            list(Boat.collection().sort(by="length")),
+            ['2', '1', '3', '4']
+        )
+
+    def test_sort_by_stringfield_desc(self):
+        self.assertEqual(
+            list(Boat.collection().sort(by="-length")),
+            ['4', '3', '1', '2']
+        )
+
+    def test_sort_by_hashablefield(self):
+
+        class Event(TestModelConnectionMixin, model.RedisModel):
+            year = fields.HashableField()
+
+        # Create some instances
+        Event(year=2000)
+        Event(year=1900)
+        Event(year=1820)
+        Event(year=1999)
+
+        self.assertEqual(
+            list(Event.collection().sort(by="year")),
+            ['3', '2', '4', '1']
+        )
+
+        # Sort it desc
+        self.assertEqual(
+            list(Event.collection().sort(by="-year")),
+            ['1', '4', '2', '3']
+        )
+
+    def test_sort_by_alpha(self):
+
+        class Singer(TestModelConnectionMixin, model.RedisModel):
+            name = fields.HashableField()
+
+        # Create some instances
+        Singer(name="Jacques Higelin")
+        Singer(name="Jacques Brel")
+        Singer(name="Alain Bashung")
+        Singer(name=u"Gérard Blanchard")
+
+        self.assertEqual(
+            list(Singer.collection().sort(by="name", alpha=True)),
+            ['3', '4', '2', '1']
+        )
+
+        # Sort it desc
+        self.assertEqual(
+            list(Singer.collection().sort(by="-name", alpha=True)),
+            ['1', '2', '4', '3']
+        )
 
 
 class InstancesTest(CollectionBaseTest):
@@ -86,6 +142,30 @@ class InstancesTest(CollectionBaseTest):
         for instance in Boat.collection().instances().sort():
             self.assertTrue(isinstance(instance, Boat))
 
+    def test_instances_can_be_filtered_sliced_and_sorted(self):
+        """
+        Try to chain all the collection possibilities.
+        """
+        class Band(TestModelConnectionMixin, model.RedisModel):
+            name = fields.HashableField(unique=True)
+            started_in = fields.HashableField()
+            genre = fields.HashableField(indexable=True)
+
+        madrugada = Band(name="Madrugada", started_in="1992", genre="Alternative")
+        radiohead = Band(name="Radiohead", started_in="1985", genre="Alternative")
+        the_veils = Band(name="The Veils", started_in="2001", genre="Alternative")
+        archive = Band(name="Archive", started_in="1994", genre="Progressive Rock")
+
+        self.assertEqual(
+            [band._pk for band in Band.collection(genre="Alternative").instances().sort(by="-started_in")[:2]],
+            [the_veils._pk, madrugada._pk]
+        )
+
+        # Should work also with instances shortcut
+        self.assertEqual(
+            [band._pk for band in Band.instances(genre="Alternative").sort(by="started_in")[:2]],
+            [radiohead._pk, madrugada._pk]
+        )
 
 if __name__ == '__main__':
     unittest.main()
