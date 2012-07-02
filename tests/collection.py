@@ -91,6 +91,12 @@ class SortTest(CollectionBaseTest):
             ['2', '3']
         )
 
+    def test_sort_and_getitem(self):
+        self.assertEqual(Boat.collection().sort()[0], '1')
+        self.assertEqual(Boat.collection().sort()[1], '2')
+        self.assertEqual(Boat.collection().sort()[2], '3')
+        self.assertEqual(Boat.collection().sort()[3], '4')
+
     def test_sort_by_stringfield(self):
         self.assertEqual(
             list(Boat.collection().sort(by="length")),
@@ -187,6 +193,12 @@ class InstancesTest(CollectionBaseTest):
         self.assertEqual(
             [band._pk for band in Band.instances(genre="Alternative").sort(by="started_in")[:2]],
             [radiohead._pk, madrugada._pk]
+        )
+
+        # Getitem should work also
+        self.assertEqual(
+            Band.instances(genre="Alternative").sort(by="started_in")[0]._pk,
+            radiohead._pk
         )
 
 if __name__ == '__main__':
