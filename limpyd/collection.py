@@ -74,9 +74,10 @@ class CollectionManager(object):
                         **self._sort
                     )
             else:
-                # FIXME: should we call sinter only when there is more
-                # than one key (for optimization)?
-                collection = conn.sinter(self._lazy_collection['keys'])
+                if len(self._lazy_collection['keys']) > 1:
+                    collection = conn.sinter(self._lazy_collection['keys'])
+                else:
+                    collection = conn.smembers(self._lazy_collection['keys'][0])
         elif "pk" in self._lazy_collection:
             if self._sort is not None:
                 raise ImplementationError("Cannot sort when using a pk parameter.")
