@@ -32,6 +32,11 @@ class CollectionManager(object):
         return self._collection.__iter__()
 
     def __getitem__(self, arg):
+        if self._sort is None:
+            # Force a sort
+            # Redis need it, and getting items from their index whitout
+            # sorting does not make sense
+            self._sort= {}
         if isinstance(arg, slice):
             # A slice has been requested
             # so add it to the sort parameters
@@ -39,17 +44,19 @@ class CollectionManager(object):
             # chainable, so we do not return `self`)
             start = arg.start or 0
             stop = arg.stop  # FIXME: what to do if no stop given?
-            # if sort has not been called, force a sort
-            if self._sort is None:
-                self._sort= {}
             self._sort['start'] = start
             # Redis expects a number of elements
             # not a python style stop value
-            self._sort['num'] = arg.stop - start
+            self._sort['num'] = stop - start
             return self._collection
         else:
             # A single item has been requested
-            return self._collection[arg]
+            # Nevertheless, use the redis pagination, to minimize
+            # data transfert and use the fast redis offset system
+            start = arg
+            self._sort['start'] = start
+            self._sort['num'] = 1  # one element
+            return self._collection[0]
 
     @property
     def _collection(self):
