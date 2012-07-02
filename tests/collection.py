@@ -75,7 +75,7 @@ class SortTest(CollectionBaseTest):
         A temporary key is created for sorting, check that it is deleted.
         """
         keys_before = self.connection.info()['db%s' % TEST_CONNECTION_SETTINGS['db']]['keys']
-        s = Boat.collection().sort()
+        s = list(Boat.collection().sort())
         keys_after = self.connection.info()['db%s' % TEST_CONNECTION_SETTINGS['db']]['keys']
         self.assertEqual(keys_after, keys_before)
 
