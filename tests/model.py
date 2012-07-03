@@ -691,5 +691,71 @@ class ProxyTest(LimpydBaseTest):
         self.assertEqual(boat.power.hget(), "engine")
 
 
+class IndexableMultiValuesFieldTest(LimpydBaseTest):
+
+    class SetModel(TestModelConnectionMixin, model.RedisModel):
+        field = fields.SetField(indexable=True)
+
+    class ListModel(TestModelConnectionMixin, model.RedisModel):
+        field = fields.ListField(indexable=True)
+
+    class SortedSetModel(TestModelConnectionMixin, model.RedisModel):
+        field = fields.SortedSetField(indexable=True)
+
+    def test_indexable_sets_are_indexed(self):
+        obj = self.SetModel()
+        obj.field.sadd('foo')
+        self.assertEqual(set(self.SetModel.collection(field='foo')), set([obj._pk]))
+        self.assertEqual(set(self.SetModel.collection(field='bar')), set())
+
+        obj.field.sadd('bar')
+        self.assertEqual(set(self.SetModel.collection(field='foo')), set([obj._pk]))
+        self.assertEqual(set(self.SetModel.collection(field='bar')), set([obj._pk]))
+
+        obj.field.srem('foo')
+        self.assertEqual(set(self.SetModel.collection(field='foo')), set())
+        self.assertEqual(set(self.SetModel.collection(field='bar')), set([obj._pk]))
+
+        obj.delete()
+        self.assertEqual(set(self.SetModel.collection(field='foo')), set())
+        self.assertEqual(set(self.SetModel.collection(field='bar')), set())
+
+    def test_indexable_lists_are_indexed(self):
+        obj = self.ListModel()
+        obj.field.lpush('foo')
+        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
+        self.assertEqual(set(self.ListModel.collection(field='bar')), set())
+
+        obj.field.lpush('bar')
+        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
+        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
+
+        obj.field.rpop()  # will remove foo
+        self.assertEqual(set(self.ListModel.collection(field='foo')), set())
+        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
+
+        obj.delete()
+        self.assertEqual(set(self.ListModel.collection(field='foo')), set())
+        self.assertEqual(set(self.ListModel.collection(field='bar')), set())
+
+    def test_indexable_sorted_sets_are_indexed(self):
+        obj = self.SortedSetModel()
+        obj.field.zadd(1.0, 'foo')
+        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set([obj._pk]))
+        self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set())
+
+        obj.field.zadd(2.0, 'bar')
+        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set([obj._pk]))
+        self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set([obj._pk]))
+
+        obj.field.zrem('foo')
+        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set())
+        self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set([obj._pk]))
+
+        obj.delete()
+        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set())
+        self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set())
+
+
 if __name__ == '__main__':
     unittest.main()

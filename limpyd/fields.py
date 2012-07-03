@@ -341,24 +341,62 @@ class StringField(IndexableField):
     available_modifiers = ('append', 'decr', 'decrby', 'getset', 'incr', 'incrby', 'incrbyfloat', 'set', 'setbit', 'setnx', 'setrange')
 
 
-class SortedSetField(RedisField):
+class IndexableMultiValuesField(IndexableField):
+    """
+    Simple naive implementation of an indexable field which can hold multiple
+    values. Naive because indexing and deindexing will work on ALL values, each
+    time.
+    """
 
+    def index(self):
+        """
+        Index all values stored in the field
+        """
+        for value in self.proxy_get():
+            self.index_value(value)
+
+    def deindex(self):
+        """
+        Deindex all values stored in the field
+        """
+        for value in self.proxy_get():
+            self.deindex_value(value)
+
+
+class SortedSetField(IndexableMultiValuesField):
+
+    proxy_getter = "zmembers"
     proxy_setter = "zadd"
     available_getters = ('zcard', 'zcount', 'zrange', 'zrangebyscore', 'zrank', 'zrevrange', 'zrevrangebyscore', 'zrevrank', 'zscore')
     available_modifiers = ('zadd', 'zincrby', 'zrem', 'zremrangebyrank', 'zremrangebyscore')
 
+    def zmembers(self):
+        """
+        Used as a proxy_getter to get all values stored in the field.
+        """
+        return self.zrange(0, -1)
 
-class SetField(RedisField):
 
+class SetField(IndexableMultiValuesField):
+
+    proxy_getter = "smembers"
     proxy_setter = "sadd"
     available_getters = ('scard', 'sismember', 'smembers', 'srandmember')
     available_modifiers = ('sadd', 'spop', 'srem',)
 
 
-class ListField(RedisField):
+class ListField(IndexableMultiValuesField):
+
+    proxy_getter = "lmembers"
     proxy_setter = "lpush"
     available_getters = ('lindex', 'llen', 'lrange')
     available_modifiers = ('linsert', 'lpop', 'lpush', 'lpushx', 'lrem', 'lset', 'ltrim', 'rpop', 'rpush', 'rpushx')
+
+    def lmembers(self):
+        """
+        Used as a proxy_getter to get all values stored in the field.
+        """
+        return self.lrange(0, -1)
 
 
 class HashableField(IndexableField):
