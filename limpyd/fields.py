@@ -166,7 +166,7 @@ class RedisField(RedisProxyCommand):
         Key used to sort models on this field.
         """
         return self.make_key(
-            self._model.__name__.lower(),
+            self._model._name,
             "*",
             self.name,
         )

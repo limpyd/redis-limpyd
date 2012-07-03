@@ -301,7 +301,7 @@ class RedisModel(RedisProxyCommand):
         Used to sort Hashfield. See Hashfield.sort_widlcard.
         """
         return cls.make_key(
-            cls.__name__.lower(),
+            cls._name,
             "*",
             "hash",
         )
