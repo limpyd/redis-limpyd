@@ -7,6 +7,7 @@ from limpyd.fields import *
 from limpyd.utils import make_key
 from limpyd.exceptions import *
 from limpyd.database import RedisDatabase
+from limpyd.collection import CollectionManager
 
 __all__ = ['RedisModel', ]
 
@@ -212,58 +213,14 @@ class RedisModel(RedisProxyCommand):
                     field.proxy_set(field.default)
 
     @classmethod
-    def collection(cls, **kwargs):
-        """
-        Return a set of pk, eventually filtered by kwargs.
-        Specific work is done if the pk is in the kwargs
-        """
-        query_fields = kwargs.copy()
-
-        # Check if we have a pk and if so, do specific work
-        pk_fields = [k for k in kwargs.keys() if cls._field_is_pk(k)]
-        if pk_fields:
-            if len(pk_fields) > 1:
-                raise ValueError("You must use only one pk field in filtering")
-            field_name = pk_fields[0]
-            value = kwargs[field_name]
-            query_fields.pop(field_name)
-            try:
-                # try to get the object
-                obj = cls(value)
-            except ValueError:
-                # A non existing pk = empty result
-                return set()
-            else:
-                # Existing object, check all fields
-                if query_fields:
-                    for obj_field_name, obj_value in query_fields.iteritems():
-                        field = getattr(obj, obj_field_name)
-                        if field.proxy_get() != obj_value:
-                            return set()
-
-                # no others fields, or all test ok, return the pk
-                return set([obj.pk.normalize(value)])
-
-        if not query_fields:
-            # No pk, no other kwargs, return all the collection
-            return cls._redis_attr_pk.collection()
-
-        # Prepare a list of sets for each query parameter
-        index_keys = []
-        for field_name, value in query_fields.iteritems():
-            field = getattr(cls, "_redis_attr_%s" % field_name)
-            index_keys.append(field.index_key(value))
-
-        # Return intersection of all sets to get matching entries
-        return cls.get_connection().sinter(index_keys)
+    def collection(cls, **filters):
+        collection = CollectionManager(cls)
+        return collection(**filters)
 
     @classmethod
-    def instances(cls, **kwargs):
-        """
-        Like collection method, but yield instances.
-        """
-        for pk in cls.collection(**kwargs):
-            yield cls(pk)
+    def instances(cls, **filters):
+        # FIXME Keep as shortcut or remove for clearer API?
+        return cls.collection(**filters).instances()
 
     @classmethod
     def _field_is_pk(cls, name):
@@ -335,6 +292,17 @@ class RedisModel(RedisProxyCommand):
         return self.make_key(
             self._name,
             self.get_pk(),
+            "hash",
+        )
+
+    @classmethod
+    def sort_wildcard(cls):
+        """
+        Used to sort Hashfield. See Hashfield.sort_widlcard.
+        """
+        return cls.make_key(
+            cls.__name__.lower(),
+            "*",
             "hash",
         )
 

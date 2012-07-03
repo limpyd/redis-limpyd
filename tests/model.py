@@ -123,46 +123,6 @@ class IndexationTest(LimpydBaseTest):
         self.assertTrue(Bike.exists(name=u"vélo"))
 
 
-class CollectionTest(LimpydBaseTest):
-
-    def test_new_instance_should_be_added_in_collection(self):
-        self.assertEqual(Bike.collection(), set())
-        bike = Bike()
-        self.assertEqual(Bike.collection(), set())
-        bike1 = Bike(name="trotinette")
-        self.assertEqual(Bike.collection(), set(['1']))
-        bike2 = Bike(name="tommasini")
-        self.assertEqual(Bike.collection(), set(['1', '2']))
-
-    def test_filter_from_kwargs(self):
-        self.assertEqual(Boat.collection(), set())
-        boat1 = Boat(name="Pen Duick I", length=15.1, launched=1898)
-        boat2 = Boat(name="Pen Duick II", length=13.6, launched=1964)
-        boat3 = Boat(name="Pen Duick III", length=17.45, launched=1966)
-        boat4 = Boat(name="Rainbow Warrior I", power="engine", length=40, launched=1955)
-        self.assertEqual(len(Boat.collection()), 4)
-        self.assertEqual(len(Boat.collection(power="sail")), 3)
-        self.assertEqual(len(Boat.collection(power="sail", launched=1966)), 1)
-
-    def test_should_raise_if_filter_is_not_indexable_field(self):
-        boat = Boat(name="Pen Duick I", length=15.1)
-        with self.assertRaises(ValueError):
-            Boat.collection(length=15.1)
-
-    def test_instances_should_return_instances(self):
-        """
-        Test the `instances` method.
-        """
-        self.assertEqual(Boat.collection(), set())
-        boat1 = Boat(name="Pen Duick I", length=15.1, launched=1898)
-        boat2 = Boat(name="Pen Duick II", length=13.6, launched=1964)
-        boat3 = Boat(name="Pen Duick III", length=17.45, launched=1966)
-        boat4 = Boat(name="Rainbow Warrior I", power="engine", length=40, launched=1955)
-        for instance in Boat.instances():
-            self.assertTrue(isinstance(instance, Boat))
-            self.assertIn(instance.get_pk(), Boat.collection())
-
-
 class GetTest(LimpydBaseTest):
 
     def test_should_considere_one_arg_as_pk(self):
@@ -516,19 +476,19 @@ class PKFieldTest(LimpydBaseTest):
         # default auto pk
         self.AutoPkModel(name="foo")
         self.AutoPkModel(name="foo")
-        self.assertEqual(self.AutoPkModel.collection(name="foo"), set(['1', '2']))
-        self.assertEqual(self.AutoPkModel.collection(pk=1), set(['1', ]))
-        self.assertEqual(self.AutoPkModel.collection(name="foo", pk=1), set(['1', ]))
-        self.assertEqual(self.AutoPkModel.collection(name="foo", pk=3), set())
-        self.assertEqual(self.AutoPkModel.collection(name="bar", pk=1), set())
+        self.assertEqual(set(self.AutoPkModel.collection(name="foo")), set(['1', '2']))
+        self.assertEqual(set(self.AutoPkModel.collection(pk=1)), set(['1', ]))
+        self.assertEqual(set(self.AutoPkModel.collection(name="foo", pk=1)), set(['1', ]))
+        self.assertEqual(set(self.AutoPkModel.collection(name="foo", pk=3)), set())
+        self.assertEqual(set(self.AutoPkModel.collection(name="bar", pk=1)), set())
         # specific pk
         self.NotAutoPkModel(name="foo", pk="100")
         self.NotAutoPkModel(name="foo", pk="200")
-        self.assertEqual(self.NotAutoPkModel.collection(name="foo"), set(['100', '200']))
-        self.assertEqual(self.NotAutoPkModel.collection(pk=100), set(['100', ]))
-        self.assertEqual(self.NotAutoPkModel.collection(name="foo", pk=100), set(['100', ]))
-        self.assertEqual(self.NotAutoPkModel.collection(name="foo", pk=300), set())
-        self.assertEqual(self.NotAutoPkModel.collection(name="bar", pk=100), set())
+        self.assertEqual(set(self.NotAutoPkModel.collection(name="foo")), set(['100', '200']))
+        self.assertEqual(set(self.NotAutoPkModel.collection(pk=100)), set(['100', ]))
+        self.assertEqual(set(self.NotAutoPkModel.collection(name="foo", pk=100)), set(['100', ]))
+        self.assertEqual(set(self.NotAutoPkModel.collection(name="foo", pk=300)), set())
+        self.assertEqual(set(self.NotAutoPkModel.collection(name="bar", pk=100)), set())
 
     def test_pk_cannot_be_updated(self):
         obj = self.AutoPkModel(name="foo")
@@ -559,8 +519,8 @@ class PKFieldTest(LimpydBaseTest):
         self.assertEqual(same_obj._pk, same_obj2._pk)
         self.assertEqual(same_obj.id.get(), same_obj2.id.get())
         # collection via pk or id
-        self.assertEqual(self.RedefinedNotAutoPkField.collection(pk=1), set(['1', ]))
-        self.assertEqual(self.RedefinedNotAutoPkField.collection(id=2), set(['2', ]))
+        self.assertEqual(set(self.RedefinedNotAutoPkField.collection(pk=1)), set(['1', ]))
+        self.assertEqual(set(self.RedefinedNotAutoPkField.collection(id=2)), set(['2', ]))
 
 
 class DeleteTest(LimpydBaseTest):

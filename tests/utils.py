@@ -3,14 +3,7 @@
 import unittest
 
 from base import LimpydBaseTest
-from limpyd.utils import make_key
-from logging import getLogger, DEBUG, StreamHandler
-
-
-class log_debug_to_stderr():
-    log = getLogger('limpyd')
-    log.setLevel(DEBUG)
-    log.addHandler(StreamHandler())
+from limpyd.utils import make_key, unique_key
 
 
 class MakeKeyTest(LimpydBaseTest):
@@ -26,6 +19,18 @@ class MakeKeyTest(LimpydBaseTest):
 
     def test_integer_element(self):
         self.assertEqual("integer:key:1", make_key("integer", "key", 1))
+
+
+class UniqueKeyTest(LimpydBaseTest):
+
+    def test_generated_key_must_be_a_string(self):
+        key = unique_key(self.connection)
+        self.assertEqual(type(key), str)
+
+    def test_generated_key_must_be_unique(self):
+        key1 = unique_key(self.connection)
+        key2 = unique_key(self.connection)
+        self.assertNotEqual(key1, key2)
 
 
 if __name__ == '__main__':

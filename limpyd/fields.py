@@ -160,6 +160,16 @@ class RedisField(RedisProxyCommand):
             raise TypeError('A field cannot use a database if not linked to a model')
         return self._model.database
 
+    def sort_wildcard(self):
+        """
+        Key used to sort models on this field.
+        """
+        return self.make_key(
+            self._model.__name__.lower(),
+            "*",
+            self.name,
+        )
+
     @property
     def connection(self):
         if not self._model:
@@ -335,6 +345,11 @@ class HashableField(IndexableField):
     @property
     def key(self):
         return self._instance.key
+
+    @property
+    def sort_wildcard(self):
+        return "%s->%s" % (self._model.sort_wildcard(), self.name)
+
 
     def _traverse_command(self, name, *args, **kwargs):
         """Add key AND the hash field to the args, and call the Redis command."""
