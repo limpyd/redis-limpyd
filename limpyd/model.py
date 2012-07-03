@@ -18,11 +18,11 @@ class MetaRedisModel(MetaRedisProxy):
     We make invisible for user that fields were class properties
     """
     def __new__(mcs, name, base, attrs):
-        is_root = RedisProxyCommand in base
+        is_abstract = attrs.get('abstract', False)
 
         it = type.__new__(mcs, name, base, attrs)
 
-        if not is_root:
+        if not is_abstract:
             if not hasattr(it, 'database') or not isinstance(it.database, RedisDatabase):
                 raise ImplementationError(
                     'You must define a database for the model %s' % name)
@@ -93,6 +93,7 @@ class MetaRedisModel(MetaRedisProxy):
         setattr(it, "_hashable_fields", _hashable_fields)
         if pk_field.name != 'pk':
             setattr(it, "_redis_attr_pk", getattr(it, "_redis_attr_%s" % pk_field.name))
+        setattr(it, "abstract", is_abstract)
 
         return it
 
@@ -106,6 +107,7 @@ class RedisModel(RedisProxyCommand):
 
     namespace = None  # all models in an app may have the same namespace
     cacheable = True
+    abstract = True
     DoesNotExist = DoesNotExist
 
     def __init__(self, *args, **kwargs):
