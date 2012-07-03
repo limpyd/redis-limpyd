@@ -676,16 +676,16 @@ class ConnectionTest(LimpydBaseTest):
 
 class ProxyTest(LimpydBaseTest):
 
-    def proxy_get_should_call_real_getter(self):
+    def test_proxy_get_should_call_real_getter(self):
         bike = Bike(name="rosalie", wheels=4)
         self.assertEqual(bike.name.proxy_get(), "rosalie")
         boat = Boat(name="Rainbow Warrior I", power="engine", length=40, launched=1955)
         self.assertEqual(boat.power.proxy_get(), "engine")
 
-    def proxy_set_should_call_real_setter(self):
+    def test_proxy_set_should_call_real_setter(self):
         bike = Bike(name="rosalia", wheels=4)
         bike.name.proxy_set('rosalie')
-        self.assertEqual(bike.name.get(), "rosaie")
+        self.assertEqual(bike.name.get(), "rosalie")
         boat = Boat(name="Rainbow Warrior I", power="human", length=40, launched=1955)
         boat.power.proxy_set('engine')
         self.assertEqual(boat.power.hget(), "engine")
