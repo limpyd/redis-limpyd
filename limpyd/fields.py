@@ -235,6 +235,13 @@ class RedisField(RedisProxyCommand):
                    kwargs=kwargs
                )
 
+    def exists(self):
+        """
+        Call the exists command to check if the redis key exists for the current
+        field
+        """
+        return self.connection.exists(self.key)
+
 
 class IndexableField(RedisField):
     """
@@ -356,7 +363,7 @@ class HashableField(IndexableField):
 
     proxy_getter = "hget"
     proxy_setter = "hset"
-    available_getters = ('hexists', 'hget')
+    available_getters = ('hget', )
     available_modifiers = ('hincrby', 'hincrbyfloat', 'hset', 'hsetnx')
 
     @property
@@ -387,6 +394,14 @@ class HashableField(IndexableField):
         redis command name
         """
         return self.delete()
+
+    def hexists(self):
+        """
+        Call the hexists command to check if the redis hash key exists for the
+        current field
+        """
+        return self.connection.hexists(self.key, self.name)
+    exists = hexists
 
 
 class PKField(RedisField):
