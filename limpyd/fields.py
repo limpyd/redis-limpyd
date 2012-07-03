@@ -262,13 +262,12 @@ class IndexableField(RedisField):
             self.index()
         return result
 
-    def index(self):
+    def index_value(self, value):
         # Has traverse_commande is blind, and can't infer the final value from
         # commands like ``append`` or ``setrange``, we let the command process
         # then check the result, and raise before modifying the indexes if the
         # value was not unique, and then remove the key
         # We should try a better algo
-        value = self.proxy_get()
         if value:
             value = value.decode('utf-8')  # FIXME centralize utf-8 handling?
         key = self.index_key(value)
@@ -287,17 +286,28 @@ class IndexableField(RedisField):
         log.debug("indexing %s with key %s" % (key, self._instance.get_pk()))
         return self.connection.sadd(key, self._instance.get_pk())
 
-    def deindex(self):
+    def index(self):
+        """
+        Index the current value of the field
+        """
+        self.index_value(self.proxy_get())
+
+    def deindex_value(self, value):
         """
         Remove stored index if needed.
         """
-        value = self.proxy_get()
         if value:
             value = value.decode('utf-8')
             key = self.index_key(value)
             return self.connection.srem(key, self._instance.get_pk())
         else:
             return True  # True?
+
+    def deindex(self):
+        """
+        Deindex the current value of the field
+        """
+        self.deindex_value(self.proxy_get())
 
     def delete(self):
         if self.indexable:
