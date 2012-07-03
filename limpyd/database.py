@@ -1,6 +1,8 @@
 # -*- coding:utf-8 -*-
 
 from redis.client import StrictPipeline
+from redis.exceptions import WatchError
+
 from limpyd import redis_connect, DEFAULT_CONNECTION_SETTINGS
 from limpyd.fields import RedisField
 from limpyd.exceptions import *
@@ -75,6 +77,22 @@ class RedisDatabase(object):
         """
         return _Pipeline(self, transaction=transaction)
 
+    def transaction(self, func, *watches, **kwargs):
+        """
+        Convenience method for executing the callable `func` as a transaction
+        while watching all keys specified in `watches`. The 'func' callable
+        should expect a single arguement which is a Pipeline object.
+        """
+        with self.pipeline(True) as pipe:
+            while 1:
+                try:
+                    if watches:
+                        pipe.watch(*watches)
+                    func(pipe)
+                    return pipe.execute()
+                except WatchError:
+                    continue
+
 
 class _Pipeline(StrictPipeline):
     """
@@ -106,7 +124,7 @@ class _Pipeline(StrictPipeline):
             if isinstance(watch, RedisField):
                 watch = watch.key
             watches.append(watch)
-        return super(_Pipeline, self, *watches)
+        return super(_Pipeline, self).watch(*watches)
 
     def reset(self):
         self._database._connection = self._original_connection
