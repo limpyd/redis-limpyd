@@ -458,11 +458,14 @@ class PKField(RedisField):
         """
         return '%s:collection' % self._model._name
 
-    def exists(self, value):
+    def exists(self, value=None):
         """
         Return True if the given pk value exists for the given class
         """
-        return self.connection.sismember(self.collection_key, value)
+        try:
+            return self.connection.sismember(self.collection_key, value or self.proxy_get())
+        except DoesNotExists:
+            return False
 
     def collection(self):
         """
