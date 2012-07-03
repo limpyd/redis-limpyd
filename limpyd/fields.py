@@ -160,6 +160,7 @@ class RedisField(RedisProxyCommand):
             raise TypeError('A field cannot use a database if not linked to a model')
         return self._model.database
 
+    @property
     def sort_wildcard(self):
         """
         Key used to sort models on this field.
