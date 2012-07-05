@@ -684,12 +684,24 @@ class FieldExistenceTest(LimpydBaseTest):
         boat = Boat(name="Pen Duick I")
         self.assertTrue(boat.power.exists())
 
-    def test_deleted_field_does_not_exist(self):
+    def test_field_with_set_value_exists(self):
         boat = Boat(name="Pen Duick I")
-        boat.power.delete()
-        self.assertFalse(boat.power.exists())
+        # test value given on init
+        self.assertTrue(boat.name.exists())
+        # test value manually set (StringField)
         boat.length.set(1)
         self.assertTrue(boat.length.exists())
+        # test value manually set (HashableField)
+        boat.power.hset('engine')
+        self.assertTrue(boat.power.exists())
+
+    def test_deleted_field_does_not_exist(self):
+        boat = Boat(name="Pen Duick I")
+        # test HashableField
+        boat.power.delete()
+        self.assertFalse(boat.power.exists())
+        # test StringField
+        boat.length.set(1)
         boat.length.delete()
         self.assertFalse(boat.length.exists())
 
