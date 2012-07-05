@@ -240,7 +240,15 @@ class RedisField(RedisProxyCommand):
         Call the exists command to check if the redis key exists for the current
         field
         """
-        return self.connection.exists(self.key)
+        try:
+            return self.connection.exists(self.key)
+        except DoesNotExist:
+            """
+            If the object doesn't exists anymore, it's PK is deleted, so the
+            "self.key" call will raise a DoesnotExist exception. We catch it
+            to return False, as the field does'nt exists too.
+            """
+            return False
 
 
 class IndexableField(RedisField):
@@ -374,7 +382,6 @@ class HashableField(IndexableField):
     def sort_wildcard(self):
         return "%s->%s" % (self._model.sort_wildcard(), self.name)
 
-
     def _traverse_command(self, name, *args, **kwargs):
         """Add key AND the hash field to the args, and call the Redis command."""
         # self.name is the name of the hash key field
@@ -400,7 +407,15 @@ class HashableField(IndexableField):
         Call the hexists command to check if the redis hash key exists for the
         current field
         """
-        return self.connection.hexists(self.key, self.name)
+        try:
+            return self.connection.hexists(self.key, self.name)
+        except DoesNotExist:
+            """
+            If the object doesn't exists anymore, it's PK is deleted, so the
+            "self.key" call will raise a DoesNotExist exception. We catch it
+            to return False, as the field does'nt exists too.
+            """
+            return False
     exists = hexists
 
 
@@ -460,11 +475,16 @@ class PKField(RedisField):
 
     def exists(self, value=None):
         """
-        Return True if the given pk value exists for the given class
+        Return True if the given pk value exists for the given class.
+        If no value is given, we use the value of the current field, which
+        is the value of the "_pk" attribute of its instance.
         """
         try:
             return self.connection.sismember(self.collection_key, value or self.proxy_get())
-        except DoesNotExists:
+        except AttributeError:
+            # If the instance is deleted, the _pk attribute doesn't exist
+            # anymore. So we catch the AttributeError to return False (this pk
+            # field doesn't exist anymore) in this specific case
             return False
 
     def collection(self):
