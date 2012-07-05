@@ -244,9 +244,9 @@ class RedisField(RedisProxyCommand):
             return self.connection.exists(self.key)
         except DoesNotExist:
             """
-            If the object doesn't exists anymore, it's PK is deleted, so the
+            If the object doesn't exists anymore, its PK is deleted, so the
             "self.key" call will raise a DoesnotExist exception. We catch it
-            to return False, as the field does'nt exists too.
+            to return False, as the field doesn't exists too.
             """
             return False
 
@@ -411,9 +411,9 @@ class HashableField(IndexableField):
             return self.connection.hexists(self.key, self.name)
         except DoesNotExist:
             """
-            If the object doesn't exists anymore, it's PK is deleted, so the
+            If the object doesn't exists anymore, its PK is deleted, so the
             "self.key" call will raise a DoesNotExist exception. We catch it
-            to return False, as the field does'nt exists too.
+            to return False, as the field doesn't exists too.
             """
             return False
     exists = hexists
