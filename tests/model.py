@@ -674,6 +674,57 @@ class ConnectionTest(LimpydBaseTest):
         self.assertEqual(bike.connection, boat.connection)
 
 
+class FieldExistenceTest(LimpydBaseTest):
+
+    def test_unset_field_does_not_exist(self):
+        boat = Boat(name="Pen Duick I")
+        self.assertFalse(boat.length.exists())
+
+    def test_field_with_default_value_exists(self):
+        boat = Boat(name="Pen Duick I")
+        self.assertTrue(boat.power.exists())
+
+    def test_field_with_set_value_exists(self):
+        boat = Boat(name="Pen Duick I")
+        # test value given on init
+        self.assertTrue(boat.name.exists())
+        # test value manually set (StringField)
+        boat.length.set(1)
+        self.assertTrue(boat.length.exists())
+        # test value manually set (HashableField)
+        boat.power.hset('engine')
+        self.assertTrue(boat.power.exists())
+
+    def test_deleted_field_does_not_exist(self):
+        boat = Boat(name="Pen Duick I")
+        # test HashableField
+        boat.power.delete()
+        self.assertFalse(boat.power.exists())
+        # test StringField
+        boat.length.set(1)
+        boat.length.delete()
+        self.assertFalse(boat.length.exists())
+
+    def test_field_of_deleted_object_does_not_exist(self):
+        boat = Boat(name="Pen Duick I")
+        boat.delete()
+        # test HashableField
+        self.assertFalse(boat.power.exists())
+        # test StringField
+        self.assertFalse(boat.length.exists())
+
+    def test_pk_field_exists(self):
+        boat = Boat(name="Pen Duick I")
+        self.assertTrue(boat.pk.exists())
+
+    def test_deleted_pk_does_not_exist(self):
+        boat = Boat(name="Pen Duick I")
+        same_boat = Boat(boat._pk)
+        boat.delete()
+        self.assertFalse(boat.pk.exists())
+        self.assertFalse(same_boat.pk.exists())
+
+
 class ProxyTest(LimpydBaseTest):
 
     def test_proxy_get_should_call_real_getter(self):

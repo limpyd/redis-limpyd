@@ -235,6 +235,22 @@ class RedisField(RedisProxyCommand):
                    kwargs=kwargs
                )
 
+    def exists(self):
+        """
+        Call the exists command to check if the redis key exists for the current
+        field
+        """
+        try:
+            key = self.key
+        except DoesNotExist:
+            """
+            If the object doesn't exists anymore, its PK is deleted, so the
+            "self.key" call will raise a DoesnotExist exception. We catch it
+            to return False, as the field doesn't exists too.
+            """
+            return False
+        else:
+            return self.connection.exists(key)
 
 class IndexableField(RedisField):
     """
@@ -356,7 +372,7 @@ class HashableField(IndexableField):
 
     proxy_getter = "hget"
     proxy_setter = "hset"
-    available_getters = ('hexists', 'hget')
+    available_getters = ('hget', )
     available_modifiers = ('hincrby', 'hincrbyfloat', 'hset', 'hsetnx')
 
     @property
@@ -366,7 +382,6 @@ class HashableField(IndexableField):
     @property
     def sort_wildcard(self):
         return "%s->%s" % (self._model.sort_wildcard(), self.name)
-
 
     def _traverse_command(self, name, *args, **kwargs):
         """Add key AND the hash field to the args, and call the Redis command."""
@@ -387,6 +402,24 @@ class HashableField(IndexableField):
         redis command name
         """
         return self.delete()
+
+    def hexists(self):
+        """
+        Call the hexists command to check if the redis hash key exists for the
+        current field
+        """
+        try:
+            key = self.key
+        except DoesNotExist:
+            """
+            If the object doesn't exists anymore, its PK is deleted, so the
+            "self.key" call will raise a DoesNotExist exception. We catch it
+            to return False, as the field doesn't exists too.
+            """
+            return False
+        else:
+            return self.connection.hexists(key, self.name)
+    exists = hexists
 
 
 class PKField(RedisField):
@@ -443,11 +476,22 @@ class PKField(RedisField):
         """
         return '%s:collection' % self._model._name
 
-    def exists(self, value):
+    def exists(self, value=None):
         """
-        Return True if the given pk value exists for the given class
+        Return True if the given pk value exists for the given class.
+        If no value is given, we use the value of the current field, which
+        is the value of the "_pk" attribute of its instance.
         """
-        return self.connection.sismember(self.collection_key, value)
+        try:
+            if not value:
+                value = self.get()
+        except AttributeError:
+            # If the instance is deleted, the _pk attribute doesn't exist
+            # anymore. So we catch the AttributeError to return False (this pk
+            # field doesn't exist anymore) in this specific case
+            return False
+        else:
+            return self.connection.sismember(self.collection_key, value)
 
     def collection(self):
         """
