@@ -241,7 +241,7 @@ class RedisField(RedisProxyCommand):
         field
         """
         try:
-            return self.connection.exists(self.key)
+            key = self.key
         except DoesNotExist:
             """
             If the object doesn't exists anymore, its PK is deleted, so the
@@ -249,7 +249,8 @@ class RedisField(RedisProxyCommand):
             to return False, as the field doesn't exists too.
             """
             return False
-
+        else:
+            return self.connection.exists(key)
 
 class IndexableField(RedisField):
     """
@@ -408,7 +409,7 @@ class HashableField(IndexableField):
         current field
         """
         try:
-            return self.connection.hexists(self.key, self.name)
+            key = self.key
         except DoesNotExist:
             """
             If the object doesn't exists anymore, its PK is deleted, so the
@@ -416,6 +417,8 @@ class HashableField(IndexableField):
             to return False, as the field doesn't exists too.
             """
             return False
+        else:
+            return self.connection.hexists(key, self.name)
     exists = hexists
 
 
@@ -480,12 +483,15 @@ class PKField(RedisField):
         is the value of the "_pk" attribute of its instance.
         """
         try:
-            return self.connection.sismember(self.collection_key, value or self.proxy_get())
+            if not value:
+                value = self.get()
         except AttributeError:
             # If the instance is deleted, the _pk attribute doesn't exist
             # anymore. So we catch the AttributeError to return False (this pk
             # field doesn't exist anymore) in this specific case
             return False
+        else:
+            return self.connection.sismember(self.collection_key, value)
 
     def collection(self):
         """
