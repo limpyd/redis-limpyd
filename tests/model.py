@@ -693,7 +693,7 @@ class FieldExistenceTest(LimpydBaseTest):
         boat.length.delete()
         self.assertFalse(boat.length.exists())
 
-    def test_field_of_delete_object_does_not_exist(self):
+    def test_field_of_deleted_object_does_not_exist(self):
         boat = Boat(name="Pen Duick I")
         boat.delete()
         # test HashableField
