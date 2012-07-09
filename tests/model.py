@@ -679,13 +679,14 @@ class HMTest(LimpydBaseTest):
         self.assertEqual(set(self.HMTestModel.collection(bar='BAR')), set([obj._pk]))
         self.assertEqual(set(self.HMTestModel.collection(baz='BAZ')), set([obj._pk]))
 
-    def test_hmset_should_cache_values(self):
+    def test_hmset_should_clear_cache_for_fields(self):
         obj = self.HMTestModel()
+        obj.foo.hget()  # set the cache
         obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
         hits_before = self.connection.info()['keyspace_hits']
-        obj.foo.hget()
+        obj.foo.hget()  # should miss the cache and hit redis
         hits_after = self.connection.info()['keyspace_hits']
-        self.assertEqual(hits_before, hits_after)
+        self.assertEqual(hits_before + 1, hits_after)
 
     def test_hmget_should_get_values_from_cache(self):
         obj = self.HMTestModel()
