@@ -304,9 +304,18 @@ class RedisModel(RedisProxyCommand):
         return self.connection.hmget(self.key, args)
 
     def hmset(self, **kwargs):
+        """
+        This command on the model allow getting many hashable fields with only
+        one redis call. You should pass kwargs with field names as keys, with
+        their value.
+        Index and cache are managed for indexable and/or cacheable fields.
+        """
         if not any(kwarg in self._hashable_fields for kwarg in kwargs.keys()):
             raise ValueError("Only hashable fields can be used here.")
         try:
+            # Set indexes for indexable fields.
+            # If a UniquenessError is given, the hmset raise and no operation is
+            # done.
             for field_name, value in kwargs.items():
                 field = field = getattr(self, field_name)
                 if field.indexable:
@@ -320,7 +329,7 @@ class RedisModel(RedisProxyCommand):
             except Exception, e:
                 raise e
             else:
-                # clear the cache for each field
+                # Clear the cache for each cacheable field
                 for field_name, value in kwargs.items():
                     field = field = getattr(self, field_name)
                     if not field.cacheable or not field.has_cache():
