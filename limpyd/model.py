@@ -314,8 +314,21 @@ class RedisModel(RedisProxyCommand):
         except UniquenessError, e:
             raise e
         else:
-            # from kwargs to one dict arg
-            return self.connection.hmset(self.key, kwargs)
+            try:
+                # from kwargs to one dict arg
+                result = self.connection.hmset(self.key, kwargs)
+            except Exception, e:
+                raise e
+            else:
+                # clear the cache for each field
+                for field_name, value in kwargs.items():
+                    field = field = getattr(self, field_name)
+                    if not field.cacheable or not field.has_cache():
+                        continue
+                    field_cache = field.get_cache()
+                    field_cache.clear()
+
+                return result
 
     def delete(self):
         """
