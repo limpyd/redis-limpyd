@@ -306,8 +306,16 @@ class RedisModel(RedisProxyCommand):
     def hmset(self, **kwargs):
         if not any(kwarg in self._hashable_fields for kwarg in kwargs.keys()):
             raise ValueError("Only hashable fields can be used here.")
-        # from kwargs to one dict arg
-        return self.connection.hmset(self.key, kwargs)
+        try:
+            for field_name, value in kwargs.items():
+                field = field = getattr(self, field_name)
+                if field.indexable:
+                    field.index_value(value)
+        except UniquenessError, e:
+            raise e
+        else:
+            # from kwargs to one dict arg
+            return self.connection.hmset(self.key, kwargs)
 
     def delete(self):
         """
