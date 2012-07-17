@@ -373,12 +373,13 @@ class RedisModel(RedisProxyCommand):
                     raise e
                 else:
                     # Clear the cache for each cacheable field
-                    for field_name, value in kwargs.items():
-                        field = field = getattr(self, field_name)
-                        if not field.cacheable or not field.has_cache():
-                            continue
-                        field_cache = field.get_cache()
-                        field_cache.clear()
+                    if self.cacheable:
+                        for field_name, value in kwargs.items():
+                            field = field = getattr(self, field_name)
+                            if not field.cacheable or not field.has_cache():
+                                continue
+                            field_cache = field.get_cache()
+                            field_cache.clear()
 
                     return result
         except Exception, e:
