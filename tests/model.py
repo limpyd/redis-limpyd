@@ -688,6 +688,21 @@ class HMTest(LimpydBaseTest):
         hits_after = self.connection.info()['keyspace_hits']
         self.assertEqual(hits_before + 1, hits_after)
 
+    def test_hmset_should_not_index_if_an_error_occurs(self):
+        self.HMTestModel(baz="BAZ")
+        test_obj = self.HMTestModel()
+        with self.assertRaises(UniquenessError):
+            # The order of parameters below is important. Yes all are passed via
+            # the kwargs dict, but order is not random, it's consistent, and
+            # here i have to be sure that "bar" is managed first in hmset, so i
+            # do some tests to always have the wanted order.
+            # So bar will be indexed, then baz will raise because we already
+            # set the "BAZ" value for this field.
+            test_obj.hmset(baz='BAZ', foo='FOO', bar='BAR')
+        # We must not have an entry in the bar index with the BAR value because
+        # the hmset must have raise an exception and revert index already set.
+        self.assertEqual(set(self.HMTestModel.collection(bar='BAR')), set())
+
     def test_hmget_should_get_values_from_cache(self):
         obj = self.HMTestModel()
         obj.foo.hset('FOO')
