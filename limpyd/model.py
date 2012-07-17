@@ -312,32 +312,46 @@ class RedisModel(RedisProxyCommand):
         """
         if not any(kwarg in self._hashable_fields for kwarg in kwargs.keys()):
             raise ValueError("Only hashable fields can be used here.")
+        indexed = []
         try:
-            # Set indexes for indexable fields.
-            # If a UniquenessError is given, the hmset raise and no operation is
-            # done.
-            for field_name, value in kwargs.items():
-                field = field = getattr(self, field_name)
-                if field.indexable:
-                    field.index_value(value)
-        except UniquenessError, e:
-            raise e
-        else:
             try:
-                # from kwargs to one dict arg
-                result = self.connection.hmset(self.key, kwargs)
-            except Exception, e:
-                raise e
-            else:
-                # Clear the cache for each cacheable field
+                # Set indexes for indexable fields.
+                # If a UniquenessError is given, the hmset raise and no operation is
+                # done (but before exiting the method, all set indexes must be
+                # reset)
                 for field_name, value in kwargs.items():
                     field = field = getattr(self, field_name)
-                    if not field.cacheable or not field.has_cache():
-                        continue
-                    field_cache = field.get_cache()
-                    field_cache.clear()
+                    if field.indexable:
+                        old_value = field.hget()
+                        field.deindex_value(old_value)
+                        field.index_value(value)
+                        indexed.append((field, value))
+            except UniquenessError, e:
+                raise e
+            else:
+                try:
+                    # from kwargs to one dict arg
+                    result = self.connection.hmset(self.key, kwargs)
+                except Exception, e:
+                    raise e
+                else:
+                    # Clear the cache for each cacheable field
+                    for field_name, value in kwargs.items():
+                        field = field = getattr(self, field_name)
+                        if not field.cacheable or not field.has_cache():
+                            continue
+                        field_cache = field.get_cache()
+                        field_cache.clear()
 
-                return result
+                    return result
+        except Exception, e:
+            # we restore indexes previously set if we have an exception, then
+            # really raise the error
+            for field, new_value in indexed:
+                old_value = field.hget()
+                field.deindex_value(new_value)
+                field.hset(old_value)
+            raise e
 
     def delete(self):
         """
