@@ -300,8 +300,45 @@ class RedisModel(RedisProxyCommand):
         else:
             if not any(arg in self._hashable_fields for arg in args):
                 raise ValueError("Only hashable fields can be used here.")
-        # from *args to on list arg
-        return self.connection.hmget(self.key, args)
+        # get values from cache if we can
+        cached = {}
+        to_retrieve = []
+        retrieved = []
+        if self.cacheable:
+            # we do the cache stuff only if the object is cacheable, to avoid
+            # useless computations if not
+            for field_name in args:
+                field = field = getattr(self, field_name)
+                field_cached = False
+                if field.cacheable and field.has_cache():
+                    field_cache = field.get_cache()
+                    haxh = frozenset(['hget', field_name])
+                    if haxh in field_cache:
+                        field_cached = True
+                        cached[field_name] = field_cache[haxh]
+                if not field_cached:
+                    to_retrieve.append(field_name)
+        else:
+            # object not cacheable, retrieve all fields
+            to_retrieve = args
+
+        if to_retrieve:
+            # from *args to on list arg
+            retrieved = self.connection.hmget(self.key, to_retrieve)
+
+        if cached:
+            # we have some fields cached, return the values in the right order
+            retrieved_dict = dict(zip(to_retrieve, retrieved))
+            result = []
+            for field_name in args:
+                if field_name in cached:
+                    result.append(cached[field_name])
+                else:
+                    result.append(retrieved_dict[field_name])
+            return result
+        else:
+            # nothing cached, return all retrieved fields
+            return retrieved
 
     def hmset(self, **kwargs):
         """

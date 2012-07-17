@@ -705,11 +705,24 @@ class HMTest(LimpydBaseTest):
 
     def test_hmget_should_get_values_from_cache(self):
         obj = self.HMTestModel()
-        obj.foo.hset('FOO')
+        # set some values
+        obj.hmset(foo='FOO', bar='BAR')
+        # fill the cache
+        obj.foo.hget()
+
+        # get it from cache
         hits_before = self.connection.info()['keyspace_hits']
         obj.hmget('foo')
         hits_after = self.connection.info()['keyspace_hits']
+        # hmget should not have hit redis
         self.assertEqual(hits_before, hits_after)
+
+        # get one from cache, one from redis
+        hits_before = self.connection.info()['keyspace_hits']
+        obj.hmget('foo', 'bar')
+        hits_after = self.connection.info()['keyspace_hits']
+        # hmget should have hit redis to get bar
+        self.assertEqual(hits_before + 1, hits_after)
 
 
 class ConnectionTest(LimpydBaseTest):
