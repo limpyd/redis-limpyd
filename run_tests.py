@@ -10,7 +10,7 @@ from tests import base, model, utils, collection
 if __name__ == "__main__":
 
     # Define arguments
-    parser = argparse.ArgumentParser(description="Run sulci tests suite.")
+    parser = argparse.ArgumentParser(description="Run redis-limpyd tests suite.")
     parser.add_argument(
         "tests",
         nargs="*",
