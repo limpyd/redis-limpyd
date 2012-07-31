@@ -23,6 +23,10 @@ def unique_key(connection):
     return key
 
 
+def make_cache_key(*args, **kwargs):
+    return frozenset(args + tuple(kwargs.items()))
+
+
 class memoize_command(object):
     def __call__(self, func):
         @wraps(func)
@@ -32,7 +36,7 @@ class memoize_command(object):
             if not self.cacheable:
                 return func(self, *args, **kwargs)
 
-            haxh = frozenset(args + tuple(kwargs.items()))
+            haxh = make_cache_key(*args, **kwargs)
 
             # Cache per field name to be able to flush per field
             if not self.has_cache():

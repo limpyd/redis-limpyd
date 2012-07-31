@@ -5,7 +5,7 @@ from copy import copy
 
 from limpyd import DEFAULT_CONNECTION_SETTINGS
 from limpyd.fields import *
-from limpyd.utils import make_key
+from limpyd.utils import make_key, make_cache_key
 from limpyd.exceptions import *
 from limpyd.collection import CollectionManager
 
@@ -318,7 +318,7 @@ class RedisModel(RedisProxyCommand):
                 field_cached = False
                 if field.cacheable and field.has_cache():
                     field_cache = field.get_cache()
-                    haxh = frozenset(['hget', field_name])
+                    haxh = make_cache_key('hget', field_name)
                     if haxh in field_cache:
                         field_cached = True
                         cached[field_name] = field_cache[haxh]
