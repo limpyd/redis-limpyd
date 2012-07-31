@@ -16,3 +16,10 @@ class LimpydBaseTest(unittest.TestCase):
 
     def tearDown(self):
         self.connection.flushdb()
+
+    def count_commands(self):
+        """
+        Helper method to only count redis commands that work on keys (ie ignore
+        commands like info...)
+        """
+        return self.connection.info()['keyspace_hits'] + self.connection.info()['keyspace_misses']

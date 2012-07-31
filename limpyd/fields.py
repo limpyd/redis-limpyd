@@ -1,6 +1,7 @@
 # -*- coding:utf-8 -*-
 
 from logging import getLogger
+from redis.exceptions import RedisError
 
 from limpyd import redis_connect, DEFAULT_CONNECTION_SETTINGS
 from limpyd.utils import make_key, memoize_command
@@ -278,13 +279,12 @@ class IndexableField(RedisField):
             self.index()
         return result
 
-    def index(self):
+    def index_value(self, value):
         # Has traverse_commande is blind, and can't infer the final value from
         # commands like ``append`` or ``setrange``, we let the command process
         # then check the result, and raise before modifying the indexes if the
         # value was not unique, and then remove the key
         # We should try a better algo
-        value = self.proxy_get()
         if value:
             value = value.decode('utf-8')  # FIXME centralize utf-8 handling?
         key = self.index_key(value)
@@ -303,17 +303,28 @@ class IndexableField(RedisField):
         log.debug("indexing %s with key %s" % (key, self._instance.get_pk()))
         return self.connection.sadd(key, self._instance.get_pk())
 
-    def deindex(self):
+    def index(self):
+        """
+        Index the current value of the field
+        """
+        self.index_value(self.proxy_get())
+
+    def deindex_value(self, value):
         """
         Remove stored index if needed.
         """
-        value = self.proxy_get()
         if value:
             value = value.decode('utf-8')
             key = self.index_key(value)
             return self.connection.srem(key, self._instance.get_pk())
         else:
             return True  # True?
+
+    def deindex(self):
+        """
+        Deindex the current value of the field
+        """
+        self.deindex_value(self.proxy_get())
 
     def delete(self):
         if self.indexable:
@@ -347,24 +358,256 @@ class StringField(IndexableField):
     available_modifiers = ('append', 'decr', 'decrby', 'getset', 'incr', 'incrby', 'incrbyfloat', 'set', 'setbit', 'setnx', 'setrange')
 
 
-class SortedSetField(RedisField):
+class IndexableMultiValuesField(IndexableField):
+    """
+    It's a base class for SetField, SortedSetField and ListField, to manage
+    indexes when their constructor got the param "indexable" set to True.
+    Indexes need more work than for simple IndexableFields as we have here many
+    values in each field.
+    A naive implementation is to simply deindex all existing values, call the
+    wanted redis command, then reindex all.
+    When possible, each commands of each impacted fields are done by catching
+    values to index/deindex, to only do this work for needed values.
+    It's the case for almost all defined commands, except ones where bulk
+    removing is done, as zremrange* for sorted set and ltrim (and lrem in some
+    cases) for lists (for these commands, the naive algorithm defined above is
+    used, so use them carefully).
+    See the _traverse_command method below to know how values to index/deindex
+    are defined.
+    """
 
+    # The "_commands_to_proxy" dict take redis commands as keys, and proxy
+    # method names as values. There proxy_methods must take the real command
+    # name in first parameter, and a *args to pass needed values. Some proxy
+    # methods defined here are _add, _rem and _pop. Their goal is to simplify
+    # management of values to index/deindex for simple redis commands.
+    _commands_to_proxy = {}
+
+    def index(self, values=None):
+        """
+        Index all values stored in the field, or only given ones if any.
+        """
+        if values is None:
+            values = self.proxy_get()
+        for value in values:
+            self.index_value(value)
+
+    def deindex(self, values=None):
+        """
+        Deindex all values stored in the field, or only given ones if any.
+        """
+        if values is None:
+            values = self.proxy_get()
+        for value in values:
+            self.deindex_value(value)
+
+    def _traverse_command(self, name, *args, **kwargs):
+        """
+        The only difference with the method from IndexableField is that we can
+        specify which values to index/deindex, by passing two arguments in kwargs:
+        "_to_index" and "_to_deindex".
+        If one of these arguments is None, or not given, all values will be
+        indexed or deindexed.
+        But if an empty list/set is given, no values are indexed/deindexed.
+        """
+
+        # Commands defined in "_commands_to_proxy" are handled here, to call
+        # their proxy methods. Then, these proxy methods can call this
+        # _traverse_command method with a named argument "_bypass_proxy" to True
+        # to really do (de)indexing and execute the command
+        bypass_proxy = kwargs.pop('_bypass_proxy', False)
+        if name in self._commands_to_proxy and not bypass_proxy:
+            command = getattr(self, self._commands_to_proxy[name])
+            return command(name, *args)
+
+        values_to_index = kwargs.pop('_to_index', None)
+        values_to_deindex = kwargs.pop('_to_deindex', None)
+
+        # TODO manage transaction
+        if self.indexable and name in self.available_modifiers:
+            self.deindex(values_to_deindex)
+
+        # we don't call _traverse_command from IndexableField, but the one from
+        # RedisField because we manage indexes manually here
+        result = super(IndexableField, self)._traverse_command(name, *args, **kwargs)
+
+        if self.indexable and name in self.available_modifiers:
+            self.index(values_to_index)
+
+        return result
+
+    def _add(self, command, *args):
+        """
+        Helper for commands that only remove values from the field.
+        Added values will be indexed.
+        """
+        return self._traverse_command(command, *args, _to_index=args, _to_deindex=[], _bypass_proxy=True)
+
+    def _rem(self, command, *args):
+        """
+        Helper for commands that only remove values from the field.
+        Removed values will be deindexed.
+        """
+        return self._traverse_command(command, *args, _to_index=[], _to_deindex=args, _bypass_proxy=True)
+
+    def _pop(self, command, *args):
+        """
+        Helper for commands that pop a value from the field, returning it while
+        removing it.
+        The returned value will be deindexed
+        """
+        # we don't call _traverse_command from IndexableField, but the one from
+        # RedisField because we manage indexes manually here
+        result = super(IndexableField, self)._traverse_command(command)
+        if self.indexable and result is not None:
+            self.deindex([result])
+        return result
+
+
+class SortedSetField(IndexableMultiValuesField):
+    """
+    A field with values stored in a sorted set.
+    If the indexable argument is set to True on the constructor, all stored
+    values will be indexed. But when using zremrange* commands, all content will
+    be deindexed and then reindexed as we have no way no know which values are
+    removed. So use it carefuly. On the contrary, zadd, zrem and zincrby are
+    optimized to only index/deindex updated values
+    """
+
+    proxy_getter = "zmembers"
     proxy_setter = "zadd"
     available_getters = ('zcard', 'zcount', 'zrange', 'zrangebyscore', 'zrank', 'zrevrange', 'zrevrangebyscore', 'zrevrank', 'zscore')
     available_modifiers = ('zadd', 'zincrby', 'zrem', 'zremrangebyrank', 'zremrangebyscore')
 
+    _commands_to_proxy = {
+        'zrem': '_rem',
+    }
 
-class SetField(RedisField):
+    def zmembers(self):
+        """
+        Used as a proxy_getter to get all values stored in the field.
+        """
+        return self.zrange(0, -1)
 
+    def zadd(self, *args, **kwargs):
+        """
+        We do the same computation of the zadd method of StrictRedis to keep keys
+        to index them (instead of indexing the whole set)
+        Members (value/score) can be passed:
+            - in *args, with score followed by the value, 0+ times (to respect
+              the redis order)
+            - in **kwargs, with value as key and score as value
+        Example: zadd('my-key', 1.1, 'name1', 2.2, 'name2', name3=3.3, name4=4.4)
+        """
+        keys = []
+        if args:
+            if len(args) % 2 != 0:
+                raise RedisError("ZADD requires an equal number of "
+                                 "values and scores")
+            keys.extend(args[1::2])
+        for pair in kwargs.iteritems():
+            keys.append(pair[0])
+        return self._traverse_command('zadd', *args, _to_index=keys, _to_deindex=[], **kwargs)
+
+    def zincrby(self, value, amount=1):
+        """
+        This command update a score of a given value. But it can be a new value
+        of the sorted set, so we index it.
+        """
+        return self._traverse_command('zincrby', value, amount, _to_index=[value], _to_deindex=[])
+
+
+class SetField(IndexableMultiValuesField):
+    """
+    A field with values stored in a redis set.
+    If the indexable argument is set to True on the constructor, all stored
+    values will be indexed.
+    sadd, srem and spop commands are optimized to index/deindex only needed values
+    """
+
+    proxy_getter = "smembers"
     proxy_setter = "sadd"
     available_getters = ('scard', 'sismember', 'smembers', 'srandmember')
     available_modifiers = ('sadd', 'spop', 'srem',)
 
+    _commands_to_proxy = {
+        'sadd': '_add',
+        'srem': '_rem',
+        'spop': '_pop',
+    }
 
-class ListField(RedisField):
+
+class ListField(IndexableMultiValuesField):
+    """
+    A field with values stored in a list.
+    If the indexable argument is set to True on the constructor, all stored
+    values will be indexed (one entry in the index for each value even if the
+    value is stored many times in the list). But when using ltrim, all content
+    will be deindexed and then reindexed as we have no way no know which values
+    are removed. So use it carefuly. On the contrary, linsert, *pop, *push*,
+    lset are optimized to only index/deindex updated values. lrem is optimized
+    only if the "count" attribute is set to 0
+    """
+
+    proxy_getter = "lmembers"
     proxy_setter = "lpush"
     available_getters = ('lindex', 'llen', 'lrange')
     available_modifiers = ('linsert', 'lpop', 'lpush', 'lpushx', 'lrem', 'lset', 'ltrim', 'rpop', 'rpush', 'rpushx')
+
+    _commands_to_proxy = {
+        'lpop': '_pop',
+        'rpop': '_pop',
+        'lpush': '_add',
+        'rpush': '_add',
+        'lpushx': '_pushx',
+        'rpushx': '_pushx',
+    }
+
+    def lmembers(self):
+        """
+        Used as a proxy_getter to get all values stored in the field.
+        """
+        return self.lrange(0, -1)
+
+    def linsert(self, where, refvalue, value):
+        return self._traverse_command('linsert', where, refvalue, value, _to_index=[value], _to_deindex=[])
+
+    def _pushx(self, command, *args):
+        """
+        Helper for lpushx and rpushx, that only index the new values if the list
+        existed when the command was called
+        """
+        # we don't call _traverse_command from IndexableField, but the one from
+        # RedisField because we manage indexes manually here
+        result = super(IndexableField, self)._traverse_command(command, *args)
+        if result and self.indexable:
+            self.index(args)
+        return result
+
+    def lrem(self, count, value):
+        """
+        If count is 0, we remove all elements equal to value, so we know we have
+        nothing to index, and this value to deindex. In other case, we don't
+        know how much elements will remain in the list, so we have to do a full
+        deindex/reindex. So do it carefuly.
+        """
+        to_index = to_deindex = None
+        if not count:
+            to_index = []
+            to_deindex = [value]
+        return self._traverse_command('lrem', count, value, _to_index=to_index, _to_deindex=to_deindex)
+
+    def lset(self, index, value):
+        """
+        Before setting the new value, get the previous one to deindex it. Then
+        call the command and index the new value, if exists
+        TODO: Need transaction
+        """
+        to_deindex = []
+        old_value = self.lindex(index)
+        if old_value is not None:
+            to_deindex = [old_value]
+        return self._traverse_command('lset', index, value, _to_index=[value], _to_deindex=to_deindex)
 
 
 class HashableField(IndexableField):
