@@ -359,6 +359,7 @@ class IndexableMultiValuesField(IndexableField):
     See the _traverse_command method below to know how values to index/deindex
     are defined.
     """
+    _commands_to_proxy = {}
 
     def index(self, values=None):
         """
@@ -387,15 +388,35 @@ class IndexableMultiValuesField(IndexableField):
         indexed or deindexed.
         But if an empty list/set is given, no values are indexed/deindexed.
         """
+
+        # Commands defined in "_commands_to_proxy" are handled here, to call
+        # their proxy methods. Then, these proxy methods can call this
+        # _traverse_command method with a named argument "_bypass_proxy" to True
+        # to really do (de)indexing and execute the command
+        bypass_proxy = kwargs.pop('_bypass_proxy', False)
+        if name in self._commands_to_proxy and not bypass_proxy:
+            command = getattr(self, self._commands_to_proxy[name])
+            if not args:
+                # for _pop
+                return command(name)
+            else:
+                # for others, that take values
+                return command(name, *args)
+
         values_to_index = kwargs.pop('_to_index', None)
         values_to_deindex = kwargs.pop('_to_deindex', None)
+
         # TODO manage transaction
         if self.indexable and name in self.available_modifiers:
             self.deindex(values_to_deindex)
-        # we don't call _traverse_command from IndexableField, but the one from RedisField
+
+        # we don't call _traverse_command from IndexableField, but the one from
+        # RedisField because we manage indexes manually here
         result = super(IndexableField, self)._traverse_command(name, *args, **kwargs)
+
         if self.indexable and name in self.available_modifiers:
             self.index(values_to_index)
+
         return result
 
     def _add(self, command, *values):
@@ -403,14 +424,14 @@ class IndexableMultiValuesField(IndexableField):
         Helper for commands that only remove values from the field.
         Added values will be indexed.
         """
-        return self._traverse_command(command, *values, _to_index=values, _to_deindex=[])
+        return self._traverse_command(command, *values, _to_index=values, _to_deindex=[], _bypass_proxy=True)
 
     def _rem(self, command, *values):
         """
         Helper for commands that only remove values from the field.
         Removed values will be deindexed.
         """
-        return self._traverse_command(command, *values, _to_index=[], _to_deindex=values)
+        return self._traverse_command(command, *values, _to_index=[], _to_deindex=values, _bypass_proxy=True)
 
     def _pop(self, command):
         """
@@ -418,7 +439,8 @@ class IndexableMultiValuesField(IndexableField):
         removing it.
         The returned valud will be deindexed
         """
-        # we don't call _traverse_command from IndexableField, but the one from RedisField
+        # we don't call _traverse_command from IndexableField, but the one from
+        # RedisField because we manage indexes manually here
         result = super(IndexableField, self)._traverse_command(command)
         if self.indexable and result is not None:
             self.deindex([result])
@@ -439,6 +461,10 @@ class SortedSetField(IndexableMultiValuesField):
     proxy_setter = "zadd"
     available_getters = ('zcard', 'zcount', 'zrange', 'zrangebyscore', 'zrank', 'zrevrange', 'zrevrangebyscore', 'zrevrank', 'zscore')
     available_modifiers = ('zadd', 'zincrby', 'zrem', 'zremrangebyrank', 'zremrangebyscore')
+
+    _commands_to_proxy = {
+        'zrem': '_rem',
+    }
 
     def zmembers(self):
         """
@@ -466,12 +492,6 @@ class SortedSetField(IndexableMultiValuesField):
             keys.append(pair[0])
         return self._traverse_command('zadd', *args, _to_index=keys, _to_deindex=[], **kwargs)
 
-    def zrem(self, *values):
-        """
-        Call the command and deindex the values
-        """
-        return self._rem('zrem', *values)
-
     def zincrby(self, value, amount=1):
         """
         This command update a score of a given value. But it can be a new value
@@ -493,23 +513,11 @@ class SetField(IndexableMultiValuesField):
     available_getters = ('scard', 'sismember', 'smembers', 'srandmember')
     available_modifiers = ('sadd', 'spop', 'srem',)
 
-    def sadd(self, *values):
-        """
-        Call the command and index the values
-        """
-        return self._add('sadd', *values)
-
-    def srem(self, *values):
-        """
-        Call the command and deindex the values
-        """
-        return self._rem('srem', *values)
-
-    def spop(self):
-        """
-        Call the command and deindex the returned value
-        """
-        return self._pop('spop')
+    _commands_to_proxy = {
+        'sadd': '_add',
+        'srem': '_rem',
+        'spop': '_pop',
+    }
 
 
 class ListField(IndexableMultiValuesField):
@@ -529,6 +537,15 @@ class ListField(IndexableMultiValuesField):
     available_getters = ('lindex', 'llen', 'lrange')
     available_modifiers = ('linsert', 'lpop', 'lpush', 'lpushx', 'lrem', 'lset', 'ltrim', 'rpop', 'rpush', 'rpushx')
 
+    _commands_to_proxy = {
+        'lpop': '_pop',
+        'rpop': '_pop',
+        'lpush': '_add',
+        'rpush': '_add',
+        'lpushx': '_pushx',
+        'rpushx': '_pushx',
+    }
+
     def lmembers(self):
         """
         Used as a proxy_getter to get all values stored in the field.
@@ -538,52 +555,17 @@ class ListField(IndexableMultiValuesField):
     def linsert(self, where, refvalue, value):
         return self._traverse_command('linsert', where, refvalue, value, _to_index=[value], _to_deindex=[])
 
-    def lpop(self):
-        """
-        Call the command and deindex the returned value
-        """
-        return self._pop('lpop')
-
-    def rpop(self):
-        """
-        Call the command and deindex the returned value
-        """
-        return self._pop('rpop')
-
-    def lpush(self, *values):
-        """
-        Call the command and index the values
-        """
-        return self._add('lpush', *values)
-
-    def rpush(self, *values):
-        """
-        Call the command and index the values
-        """
-        return self._add('rpush', *values)
-
     def _pushx(self, command, *values):
         """
         Helper for lpushx and rpushx, that only index the new values if the list
         existed when the command was called
         """
-        # we don't call _traverse_command from IndexableField, but the one from RedisField
+        # we don't call _traverse_command from IndexableField, but the one from
+        # RedisField because we manage indexes manually here
         result = super(IndexableField, self)._traverse_command(command, *values)
         if result and self.indexable:
             self.index(values)
         return result
-
-    def lpushx(self, *values):
-        """
-        Call the command and index the values if really set
-        """
-        return self._pushx('lpushx', *values)
-
-    def rpushx(self, *values):
-        """
-        Call the command and index the values if really set
-        """
-        return self._pushx('rpushx', *values)
 
     def lrem(self, count, value):
         """
