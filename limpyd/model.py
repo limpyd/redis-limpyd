@@ -295,11 +295,17 @@ class RedisModel(RedisProxyCommand):
         )
 
     def hmget(self, *args):
+        """
+        This command on the model allow getting many hashable fields with only
+        one redis call. You should pass hash name to retrieve as arguments.
+        Try to get values from local cache if possible.
+        """
         if len(args) == 0:
             args = self._hashable_fields
         else:
             if not any(arg in self._hashable_fields for arg in args):
                 raise ValueError("Only hashable fields can be used here.")
+
         # get values from cache if we can
         cached = {}
         to_retrieve = []
@@ -323,7 +329,7 @@ class RedisModel(RedisProxyCommand):
             to_retrieve = args
 
         if to_retrieve:
-            # from *args to on list arg
+            # call redis if some keys are not cached
             retrieved = self.connection.hmget(self.key, to_retrieve)
 
         if cached:
@@ -342,7 +348,7 @@ class RedisModel(RedisProxyCommand):
 
     def hmset(self, **kwargs):
         """
-        This command on the model allow getting many hashable fields with only
+        This command on the model allow setting many hashable fields with only
         one redis call. You should pass kwargs with field names as keys, with
         their value.
         Index and cache are managed for indexable and/or cacheable fields.
