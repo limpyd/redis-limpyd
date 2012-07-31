@@ -1,4 +1,5 @@
 import unittest
+import sys
 
 from limpyd import DEFAULT_CONNECTION_SETTINGS, TEST_CONNECTION_SETTINGS, redis_connect
 

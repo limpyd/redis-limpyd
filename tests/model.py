@@ -90,11 +90,6 @@ class InitTest(LimpydBaseTest):
         with self.assertRaises(ValueError):
             bike = Bike(power="human")
 
-    def test_assert_num_commands_is_ok(self):
-        with self.assertNumCommands(1):
-            # we know that info do only one command
-            info = self.connection.info()
-
 
 class GetAttrTest(LimpydBaseTest):
 
