@@ -33,5 +33,16 @@ class UniqueKeyTest(LimpydBaseTest):
         self.assertNotEqual(key1, key2)
 
 
+class LimpydBaseTestTest(LimpydBaseTest):
+    """
+    Test parts of LimpydBaseTest
+    """
+
+    def test_assert_num_commands_is_ok(self):
+        with self.assertNumCommands(1):
+            # we know that info do only one command
+            self.connection.info()
+
+
 if __name__ == '__main__':
     unittest.main()
