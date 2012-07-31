@@ -25,6 +25,12 @@ class LimpydBaseTest(unittest.TestCase):
         return self.connection.info()['total_commands_processed']
 
     def assertNumCommands(self, num, func=None, *args, **kwargs):
+        """
+        A context assert, to use with "with":
+            with self.assertNumCommands(2):
+                self.set('foo', 1)
+                self.get('foo)
+        """
         context = _AssertNumCommandsContext(self, num)
         if func is None:
             return context
@@ -42,6 +48,9 @@ class LimpydBaseTest(unittest.TestCase):
 
 
 class _AssertNumCommandsContext(object):
+    """
+    A context to count commands occured
+    """
     def __init__(self, test_case, num):
         self.test_case = test_case
         self.num = num
