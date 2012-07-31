@@ -28,8 +28,8 @@ class LimpydBaseTest(unittest.TestCase):
         """
         A context assert, to use with "with":
             with self.assertNumCommands(2):
-                self.set('foo', 1)
-                self.get('foo)
+                obj.field.set(1)
+                obj.field.get()
         """
         context = _AssertNumCommandsContext(self, num)
         if func is None:
