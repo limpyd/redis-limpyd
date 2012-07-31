@@ -359,6 +359,12 @@ class IndexableMultiValuesField(IndexableField):
     See the _traverse_command method below to know how values to index/deindex
     are defined.
     """
+
+    # The "_commands_to_proxy" dict take redis commands as keys, and proxy
+    # method names as values. There proxy_methods must take the real command
+    # name in first parameter, and a *args to pass needed values. Some proxy
+    # methods defined here are _add, _rem and _pop. Their goal is to simplify
+    # management of values to index/deindex for simple redis commands.
     _commands_to_proxy = {}
 
     def index(self, values=None):
@@ -396,12 +402,7 @@ class IndexableMultiValuesField(IndexableField):
         bypass_proxy = kwargs.pop('_bypass_proxy', False)
         if name in self._commands_to_proxy and not bypass_proxy:
             command = getattr(self, self._commands_to_proxy[name])
-            if not args:
-                # for _pop
-                return command(name)
-            else:
-                # for others, that take values
-                return command(name, *args)
+            return command(name, *args)
 
         values_to_index = kwargs.pop('_to_index', None)
         values_to_deindex = kwargs.pop('_to_deindex', None)
@@ -419,25 +420,25 @@ class IndexableMultiValuesField(IndexableField):
 
         return result
 
-    def _add(self, command, *values):
+    def _add(self, command, *args):
         """
         Helper for commands that only remove values from the field.
         Added values will be indexed.
         """
-        return self._traverse_command(command, *values, _to_index=values, _to_deindex=[], _bypass_proxy=True)
+        return self._traverse_command(command, *args, _to_index=args, _to_deindex=[], _bypass_proxy=True)
 
-    def _rem(self, command, *values):
+    def _rem(self, command, *args):
         """
         Helper for commands that only remove values from the field.
         Removed values will be deindexed.
         """
-        return self._traverse_command(command, *values, _to_index=[], _to_deindex=values, _bypass_proxy=True)
+        return self._traverse_command(command, *args, _to_index=[], _to_deindex=args, _bypass_proxy=True)
 
-    def _pop(self, command):
+    def _pop(self, command, *args):
         """
         Helper for commands that pop a value from the field, returning it while
         removing it.
-        The returned valud will be deindexed
+        The returned value will be deindexed
         """
         # we don't call _traverse_command from IndexableField, but the one from
         # RedisField because we manage indexes manually here
@@ -555,16 +556,16 @@ class ListField(IndexableMultiValuesField):
     def linsert(self, where, refvalue, value):
         return self._traverse_command('linsert', where, refvalue, value, _to_index=[value], _to_deindex=[])
 
-    def _pushx(self, command, *values):
+    def _pushx(self, command, *args):
         """
         Helper for lpushx and rpushx, that only index the new values if the list
         existed when the command was called
         """
         # we don't call _traverse_command from IndexableField, but the one from
         # RedisField because we manage indexes manually here
-        result = super(IndexableField, self)._traverse_command(command, *values)
+        result = super(IndexableField, self)._traverse_command(command, *args)
         if result and self.indexable:
-            self.index(values)
+            self.index(args)
         return result
 
     def lrem(self, count, value):
