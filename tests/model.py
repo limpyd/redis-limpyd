@@ -3,6 +3,7 @@
 import unittest
 
 from datetime import datetime
+from redis.exceptions import RedisError
 
 from limpyd import model
 from limpyd import fields
@@ -89,6 +90,11 @@ class InitTest(LimpydBaseTest):
     def test_wrong_field_name_cannot_be_used(self):
         with self.assertRaises(ValueError):
             bike = Bike(power="human")
+
+    def test_assert_num_commands_is_ok(self):
+        with self.assertNumCommands(1):
+            # we know that info do only onne
+            info = self.connection.info()
 
 
 class GetAttrTest(LimpydBaseTest):
@@ -679,6 +685,57 @@ class ConnectionTest(LimpydBaseTest):
         self.assertEqual(bike.connection, boat.connection)
 
 
+class FieldExistenceTest(LimpydBaseTest):
+
+    def test_unset_field_does_not_exist(self):
+        boat = Boat(name="Pen Duick I")
+        self.assertFalse(boat.length.exists())
+
+    def test_field_with_default_value_exists(self):
+        boat = Boat(name="Pen Duick I")
+        self.assertTrue(boat.power.exists())
+
+    def test_field_with_set_value_exists(self):
+        boat = Boat(name="Pen Duick I")
+        # test value given on init
+        self.assertTrue(boat.name.exists())
+        # test value manually set (StringField)
+        boat.length.set(1)
+        self.assertTrue(boat.length.exists())
+        # test value manually set (HashableField)
+        boat.power.hset('engine')
+        self.assertTrue(boat.power.exists())
+
+    def test_deleted_field_does_not_exist(self):
+        boat = Boat(name="Pen Duick I")
+        # test HashableField
+        boat.power.delete()
+        self.assertFalse(boat.power.exists())
+        # test StringField
+        boat.length.set(1)
+        boat.length.delete()
+        self.assertFalse(boat.length.exists())
+
+    def test_field_of_deleted_object_does_not_exist(self):
+        boat = Boat(name="Pen Duick I")
+        boat.delete()
+        # test HashableField
+        self.assertFalse(boat.power.exists())
+        # test StringField
+        self.assertFalse(boat.length.exists())
+
+    def test_pk_field_exists(self):
+        boat = Boat(name="Pen Duick I")
+        self.assertTrue(boat.pk.exists())
+
+    def test_deleted_pk_does_not_exist(self):
+        boat = Boat(name="Pen Duick I")
+        same_boat = Boat(boat._pk)
+        boat.delete()
+        self.assertFalse(boat.pk.exists())
+        self.assertFalse(same_boat.pk.exists())
+
+
 class PipelineTest(LimpydBaseTest):
 
     def test_simple_pipeline_without_transaction(self):
@@ -693,19 +750,270 @@ class PipelineTest(LimpydBaseTest):
 
 class ProxyTest(LimpydBaseTest):
 
-    def proxy_get_should_call_real_getter(self):
+    def test_proxy_get_should_call_real_getter(self):
         bike = Bike(name="rosalie", wheels=4)
         self.assertEqual(bike.name.proxy_get(), "rosalie")
         boat = Boat(name="Rainbow Warrior I", power="engine", length=40, launched=1955)
         self.assertEqual(boat.power.proxy_get(), "engine")
 
-    def proxy_set_should_call_real_setter(self):
+    def test_proxy_set_should_call_real_setter(self):
         bike = Bike(name="rosalia", wheels=4)
         bike.name.proxy_set('rosalie')
-        self.assertEqual(bike.name.get(), "rosaie")
+        self.assertEqual(bike.name.get(), "rosalie")
         boat = Boat(name="Rainbow Warrior I", power="human", length=40, launched=1955)
         boat.power.proxy_set('engine')
         self.assertEqual(boat.power.hget(), "engine")
+
+
+class IndexableSortedSetFieldTest(LimpydBaseTest):
+
+    class SortedSetModel(TestDatabaseMixin, model.RedisModel):
+        field = fields.SortedSetField(indexable=True)
+
+    def test_indexable_sorted_sets_are_indexed(self):
+        obj = self.SortedSetModel()
+
+        # add one value
+        obj.field.zadd(1.0, 'foo')
+        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set([obj._pk]))
+        self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set())
+
+        # add another value
+        with self.assertNumCommands(2):
+            # check that only two commands occured: zadd + index of value
+            obj.field.zadd(2.0, 'bar')
+        # check collections
+        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set([obj._pk]))
+        self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set([obj._pk]))
+
+        # remove a value
+        with self.assertNumCommands(2):
+            # check that only two commands occured: zrem + deindex of value
+            obj.field.zrem('foo')
+        # check collections
+        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set())
+        self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set([obj._pk]))
+
+        # remove the object
+        obj.delete()
+        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set())
+        self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set())
+
+    def test_zincr_should_correctly_index_only_its_own_value(self):
+        obj = self.SortedSetModel()
+
+        # add a value, to check that its index is not updated
+        obj.field.zadd(ignorable=1)
+
+        with self.assertNumCommands(2):
+            # check that we had only two commands: one for zincr, one for indexing the value
+            obj.field.zincrby('foo', 5.0)
+
+        # check that the new value is indexed
+        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set([obj._pk]))
+
+        # check that the previous value was not deindexed
+        self.assertEqual(set(self.SortedSetModel.collection(field='ignorable')), set([obj._pk]))
+
+    def test_zremrange_reindex_all_vaues(self):
+        obj = self.SortedSetModel()
+
+        obj.field.zadd(foo=1, bar=2, baz=3)
+
+        # we remove two values
+        with self.assertNumCommands(7):
+            # check that we had 7 commands:
+            # - 1 to get all existing values to deindex
+            # - 3 to deindex all values
+            # - 1 for the zremrange
+            # - 1 to get all remaining values to index
+            # - 1 to index the only remaining value
+            obj.field.zremrangebyscore(1, 2)
+
+        # check that all values are correctly indexed/deindexed
+        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set())
+        self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set())
+        self.assertEqual(set(self.SortedSetModel.collection(field='baz')), set([obj._pk]))
+
+
+class IndexableSetFieldTest(LimpydBaseTest):
+
+    class SetModel(TestDatabaseMixin, model.RedisModel):
+        field = fields.SetField(indexable=True)
+
+    def test_indexable_sets_are_indexed(self):
+        obj = self.SetModel()
+
+        # add one value
+        obj.field.sadd('foo')
+        self.assertEqual(set(self.SetModel.collection(field='foo')), set([obj._pk]))
+        self.assertEqual(set(self.SetModel.collection(field='bar')), set())
+
+        # add another value
+        obj.field.sadd('bar')
+        self.assertEqual(set(self.SetModel.collection(field='foo')), set([obj._pk]))
+        self.assertEqual(set(self.SetModel.collection(field='bar')), set([obj._pk]))
+
+        # remove a value
+        obj.field.srem('foo')
+        self.assertEqual(set(self.SetModel.collection(field='foo')), set())
+        self.assertEqual(set(self.SetModel.collection(field='bar')), set([obj._pk]))
+
+        # remove the object
+        obj.delete()
+        self.assertEqual(set(self.SetModel.collection(field='foo')), set())
+        self.assertEqual(set(self.SetModel.collection(field='bar')), set())
+
+    def test_spop_command_should_correctly_deindex_one_value(self):
+        # spop remove and return a random value from the set, we don't know which one
+
+        obj = self.SetModel()
+
+        values = ['foo', 'bar']
+
+        obj.field.sadd(*values)
+
+        with self.assertNumCommands(2):
+            # check that we had only two commands: one for spop, one for deindexing the value
+            poped_value = obj.field.spop()
+
+        values.remove(poped_value)
+        self.assertEqual(obj.field.proxy_get(), set(values))
+        self.assertEqual(set(self.SetModel.collection(field=values[0])), set([obj._pk]))
+        self.assertEqual(set(self.SetModel.collection(field=poped_value)), set())
+
+
+class IndexableListFieldTest(LimpydBaseTest):
+
+    class ListModel(TestDatabaseMixin, model.RedisModel):
+        field = fields.ListField(indexable=True)
+
+    def test_indexable_lists_are_indexed(self):
+        obj = self.ListModel()
+
+        # add one value
+        obj.field.lpush('foo')
+        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
+        self.assertEqual(set(self.ListModel.collection(field='bar')), set())
+
+        # add another value
+        obj.field.lpush('bar')
+        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
+        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
+
+        # remove a value
+        obj.field.rpop()  # will remove foo
+        self.assertEqual(set(self.ListModel.collection(field='foo')), set())
+        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
+
+        obj.delete()
+        self.assertEqual(set(self.ListModel.collection(field='foo')), set())
+        self.assertEqual(set(self.ListModel.collection(field='bar')), set())
+
+        # test we can add many values at the same time
+        obj = self.ListModel()
+        obj.field.rpush('foo', 'bar')
+        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
+        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
+
+    def test_pop_commands_should_correctly_deindex_one_value(self):
+        obj = self.ListModel()
+
+        obj.field.lpush('foo', 'bar')
+
+        with self.assertNumCommands(2):
+            # check that we had only two commands: one for lpop, one for deindexing the value
+            bar = obj.field.lpop()
+
+        self.assertEqual(bar, 'bar')
+        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
+        self.assertEqual(set(self.ListModel.collection(field='bar')), set())
+
+    def test_pushx_commands_should_correctly_index_only_its_values(self):
+        obj = self.ListModel()
+
+        # check that pushx on an empty list does nothing
+        obj.field.lpushx('foo')
+        self.assertEqual(obj.field.proxy_get(), [])
+        self.assertEqual(set(self.ListModel.collection(field='foo')), set())
+
+        # add a value to really test pushx
+        obj.field.lpush('foo')
+        # then test pushx
+        with self.assertNumCommands(2):
+            # check that we had only two comands, one for the rpushx, one for indexing the value
+            obj.field.rpushx('bar')
+
+        # test list and collection, to be sure
+        self.assertEqual(obj.field.proxy_get(), ['foo', 'bar'])
+        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
+
+    def test_lrem_command_should_correctly_deindex_only_its_value_when_possible(self):
+        obj = self.ListModel()
+
+        obj.field.lpush('foo', 'bar', 'foo',)
+
+        #remove all foo
+        with self.assertNumCommands(2):
+            # check that we had only two comands, one for the lrem, one for indexing the value
+            obj.field.lrem(0, 'foo')
+
+        # no more foo in the list
+        self.assertEqual(obj.field.proxy_get(), ['bar'])
+        self.assertEqual(set(self.ListModel.collection(field='foo')), set())
+        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
+
+        # add more foos to test lrem with another count parameter
+        obj.field.lpush('foo')
+        obj.field.rpush('foo')
+
+        # remove foo at the start
+        with self.assertNumCommands(8):
+            # we did a lot of calls to reindex, just check this:
+            # - 1 lrange to get all values before the lrem
+            # - 3 srem to deindex the 3 values (even if two values are the same)
+            # - 1 lrem call
+            # - 1 lrange to get all values after the rem
+            # - 2 sadd to index the two remaining values
+            obj.field.lrem(1, 'foo')
+
+        # still a foo in the list
+        self.assertEqual(obj.field.proxy_get(), ['bar', 'foo'])
+        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
+
+    def test_lset_command_should_correctly_deindex_and_index_its_value(self):
+        obj = self.ListModel()
+
+        obj.field.lpush('foo')
+
+        # replace foo with bar
+        with self.assertNumCommands(4):
+            # we should have 4 calls:
+            # - 1 lindex to get the current value
+            # - 1 to deindex this value
+            # - 1 for the lset call
+            # - 1 to index the new value
+            obj.field.lset(0, 'bar')
+
+        # check collections
+        self.assertEqual(obj.field.proxy_get(), ['bar'])
+        self.assertEqual(set(self.ListModel.collection(field='foo')), set())
+        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
+
+        # replace an inexisting value will raise, without (de)indexing anything
+        with self.assertNumCommands(2):
+            # we should have 2 calls:
+            # - 1 lindex to get the current value, which is None (out f range) so
+            #   nothing to deindex
+            # - 1 for the lset call
+            with self.assertRaises(RedisError):
+                obj.field.lset(1, 'baz')
+
+        # check collections are not modified
+        self.assertEqual(obj.field.proxy_get(), ['bar'])
+        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
+        self.assertEqual(set(self.ListModel.collection(field='baz')), set())
+
 
 if __name__ == '__main__':
     unittest.main()
