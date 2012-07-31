@@ -22,4 +22,4 @@ class LimpydBaseTest(unittest.TestCase):
         Helper method to only count redis commands that work on keys (ie ignore
         commands like info...)
         """
-        return self.connection.info()['keyspace_hits'] + self.connection.info()['keyspace_misses']
+        return self.connection.info()['total_commands_processed']
