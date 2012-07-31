@@ -314,7 +314,7 @@ class RedisModel(RedisProxyCommand):
             # we do the cache stuff only if the object is cacheable, to avoid
             # useless computations if not
             for field_name in args:
-                field = field = getattr(self, field_name)
+                field = getattr(self, field_name)
                 field_cached = False
                 if field.cacheable and field.has_cache():
                     field_cache = field.get_cache()
@@ -363,7 +363,7 @@ class RedisModel(RedisProxyCommand):
                 # done (but before exiting the method, all set indexes must be
                 # reset)
                 for field_name, value in kwargs.items():
-                    field = field = getattr(self, field_name)
+                    field = getattr(self, field_name)
                     if field.indexable:
                         old_value = field.hget()
                         field.deindex_value(old_value)
@@ -381,7 +381,7 @@ class RedisModel(RedisProxyCommand):
                     # Clear the cache for each cacheable field
                     if self.cacheable:
                         for field_name, value in kwargs.items():
-                            field = field = getattr(self, field_name)
+                            field = getattr(self, field_name)
                             if not field.cacheable or not field.has_cache():
                                 continue
                             field_cache = field.get_cache()
