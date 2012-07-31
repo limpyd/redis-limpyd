@@ -335,16 +335,14 @@ class RedisModel(RedisProxyCommand):
         if cached:
             # we have some fields cached, return the values in the right order
             retrieved_dict = dict(zip(to_retrieve, retrieved))
-            result = []
+            retrieved = []
             for field_name in args:
                 if field_name in cached:
-                    result.append(cached[field_name])
+                    retrieved.append(cached[field_name])
                 else:
-                    result.append(retrieved_dict[field_name])
-            return result
-        else:
-            # nothing cached, return all retrieved fields
-            return retrieved
+                    retrieved.append(retrieved_dict[field_name])
+
+        return retrieved
 
     def hmset(self, **kwargs):
         """
