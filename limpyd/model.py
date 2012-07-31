@@ -315,15 +315,14 @@ class RedisModel(RedisProxyCommand):
             # useless computations if not
             for field_name in args:
                 field = getattr(self, field_name)
-                field_cached = False
                 if field.cacheable and field.has_cache():
                     field_cache = field.get_cache()
                     haxh = make_cache_key('hget', field_name)
                     if haxh in field_cache:
-                        field_cached = True
                         cached[field_name] = field_cache[haxh]
-                if not field_cached:
-                    to_retrieve.append(field_name)
+                        continue
+                # field not cached, we need to retrieve it
+                to_retrieve.append(field_name)
         else:
             # object not cacheable, retrieve all fields
             to_retrieve = args
