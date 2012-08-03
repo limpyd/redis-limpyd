@@ -11,16 +11,17 @@ from limpyd.exceptions import *
 from base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
 
 
-class TestDatabaseMixin(object):
+class TestRedisModel(model.RedisModel):
     """
     Use it in first class for all RedisModel created for tests, or define
     the following database
     """
     database = LimpydBaseTest.database
-    namespace = "tests"
+    abstract = True
+    namespace = "tests"  # not mandatory as namespace can be empty
 
 
-class Bike(TestDatabaseMixin, model.RedisModel):
+class Bike(TestRedisModel):
     name = fields.StringField(indexable=True)
     wheels = fields.StringField(default=2)
     passengers = fields.StringField(default=1, cacheable=False)
@@ -30,7 +31,7 @@ class MotorBike(Bike):
     power = fields.StringField()
 
 
-class Boat(TestDatabaseMixin, model.RedisModel):
+class Boat(TestRedisModel):
     """
     Use also HashableField.
     """
@@ -324,7 +325,7 @@ class MetaRedisProxyTest(LimpydBaseTest):
 
 class PostCommandTest(LimpydBaseTest):
 
-    class MyModel(TestDatabaseMixin, model.RedisModel):
+    class MyModel(TestRedisModel):
         name = fields.HashableField()
         last_modification_date = fields.HashableField()
 
@@ -392,13 +393,13 @@ class InheritanceTest(LimpydBaseTest):
 
 class PKFieldTest(LimpydBaseTest):
 
-    class AutoPkModel(TestDatabaseMixin, model.RedisModel):
+    class AutoPkModel(TestRedisModel):
         name = fields.StringField(indexable=True)
 
     class RedefinedAutoPkModel(AutoPkModel):
         id = fields.AutoPKField()
 
-    class NotAutoPkModel(TestDatabaseMixin, model.RedisModel):
+    class NotAutoPkModel(TestRedisModel):
         pk = fields.PKField()
         name = fields.StringField(indexable=True)
 
@@ -528,7 +529,7 @@ class DeleteTest(LimpydBaseTest):
 
     def test_stringfield_keys_are_deleted(self):
 
-        class Train(TestDatabaseMixin, model.RedisModel):
+        class Train(TestRedisModel):
             namespace = "test_stringfield_keys_are_deleted"
             name = fields.StringField(unique=True)
             kind = fields.StringField(indexable=True)
@@ -567,7 +568,7 @@ class DeleteTest(LimpydBaseTest):
 
     def test_hashablefield_keys_are_deleted(self):
 
-        class Train(TestDatabaseMixin, model.RedisModel):
+        class Train(TestRedisModel):
             namespace = "test_hashablefield_keys_are_deleted"
             name = fields.HashableField(unique=True)
             kind = fields.HashableField(indexable=True)
@@ -609,7 +610,7 @@ class DeleteTest(LimpydBaseTest):
 
     def test_pkfield_cannot_be_deleted(self):
 
-        class Train(TestDatabaseMixin, model.RedisModel):
+        class Train(TestRedisModel):
             namespace = "test_pkfield_cannot_be_deleted"
             name = fields.HashableField(unique=True)
 
@@ -619,7 +620,7 @@ class DeleteTest(LimpydBaseTest):
 
     def test_model_delete(self):
 
-        class Train(TestDatabaseMixin, model.RedisModel):
+        class Train(TestRedisModel):
             namespace = "test_model_delete"
             name = fields.HashableField(unique=True)
             kind = fields.StringField(indexable=True)
@@ -660,7 +661,7 @@ class HMTest(LimpydBaseTest):
     Test behavior of hmset and hmget
     """
 
-    class HMTestModel(TestDatabaseMixin, model.RedisModel):
+    class HMTestModel(TestRedisModel):
         foo = fields.HashableField()
         bar = fields.HashableField(indexable=True)
         baz = fields.HashableField(unique=True)
@@ -837,7 +838,7 @@ class ProxyTest(LimpydBaseTest):
 
 class IndexableSortedSetFieldTest(LimpydBaseTest):
 
-    class SortedSetModel(TestDatabaseMixin, model.RedisModel):
+    class SortedSetModel(TestRedisModel):
         field = fields.SortedSetField(indexable=True)
 
     def test_indexable_sorted_sets_are_indexed(self):
@@ -908,7 +909,7 @@ class IndexableSortedSetFieldTest(LimpydBaseTest):
 
 class IndexableSetFieldTest(LimpydBaseTest):
 
-    class SetModel(TestDatabaseMixin, model.RedisModel):
+    class SetModel(TestRedisModel):
         field = fields.SetField(indexable=True)
 
     def test_indexable_sets_are_indexed(self):
@@ -955,7 +956,7 @@ class IndexableSetFieldTest(LimpydBaseTest):
 
 class IndexableListFieldTest(LimpydBaseTest):
 
-    class ListModel(TestDatabaseMixin, model.RedisModel):
+    class ListModel(TestRedisModel):
         field = fields.ListField(indexable=True)
 
     def test_indexable_lists_are_indexed(self):

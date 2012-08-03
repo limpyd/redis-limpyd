@@ -28,8 +28,7 @@ class MetaRedisModel(MetaRedisProxy):
                 raise ImplementationError(
                     'You must define a database for the model %s' % name)
             if not getattr(it, 'namespace', None):
-                raise ImplementationError(
-                    'You must define a namespace for the model %s' % name)
+                it.namespace = ''
             it._name = ':'.join((it.namespace, name.lower()))
             it.database._add_model(it)
 
