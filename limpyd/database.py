@@ -24,6 +24,8 @@ class RedisDatabase(object):
     redis-py, to use it's stored connection. This pipeline method returns an
     objet, as in redis-py, which provide a watch method attending key names, but
     you can simply provide limpyd fields.
+    As for redis-py, a convenience method exists to handle pipeline associated
+    to the watch command: transaction.
     """
     _connection = None
     pipeline_mode = False
@@ -139,7 +141,7 @@ class _Pipeline(StrictPipeline):
             watches.append(watch)
         return super(_Pipeline, self).watch(*watches)
 
-    def reset(self):
+    def __exit__(self, exc_type, exc_value, traceback):
         self._database._connection = self._original_connection
         self._database.pipeline_mode = self._original_pipeline_mode
-        super(_Pipeline, self).reset()
+        super(_Pipeline, self).__exit__(exc_type, exc_value, traceback)
