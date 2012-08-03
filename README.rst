@@ -23,7 +23,16 @@ Example of configuration::
 
     from redis import model
     
+    main_database = model.RedisDatabase(dict(
+        host="localhost",
+        port=6379,
+        db=0
+    ))
+
     class Bike(model.RedisModel):
+
+        database = main_database
+
         name = model.HashableField(indexable=True, unique=True)
         color = model.HashableField()
         wheels = model.StringField(default=2)
