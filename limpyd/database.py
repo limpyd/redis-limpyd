@@ -12,6 +12,19 @@ log = getLogger(__name__)
 
 
 class RedisDatabase(object):
+    """
+    A RedisDatabase regroups some models and handles the connection to Redis for
+    them.
+    Each model must have a database entry, but many (or all) can share the same
+    RedisDatabase object (so each of these models will be stored on the same
+    Redis server+database)
+    In a database, two models with the same namespace (empty by default) cannot
+    have the same name (defined by the class name)
+    This RedisDatabase objects provide a abstraction to the Pipeline object from
+    redis-py, to use it's stored connection. This pipeline method returns an
+    objet, as in redis-py, which provide a watch method attending key names, but
+    you can simply provide limpyd fields.
+    """
     _connection = None
     pipeline_mode = False
     # _models keep an entry for each defined model on this database
