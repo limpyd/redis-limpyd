@@ -807,18 +807,6 @@ class FieldExistenceTest(LimpydBaseTest):
         self.assertFalse(same_boat.pk.exists())
 
 
-class PipelineTest(LimpydBaseTest):
-
-    def test_simple_pipeline_without_transaction(self):
-        bike = Bike(name="rosalie", wheels=4)
-        bike2 = Bike(name="velocipede")
-        with self.database.pipeline(transaction=False) as pipe:
-            bike.name.get()
-            bike2.name.get()
-            names = pipe.execute()
-        self.assertEqual(names, ["rosalie", "velocipede"])
-
-
 class ProxyTest(LimpydBaseTest):
 
     def test_proxy_get_should_call_real_getter(self):
