@@ -1,38 +1,31 @@
 # -*- coding:utf-8 -*-
 
+# Add the tests main directory into the path, to be able to load things from base
+import os
+import sys
+sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(__file__), '..')))
+
 import unittest
 
-from limpyd import model, fields
-from limpyd.exceptions import *
-
 from base import LimpydBaseTest
-from model import Bike, TestRedisModel
+from limpyd import TEST_CONNECTION_SETTINGS
+from limpyd.contrib.database import RedisDatabase
+from limpyd import model, fields
+
+test_database = RedisDatabase(connection_settings=TEST_CONNECTION_SETTINGS)
 
 
-class DatabaseTest(LimpydBaseTest):
+class Bike(model.RedisModel):
+    database = test_database
+    namespace = 'database-contrib-tests'
 
-    def test_database_should_be_mandatory(self):
-        with self.assertRaises(ImplementationError):
-            class WithoutDB(model.RedisModel):
-                name = fields.StringField()
-
-    def test_namespace_plus_model_should_be_unique(self):
-        MainBike = Bike
-
-        def sub_test():
-            with self.assertRaises(ImplementationError):
-                class Bike(TestRedisModel):
-                    name = fields.StringField()
-
-            class Bike(TestRedisModel):
-                name = fields.StringField()
-                namespace = 'sub-tests'
-            self.assertNotEqual(MainBike._name, Bike._name)
-
-        sub_test()
+    name = fields.StringField(indexable=True)
+    wheels = fields.StringField(default=2)
+    passengers = fields.StringField(default=1, cacheable=False)
 
 
 class PipelineTest(LimpydBaseTest):
+    database = test_database
 
     def test_simple_pipeline_without_transaction(self):
         bike = Bike(name="rosalie", wheels=4)

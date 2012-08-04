@@ -4,7 +4,8 @@ import unittest
 import argparse
 
 # FIXME: move tests in limpyd module, to prevent a relative import?
-from tests import base, model, utils, collection, database
+from tests import base, model, utils, collection
+from tests.contrib import database
 
 
 if __name__ == "__main__":
@@ -36,7 +37,9 @@ if __name__ == "__main__":
     else:
         # Run all the tests
         suites = []
-        for mod in [base, model, utils, collection, database]:
+        default_mods = [base, model, utils, collection, ]
+        contrib_mods = [database, ]
+        for mod in default_mods + contrib_mods:
             suite = unittest.TestLoader().loadTestsFromModule(mod)
             suites.append(suite)
         suite = unittest.TestSuite(suites)

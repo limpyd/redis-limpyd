@@ -93,6 +93,29 @@ class InitTest(LimpydBaseTest):
             bike = Bike(power="human")
 
 
+class DatabaseTest(LimpydBaseTest):
+
+    def test_database_should_be_mandatory(self):
+        with self.assertRaises(ImplementationError):
+            class WithoutDB(model.RedisModel):
+                name = fields.StringField()
+
+    def test_namespace_plus_model_should_be_unique(self):
+        MainBike = Bike
+
+        def sub_test():
+            with self.assertRaises(ImplementationError):
+                class Bike(TestRedisModel):
+                    name = fields.StringField()
+
+            class Bike(TestRedisModel):
+                name = fields.StringField()
+                namespace = 'sub-tests'
+            self.assertNotEqual(MainBike._name, Bike._name)
+
+        sub_test()
+
+
 class GetAttrTest(LimpydBaseTest):
 
     def test_get_redis_command(self):

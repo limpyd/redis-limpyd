@@ -33,7 +33,7 @@ class memoize_command(object):
         def wrapper(self, *args, **kwargs):
             # self here is a field instance
 
-            if not self.cacheable or self.database.pipeline_mode:
+            if not self.cacheable or self.database.discard_cache:
                 return func(self, *args, **kwargs)
 
             haxh = make_cache_key(*args, **kwargs)
