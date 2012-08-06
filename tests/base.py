@@ -4,7 +4,7 @@ import sys
 from limpyd import DEFAULT_CONNECTION_SETTINGS, TEST_CONNECTION_SETTINGS
 from limpyd.database import RedisDatabase
 
-test_database = RedisDatabase(connection_settings=TEST_CONNECTION_SETTINGS)
+test_database = RedisDatabase(**TEST_CONNECTION_SETTINGS)
 
 
 class LimpydBaseTest(unittest.TestCase):

@@ -12,7 +12,7 @@ from limpyd import TEST_CONNECTION_SETTINGS
 from limpyd.contrib.database import RedisDatabase
 from limpyd import model, fields
 
-test_database = RedisDatabase(connection_settings=TEST_CONNECTION_SETTINGS)
+test_database = RedisDatabase(**TEST_CONNECTION_SETTINGS)
 
 
 class Bike(model.RedisModel):

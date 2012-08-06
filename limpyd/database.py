@@ -23,7 +23,7 @@ class RedisDatabase(object):
     # _models keep an entry for each defined model on this database
     _models = dict()
 
-    def __init__(self, connection_settings=None):
+    def __init__(self, **connection_settings):
         self.connection_settings = connection_settings or DEFAULT_CONNECTION_SETTINGS
         super(RedisDatabase, self).__init__()
 
