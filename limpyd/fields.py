@@ -1,6 +1,7 @@
 # -*- coding:utf-8 -*-
 
 from logging import getLogger
+from copy import copy
 from redis.exceptions import RedisError
 
 from limpyd.utils import make_key, memoize_command
@@ -113,6 +114,11 @@ class RedisField(RedisProxyCommand):
 
     proxy_setter = None
     unique = False
+    _copy_conf = {
+        'args': [],
+        'kwargs': ['cacheable', 'default'],
+        'attrs': ['name', '_instance', '_model']
+    }
 
     def __init__(self, *args, **kwargs):
         self.indexable = False
@@ -183,12 +189,40 @@ class RedisField(RedisProxyCommand):
         In the RedisModel metaclass and constructor, we need to copy the fields
         to new ones. It can be done via the copy function of the copy module.
         This __copy__ method handles the copy by creating a new field with same
-        attributes, without ignoring private attributes
+        attributes, without ignoring private attributes.
+        Configuration of args and kwargs to pass to the constructor, and
+        attributes to copy is done in the _copy_conf attribute of the class, a
+        dict with 3 entries:
+          - args: list of attributes names to pass as *args to the constructor
+          - kwargs: list of attributes names to pass as **kwargs to the
+                    constructor. If a tuple is used instead of a simple string
+                    in the list, its first entry will be the kwarg name, and
+                    the second the name of the attribute to copy
+          - attrs: list of attributes names to copy (with "=") from the old
+                   object to the new one
         """
-        new_copy = self.__class__(**self.__dict__)
-        for attr_name in ('name', '_instance', '_model'):
+        # prepare unnamed arguments
+        args = [getattr(self, arg) for arg in self._copy_conf['args']]
+
+        # prepare named arguments
+        kwargs = {}
+        for arg in self._copy_conf['kwargs']:
+            # if arg is a tuple, the first entry will be the named kwargs, and
+            # the second will be the name of the attribute to copy
+            name = arg
+            if isinstance(arg, tuple):
+                name, arg = arg
+            if hasattr(self, arg):
+                kwargs[name] = getattr(self, arg)
+
+        # create the new instance
+        new_copy = self.__class__(*args, **kwargs)
+
+        # then copy attributes
+        for attr_name in self._copy_conf['attrs']:
             if hasattr(self, attr_name):
                 setattr(new_copy, attr_name, getattr(self, attr_name))
+
         return new_copy
 
     def make_key(self, *args):
@@ -244,6 +278,8 @@ class IndexableField(RedisField):
     Store data in index at save.
     Retrieve instances from these indexes.
     """
+    _copy_conf = copy(RedisField._copy_conf)
+    _copy_conf['kwargs'] += ['indexable', 'unique']
 
     def __init__(self, *args, **kwargs):
         super(IndexableField, self).__init__(*args, **kwargs)
@@ -669,14 +705,11 @@ class PKField(RedisField):
     _auto_added = False  # True only if automatically added by limpyd
     _set = False  # True when set for the first (and unique) time
 
-    def __copy__(self):
-        """
-        Overload the behaviour of the copy method to copy specific fields
-        """
-        new_copy = super(PKField, self).__copy__()
-        new_copy._auto_increment = self._auto_increment
-        new_copy._auto_added = self._auto_added
-        return new_copy
+    _copy_conf = {
+        'args': RedisField._copy_conf['args'],
+        'kwargs': RedisField._copy_conf['kwargs'],
+        'attrs': RedisField._copy_conf['attrs'] + ['_auto_increment', '_auto_added']
+    }
 
     def normalize(self, value):
         """
