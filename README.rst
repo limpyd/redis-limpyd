@@ -23,11 +23,11 @@ Example of configuration::
 
     from redis import model
     
-    main_database = model.RedisDatabase(dict(
+    main_database = model.RedisDatabase(
         host="localhost",
         port=6379,
         db=0
-    ))
+    )
 
     class Bike(model.RedisModel):
 

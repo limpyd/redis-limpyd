@@ -1,18 +1,11 @@
 # -*- coding:utf-8 -*-
 
-# Add the tests main directory into the path, to be able to load things from base
-import os
-import sys
-sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(__file__), '..')))
-
-import unittest
-
-from base import LimpydBaseTest
+from ..base import LimpydBaseTest
 from limpyd import TEST_CONNECTION_SETTINGS
-from limpyd.contrib.database import RedisDatabase
+from limpyd.contrib.database import PipelineDatabase
 from limpyd import model, fields
 
-test_database = RedisDatabase(connection_settings=TEST_CONNECTION_SETTINGS)
+test_database = PipelineDatabase(**TEST_CONNECTION_SETTINGS)
 
 
 class Bike(model.RedisModel):
@@ -68,7 +61,3 @@ class PipelineTest(LimpydBaseTest):
 
         # we entered the function two times because a watched key was updated
         self.assertEqual(do_stuff.counter, 2)
-
-
-if __name__ == '__main__':
-    unittest.main()

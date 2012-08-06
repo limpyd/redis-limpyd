@@ -720,11 +720,8 @@ class PKField(RedisField):
     _auto_added = False  # True only if automatically added by limpyd
     _set = False  # True when set for the first (and unique) time
 
-    _copy_conf = {
-        'args': RedisField._copy_conf['args'],
-        'kwargs': RedisField._copy_conf['kwargs'],
-        'attrs': RedisField._copy_conf['attrs'] + ['_auto_increment', '_auto_added']
-    }
+    _copy_conf = copy(RedisField._copy_conf)
+    _copy_conf['attrs'] += ['_auto_increment', '_auto_added']
 
     def normalize(self, value):
         """
