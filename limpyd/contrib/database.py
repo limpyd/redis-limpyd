@@ -3,11 +3,11 @@
 from redis.client import StrictPipeline
 from redis.exceptions import WatchError
 
-from limpyd.database import RedisDatabase as BaseRedisDatabase
+from limpyd.database import RedisDatabase
 from limpyd.fields import RedisField
 
 
-class RedisDatabase(BaseRedisDatabase):
+class PipelineDatabase(RedisDatabase):
     """
     In addition to the functionalities of the default RedisDatabase object, this
     one provide an abstraction to the Pipeline object from

@@ -2,10 +2,10 @@
 
 from ..base import LimpydBaseTest
 from limpyd import TEST_CONNECTION_SETTINGS
-from limpyd.contrib.database import RedisDatabase
+from limpyd.contrib.database import PipelineDatabase
 from limpyd import model, fields
 
-test_database = RedisDatabase(**TEST_CONNECTION_SETTINGS)
+test_database = PipelineDatabase(**TEST_CONNECTION_SETTINGS)
 
 
 class Bike(model.RedisModel):
