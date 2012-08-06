@@ -3,10 +3,10 @@
 from logging import getLogger
 from copy import copy
 
-from limpyd import DEFAULT_CONNECTION_SETTINGS
 from limpyd.fields import *
 from limpyd.utils import make_key, make_cache_key
 from limpyd.exceptions import *
+from limpyd.database import RedisDatabase
 from limpyd.collection import CollectionManager
 
 __all__ = ['RedisModel', ]
@@ -19,8 +19,18 @@ class MetaRedisModel(MetaRedisProxy):
     We make invisible for user that fields were class properties
     """
     def __new__(mcs, name, base, attrs):
+        is_abstract = attrs.get('abstract', False)
+
         it = type.__new__(mcs, name, base, attrs)
-        it._name = name.lower()
+
+        if not is_abstract:
+            if not hasattr(it, 'database') or not isinstance(it.database, RedisDatabase):
+                raise ImplementationError(
+                    'You must define a database for the model %s' % name)
+            if not getattr(it, 'namespace', None):
+                it.namespace = ''
+            it._name = ':'.join((it.namespace, name.lower()))
+            it.database._add_model(it)
 
         # init (or get from parents) lists of redis fields
         _fields = list(it._fields) if hasattr(it, '_fields') else []
@@ -83,6 +93,7 @@ class MetaRedisModel(MetaRedisProxy):
         setattr(it, "_hashable_fields", _hashable_fields)
         if pk_field.name != 'pk':
             setattr(it, "_redis_attr_pk", getattr(it, "_redis_attr_%s" % pk_field.name))
+        setattr(it, "abstract", is_abstract)
 
         return it
 
@@ -94,10 +105,10 @@ class RedisModel(RedisProxyCommand):
 
     __metaclass__ = MetaRedisModel
 
+    namespace = None  # all models in an app may have the same namespace
     cacheable = True
+    abstract = True
     DoesNotExist = DoesNotExist
-
-    CONNECTION_SETTINGS = DEFAULT_CONNECTION_SETTINGS
 
     def __init__(self, *args, **kwargs):
         """
@@ -278,7 +289,7 @@ class RedisModel(RedisProxyCommand):
     @property
     def key(self):
         return self.make_key(
-            self.__class__.__name__.lower(),
+            self._name,
             self.get_pk(),
             "hash",
         )
@@ -289,7 +300,7 @@ class RedisModel(RedisProxyCommand):
         Used to sort Hashfield. See Hashfield.sort_widlcard.
         """
         return cls.make_key(
-            cls.__name__.lower(),
+            cls._name,
             "*",
             "hash",
         )
@@ -402,9 +413,3 @@ class RedisModel(RedisProxyCommand):
         self.connection.srem(self._redis_attr_pk.collection_key, self._pk)
         # Deactivate the instance
         delattr(self, "_pk")
-
-
-class TestModel(RedisModel):
-
-    name = StringField(unique=True)
-    foo = HashableField(indexable=True)

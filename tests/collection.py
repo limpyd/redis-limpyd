@@ -6,7 +6,7 @@ from limpyd import model
 from limpyd import fields
 from limpyd.exceptions import *
 from base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
-from model import Boat, Bike, TestModelConnectionMixin
+from model import Boat, Bike, TestRedisModel
 
 
 class CollectionBaseTest(LimpydBaseTest):
@@ -111,7 +111,7 @@ class SortTest(CollectionBaseTest):
 
     def test_sort_by_hashablefield(self):
 
-        class Event(TestModelConnectionMixin, model.RedisModel):
+        class Event(TestRedisModel):
             year = fields.HashableField()
 
         # Create some instances
@@ -133,7 +133,7 @@ class SortTest(CollectionBaseTest):
 
     def test_sort_by_alpha(self):
 
-        class Singer(TestModelConnectionMixin, model.RedisModel):
+        class Singer(TestRedisModel):
             name = fields.HashableField()
 
         # Create some instances
@@ -174,7 +174,7 @@ class InstancesTest(CollectionBaseTest):
         """
         Try to chain all the collection possibilities.
         """
-        class Band(TestModelConnectionMixin, model.RedisModel):
+        class Band(TestRedisModel):
             name = fields.HashableField(unique=True)
             started_in = fields.HashableField()
             genre = fields.HashableField(indexable=True)
