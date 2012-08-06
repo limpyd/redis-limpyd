@@ -69,7 +69,7 @@ class MetaRedisModel(MetaRedisProxy):
             key = "_redis_attr_%s" % field_name
             field = getattr(it, key)
             ownfield = copy(field)
-            ownfield._model = it
+            ownfield._attach_to_model(it)
             setattr(it, key, ownfield)
 
         # Auto create missing primary key (it will always be called in RedisModel)
@@ -80,7 +80,7 @@ class MetaRedisModel(MetaRedisProxy):
 
         # Loop on new fields to prepare them
         for field in own_fields:
-            field._model = it
+            field._attach_to_model(it)
             _fields.append(field.name)
             setattr(it, "_redis_attr_%s" % field.name, field)
             if field.name in attrs:
@@ -128,7 +128,7 @@ class RedisModel(RedisProxyCommand):
             attr = getattr(self, "_redis_attr_%s" % attr_name)
             # Copy it, to avoid sharing fields between model instances
             newattr = copy(attr)
-            newattr._instance = self
+            newattr._attach_to_instance(self)
             # Force field.cacheable to False if it's False for the model
             newattr.cacheable = newattr.cacheable and self.cacheable
             setattr(self, attr_name, newattr)
