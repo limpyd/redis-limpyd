@@ -1,6 +1,6 @@
 # -*- coding:utf-8 -*-
 
-from tests.base import LimpydBaseTest
+from ..base import LimpydBaseTest
 from limpyd import TEST_CONNECTION_SETTINGS
 from limpyd.contrib.database import RedisDatabase
 from limpyd import model, fields
