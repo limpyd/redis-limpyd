@@ -11,9 +11,9 @@ class RedisDatabase(BaseRedisDatabase):
     """
     In addition to the functionalities of the default RedisDatabase object, this
     one provide an abstraction to the Pipeline object from
-    redis-py, to use it's stored connection. This pipeline method returns an
-    objet, as in redis-py, which provide a watch method attending key names, but
-    you can simply provide limpyd fields.
+    redis-py, to use its stored connection. This pipeline method returns an
+    object, as in redis-py, which provide a watch method attending key names,
+    but you can simply provide limpyd fields.
     As for redis-py, a convenience method exists to handle pipeline associated
     to the watch command: transaction.
     """
@@ -72,7 +72,7 @@ class RedisDatabase(BaseRedisDatabase):
 
 class _Pipeline(StrictPipeline):
     """
-    A subclass of the redis pipeline class used by the databae object, which
+    A subclass of the redis pipeline class used by the database object, which
     save its internal connection and replace it by the pipeline, allowing
     all redis calls to be managed by this pipeline
     """
