@@ -42,14 +42,15 @@ class MetaRedisModel(MetaRedisProxy):
         # First loop on new attributes for this class to find fields and
         # primary key, and validate the eventually found PKField
         own_fields = []
-        for attr_name in attrs:
-            if attr_name.startswith("_"):
-                continue
-            attr = getattr(it, attr_name)
-            if not isinstance(attr, RedisField):
-                continue
-            attr.name = attr_name  # each field must know its name
-            if isinstance(attr, PKField):
+
+        # limit to redis fields
+        redis_fields = [(k, v) for k, v in attrs.items() if not k.startswith('_') and isinstance(v, RedisField)]
+        # and keep them by declaration order
+        redis_fields = [(k, v) for k, v in sorted(redis_fields, key=lambda f: f[1]._creation_order)]
+
+        for (field_name, field) in redis_fields:
+            field.name = field_name  # each field must know its name
+            if isinstance(field, PKField):
                 # Check and save the primary key
                 if pk_field:
                     # If a PKField already exists, remove the previously auto-added
@@ -58,8 +59,8 @@ class MetaRedisModel(MetaRedisProxy):
                     else:
                         raise ImplementationError(
                             'Only one PKField field is allowed on %s' % name)
-                pk_field = attr
-            own_fields.append(attr)
+                pk_field = field
+            own_fields.append(field)
 
         # We have to store the name of the class on which a field is attached
         # to compute needed redis keys.
@@ -85,7 +86,7 @@ class MetaRedisModel(MetaRedisProxy):
             setattr(it, "_redis_attr_%s" % field.name, field)
             if field.name in attrs:
                 delattr(it, field.name)
-            if isinstance(attr, HashableField):
+            if isinstance(field, HashableField):
                 _hashable_fields.append(field.name)
 
         # Save usefull attributes on the final model
