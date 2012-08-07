@@ -111,6 +111,7 @@ class RedisField(RedisProxyCommand):
     """
     Wrapper to help use the redis data structures.
     """
+    _creation_order = 0  # internal class counter to keep fields ordered
 
     proxy_setter = None
     unique = False
@@ -125,6 +126,10 @@ class RedisField(RedisProxyCommand):
         self.cacheable = kwargs.get('cacheable', True)
         if "default" in kwargs:
             self.default = kwargs["default"]
+
+        # keep fields ordered
+        self._creation_order = RedisField._creation_order
+        RedisField._creation_order += 1
 
     def proxy_get(self):
         """

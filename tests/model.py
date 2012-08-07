@@ -92,6 +92,12 @@ class InitTest(LimpydBaseTest):
         with self.assertRaises(ValueError):
             bike = Bike(power="human")
 
+    def test_fields_should_be_ordered(self):
+        self.assertEqual(Bike._fields, ['pk', 'name', 'wheels', 'passengers'])
+        self.assertEqual(MotorBike._fields, ['pk', 'name', 'wheels', 'passengers', 'power'])
+        motorbike = MotorBike()
+        self.assertEqual(motorbike._fields, ['pk', 'name', 'wheels', 'passengers', 'power'])
+
 
 class DatabaseTest(LimpydBaseTest):
 
