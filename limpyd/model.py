@@ -22,6 +22,7 @@ class MetaRedisModel(MetaRedisProxy):
         is_abstract = attrs.get('abstract', False)
 
         it = type.__new__(mcs, name, base, attrs)
+        setattr(it, "abstract", is_abstract)
 
         if not is_abstract:
             if not hasattr(it, 'database') or not isinstance(it.database, RedisDatabase):
@@ -94,7 +95,6 @@ class MetaRedisModel(MetaRedisProxy):
         setattr(it, "_hashable_fields", _hashable_fields)
         if pk_field.name != 'pk':
             setattr(it, "_redis_attr_pk", getattr(it, "_redis_attr_%s" % pk_field.name))
-        setattr(it, "abstract", is_abstract)
 
         return it
 
