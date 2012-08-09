@@ -1,23 +1,88 @@
 # -*- coding:utf-8 -*-
 
-from limpyd import model, fields
+import re
+from copy import copy
 from redis.exceptions import RedisError
+
+from limpyd import model, fields
+from limpyd.exceptions import *
+
+# used to validate a related_name
+re_identifier = re.compile(r"[^a-zA-Z0-9_]")
 
 
 class RelatedCollection(object):
+    """
+    When a related field is added, a related collection is created on the
+    related model on the other side.
+    It's simply a shortcut to a collection with a predefined filter.
 
-    def __init__(self, model, field):
-        pass
+    Exemple with these two related classes :
 
+        class Person(RelatedField):
+            name = FKStringField()
+            group = FKStringField('Group', related_name='members')
+        class Group(RelatedField):
+            name = FKStringField()
 
-class MetaRelatedModel(model.MetaRedisModel):
-    pass
+    Defining these objets :
+
+        group = Group(name='a group')
+        person = Person(name='a person', group=group)
+
+    You can access members of the group via the main way:
+
+        members = Person.collection(group=group._pk)
+
+    Or with the related collection:
+
+        members = group.members()
+
+    Note that you can pass filters as you can pass them to a collection:
+        members = group.members(a_filter=a_value, another_filter=another_value).
+
+    The result if a real collection, with lazy loading, sorting...
+    """
+
+    def __init__(self, instance, related_field):
+        """
+        Create the RelatedCollection on the 'instance', related to the field
+        'related_field'
+        """
+        self.instance = instance
+        self.related_field = related_field
+
+    def __call__(self, **filters):
+        """
+        Return a collection on the related model, given the current instance as
+        a filter for the related field.
+        """
+        if not filters:
+            filters = {}
+        filters[self.related_field.name] = self.instance._pk
+        return self.related_field._model.collection(**filters)
 
 
 class RelatedModel(model.RedisModel):
-    __metaclass__ = MetaRelatedModel
 
     abstract = True
+
+    def __init__(self, *args, **kwargs):
+        super(RelatedModel, self).__init__(*args, **kwargs)
+
+        # create the related collections
+        self.related_collections = []
+        relations = getattr(self.database, '_relations', {}).get(self._name.lower(), [])
+        for relation in relations:
+            # get the related field
+            model_name, field_name, _ = relation
+            related_model = self.database._models[model_name]
+            related_field = getattr(related_model, '_redis_attr_%s' % field_name)
+
+            # add the collection
+            collection = RelatedCollection(self, related_field)
+            setattr(self, related_field.related_name, collection)
+            self.related_collections.append(related_field.related_name)
 
 
 class RelatedFieldMixin(object):
@@ -32,17 +97,133 @@ class RelatedFieldMixin(object):
     that accept only one value in "_commands_with_single_value_from_python" and
     ones that accept many values (without any other arguments) in
     "_commands_with_many_values_from_python"
+    - management of related parameters: "to" and "related_name"
     """
+
+    _copy_conf = copy(fields.IndexableField._copy_conf)
+    _copy_conf['kwargs'] += [('to', 'related_to'), 'related_name']
 
     _commands_with_single_value_from_python = []
     _commands_with_many_values_from_python = []
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, to, *args, **kwargs):
         """
-        Force the field to be indexable
+        Force the field to be indexable and save related arguments
         """
         kwargs['indexable'] = True
         super(RelatedFieldMixin, self).__init__(*args, **kwargs)
+
+        self.related_to = to
+        self.related_name = kwargs.pop('related_name', None)
+
+    def _attach_to_model(self, model):
+        """
+        When we have a model, save the relation in the database, to later create
+        RelatedCollection objects in the related model
+        """
+        super(RelatedFieldMixin, self)._attach_to_model(model)
+
+        if model.abstract:
+            # do not manage the relation if it's an abstract model
+            return
+
+        # now, check related_name and save the relation in the database
+
+        # get related parameters to identify the relation
+        self.related_name = self._get_related_name()
+        self.related_to = self._get_related_model_name()
+
+        # create entry for the model in the _relations list of the database
+        if not hasattr(self.database, '_relations'):
+            self.database._relations = {}
+        self.database._relations.setdefault(self.related_to, [])
+
+        # relation to save in the database
+        relation = (self._model._name, self.name, self.related_name)
+
+        # check if a relation with the current related_name doesn't already
+        # exists for the related model
+        existing = [r for r in self.database._relations[self.related_to] if r[2] == self.related_name]
+        if existing:
+            raise ImplementationError(
+                "The related name defined for the field '%s.%s', named '%s', already exists on the model '%s'  (tied to the field '%s.%s')"
+                 % (self._model._name, self.name, self.related_name, self._model._name, existing[0][1], existing[0][0]))
+
+        # the relation didn't exists, we can save it
+        self.database._relations[self.related_to].append(relation)
+
+    def _get_related_model_name(self):
+        """
+        Return the name of the related model, as used to store all models in the
+        database object, in the following format: "%(namespace)s:%(class_name)"
+        The result is computed from the "to" argument of the RelatedField
+        constructor, stored in the "related_to" attribute, based on theses rules :
+        - if a "RelatedModel" subclass, get its namespace:name
+        - if a string :
+          - if "self", get from the current model (relation on self)
+          - if a RelatedModel class name, keep it, and if no namesace, use the
+            namespace of the current model
+        """
+        if isinstance(self.related_to, type) and issubclass(self.related_to, RelatedModel):
+            model_name = self.related_to._name
+
+        elif isinstance(self.related_to, basestring):
+            if self.related_to == 'self':
+                model_name = self._model._name
+            elif ':' not in self.related_to:
+                model_name = ':'.join((self._model.namespace, self.related_to))
+            else:
+                model_name = self.related_to
+
+        else:
+            raise ImplementationError("The `to` argument to a related field "
+                                      "must be a RelatedModel as a class or as "
+                                      "a string (with or without namespace)")
+
+        return model_name.lower()
+
+    def _get_related_name(self):
+        """
+        Return the related name to use to access this related field.
+        If the related_name argument is not defined in its declaration,
+        a new one will be computed following this format: '%s_set' with %s the
+        name of the model owning the related.field.
+        If the related_name argument exists, it can be the exact name to use (
+        be careful to use a valid python attribute name), or a string where you
+        can set placeholder for the namespace and the model of the current
+        model. It's useful if the current model is abstract with many subclasses
+
+        Exemples:
+            class Base(RelatedField):
+                abstract = True
+                namespace = 'project'
+                a_field = FKStringField('Other', related_name='%(namespace)s_%(model)s_related')
+                    # => related names accessible from Other are
+                    #    "project_childa_related" and "project_childb_related"
+
+            class ChildA(Base):
+                pass
+
+            class ChildB(Base):
+                pass
+
+            class Other(RelatedField):
+                namespace = 'project'
+                field_a = FKStringField(ChildA)
+                    # => related name accessible from ChildA and ChildB will be "other_related"
+                field_b = FKStringField(ChildB, related_name='some_others')
+                    # => related name accessible from ChildA and ChildB will be "some_others"
+        """
+        related_name = self.related_name or '%(model)s_set'
+        related_name = related_name % {
+            'namespace': re_identifier.sub('_', self._model.namespace),
+            'model': self._model.__name__
+        }
+        if re_identifier.sub('', related_name) != related_name:
+            raise ImplementationError('The related_name "%s" is not a valid '
+                                      'python identifier' % related_name)
+
+        return related_name.lower()
 
     def from_python(self, values):
         """
