@@ -90,6 +90,10 @@ class MetaRedisModel(MetaRedisProxy):
             if isinstance(field, HashableField):
                 _hashable_fields.append(field.name)
 
+        # keep the pk as first field
+        _fields.remove(pk_field.name)
+        _fields.insert(0, pk_field.name)
+
         # Save usefull attributes on the final model
         setattr(it, "_fields", _fields)
         setattr(it, "_hashable_fields", _hashable_fields)
@@ -154,8 +158,13 @@ class RedisModel(RedisProxyCommand):
             # (More robust than trying to manage a "pseudotransaction", as
             # redis do not has "real" transactions)
             # Here we do not set anything, in case one unique field fails
+            kwargs_pk_field_name = None
             for field_name, value in kwargs.iteritems():
-                if field_name == 'pk':
+                if self._field_is_pk(field_name):
+                    if kwargs_pk_field_name:
+                        raise ValueError(u'You cannot pass two values for the '
+                                           'primary key (pk and %s)' % pk_field_name)
+                    kwargs_pk_field_name = field_name
                     # always use the real field name, not always pk
                     field_name = pk_field_name
                 if field_name not in self._fields:
@@ -166,10 +175,14 @@ class RedisModel(RedisProxyCommand):
                     raise UniquenessError(u"Field `%s` must be unique. "
                                            "Value `%s` yet indexed." % (field.name, value))
 
-            # Do instanciate
-            for field_name, value in kwargs.iteritems():
+            # Do instanciate, starting by the pk and respecting fields order
+            if kwargs_pk_field_name:
+                self.pk.set(kwargs[kwargs_pk_field_name])
+            for field_name in self._fields:
+                if field_name not in kwargs or self._field_is_pk(field_name):
+                    continue
                 field = getattr(self, field_name)
-                field.proxy_set(value)
+                field.proxy_set(kwargs[field_name])
 
         # --- Instanciate from DB
         if len(args) == 1:
