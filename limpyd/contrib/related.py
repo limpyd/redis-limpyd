@@ -85,7 +85,25 @@ class RelatedModel(model.RedisModel):
             self.related_collections.append(related_field.related_name)
 
 
-class RelatedFieldMixin(object):
+class RelatedFieldMetaclass(fields.MetaRedisProxy):
+    """
+    Metaclass for RelatedFieldMixin that will create methods for all commands
+    defined in "_commands_with_single_value_from_python" and
+    "_commands_with_many_values_from_python", to override the default
+    behaviour: convert values given as object to their pk, before calling the
+    super method
+    """
+
+    def __new__(mcs, name, base, dct):
+        it = super(RelatedFieldMetaclass, mcs).__new__(mcs, name, base, dct)
+        for command_name in it._commands_with_single_value_from_python:
+            setattr(it, command_name, it._make_command_method(command_name, many=False))
+        for command_name in it._commands_with_many_values_from_python:
+            setattr(it, command_name, it._make_command_method(command_name, many=True))
+        return it
+
+
+class RelatedFieldMixin(fields.RedisField):
     """
     Base mixin for all fields holding related instances.
     This mixin provides:
@@ -99,6 +117,7 @@ class RelatedFieldMixin(object):
     "_commands_with_many_values_from_python"
     - management of related parameters: "to" and "related_name"
     """
+    __metaclass__ = RelatedFieldMetaclass
 
     _copy_conf = copy(fields.IndexableField._copy_conf)
     _copy_conf['kwargs'] += [('to', 'related_to'), 'related_name']
@@ -237,20 +256,28 @@ class RelatedFieldMixin(object):
             result.append(value)
         return result
 
-    def _traverse_command(self, name, *args, **kwargs):
+    @classmethod
+    def _make_command_method(cls, command_name, many=False):
         """
-        Handle the call to the "from_python" methods for all commands defined in
-        _commands_with_single_value_from_python or _commands_with_many_values_from_python
+        Return a function which will convert objects to their pk, then call the
+        super method for the given name.
+        The "many" attribute indicates that the command accept one or many
+        values as arguments (in *args)
         """
-        if name in self._commands_with_single_value_from_python:
-            if 'value' in kwargs:
-                kwargs['value'] = self.from_python([kwargs['value']])[0]
+        def func(self, *args, **kwargs):
+            if many:
+                args = self.from_python(args)
             else:
-                args = list(args)
-                args[0] = self.from_python([args[0]])[0]
-        elif name in self._commands_with_many_values_from_python:
-            args = self.from_python(args)
-        return super(RelatedFieldMixin, self)._traverse_command(name, *args, **kwargs)
+                if 'value' in kwargs:
+                    kwargs['value'] = self.from_python([kwargs['value']])[0]
+                else:
+                    args = list(args)
+                    args[0] = self.from_python([args[0]])[0]
+
+            # call the super method, with real pk
+            sup_method = getattr(super(cls, self), command_name)
+            return sup_method(*args, **kwargs)
+        return func
 
 
 class FKStringField(RelatedFieldMixin, fields.StringField):
