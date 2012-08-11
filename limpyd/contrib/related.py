@@ -62,6 +62,31 @@ class RelatedCollection(object):
         filters[self.related_field.name] = self.instance._pk
         return self.related_field._model.collection(**filters)
 
+    def remove_instance(self):
+        """
+        Remove the instance from the related fields (delete the field if it's
+        a simple one, or remove the instance from the field if it's a set/list/
+        sorted_set)
+        """
+        related_pks = self()
+        for pk in related_pks:
+
+            # get the real related field
+            related_instance = self.related_field._model(pk)
+            related_field = getattr(related_instance, self.related_field.name)
+
+            # check if we have a dedicated remove method
+            remover = getattr(related_field, '_related_remover', None)
+
+            # then remove the instance from the related field
+            if remover is not None:
+                # if we have a remover method, it wants the instance as argument
+                # (the related field may be a set/list/sorted_set)
+                getattr(related_field, remover)(self.instance._pk)
+            else:
+                # no remover method, simple delete the field
+                related_field.delete()
+
 
 class RelatedModel(model.RedisModel):
 
@@ -83,6 +108,12 @@ class RelatedModel(model.RedisModel):
             collection = RelatedCollection(self, related_field)
             setattr(self, related_field.related_name, collection)
             self.related_collections.append(related_field.related_name)
+
+    def delete(self):
+        for related_collection_name in self.related_collections:
+            related_collection = getattr(self, related_collection_name)
+            related_collection.remove_instance()
+        return super(RelatedModel, self).delete()
 
 
 class RelatedFieldMetaclass(fields.MetaRedisProxy):
@@ -127,9 +158,17 @@ class RelatedFieldMixin(fields.RedisField):
 
     def __init__(self, to, *args, **kwargs):
         """
-        Force the field to be indexable and save related arguments
+        Force the field to be indexable and save related arguments.
+        We also disable caching because cache is instance-related, and when
+        we deleting a object linked to a related field, we need to instantiate
+        all instances linked to it to remove the link. But with cache enabled,
+        the cache of just created instances is cleared, but not ones of
+        already existing ones. Test "test_deleting_an_object_must_clear_the_fk"
+        fails with caching enabled. Consider moving cache from instances to the
+        database could be an option.
         """
         kwargs['indexable'] = True
+        kwargs['cacheable'] = False
         super(RelatedFieldMixin, self).__init__(*args, **kwargs)
 
         self.related_to = to
@@ -290,10 +329,12 @@ class FKHashableField(RelatedFieldMixin, fields.HashableField):
 
 class M2MSetField(RelatedFieldMixin, fields.SetField):
     _commands_with_many_values_from_python = ['sadd', 'srem', ]
+    _related_remover = 'srem'
 
 
 class M2MListField(RelatedFieldMixin, fields.ListField):
     _commands_with_many_values_from_python = ['lpush', 'rpush', 'lpushx', 'rpushx', ]
+    _related_remover = 'lrem'
 
     def linsert(self, where, refvalue, value):
         value = self.from_python([value])[0]
@@ -310,6 +351,7 @@ class M2MListField(RelatedFieldMixin, fields.ListField):
 
 class M2MSortedSetField(RelatedFieldMixin, fields.SortedSetField):
     _commands_with_many_values_from_python = ['zrem', ]
+    _related_remover = 'zrem'
 
     def zadd(self, *args, **kwargs):
         """
