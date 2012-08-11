@@ -36,7 +36,7 @@ def make_func(name):
 class MetaRedisProxy(type):
 
     def __new__(mcs, name, base, dct):
-        it = type.__new__(mcs, name, base, dct)
+        it = super(MetaRedisProxy, mcs).__new__(mcs, name, base, dct)
         available_commands = set(it.available_getters + it.available_modifiers)
         setattr(it, "available_commands", available_commands)
         for command_name in [c for c in available_commands if not hasattr(it, c)]:
