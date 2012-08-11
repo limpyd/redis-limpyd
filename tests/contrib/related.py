@@ -28,6 +28,7 @@ class TestRedisModel(RelatedModel):
 class Person(TestRedisModel):
     name = fields.PKField()
     prefered_group = FKStringField('Group')
+    following = M2MSetField('self', related_name='followers')
 
 
 class Group(TestRedisModel):
@@ -243,9 +244,15 @@ class FKTest(LimpydBaseTest):
         core_devs = Group(name='limpyd core devs')
         ybon = Person(name='ybon')
 
+        # test with FKHashableField
         core_devs.owner.hset(ybon)
         self.assertEqual(core_devs.owner.hget(), ybon._pk)
         self.assertEqual(set(ybon.owned_groups()), set([core_devs._pk]))
+
+        # test with FKStringField
+        ybon.prefered_group.set(core_devs)
+        self.assertEqual(ybon.prefered_group.get(), core_devs._pk)
+        self.assertEqual(set(core_devs.person_set()), set([ybon._pk]))
 
     def test_can_update_fk(self):
         core_devs = Group(name='limpyd core devs')
@@ -303,19 +310,107 @@ class FKTest(LimpydBaseTest):
 
 
 class M2MSetTest(LimpydBaseTest):
-    pass
+
+    def test_set_m2m_values_can_be_given_as_object(self):
+        core_devs = Group(name='limpyd core devs')
+        ybon = Person(name='ybon')
+        twidi = Person(name='twidi')
+
+        core_devs.members.sadd(ybon._pk, twidi)
+
+        self.assertEqual(core_devs.members.smembers(), set([twidi._pk, ybon._pk]))
+        self.assertEqual(set(ybon.membership()), set([core_devs._pk]))
+        self.assertEqual(set(twidi.membership()), set([core_devs._pk]))
+
+    def test_removed_m2m_values_should_update_related_collection(self):
+        core_devs = Group(name='limpyd core devs')
+        ybon = Person(name='ybon')
+        twidi = Person(name='twidi')
+
+        core_devs.members.sadd(ybon, twidi)
+        core_devs.members.srem(ybon)
+
+        self.assertEqual(core_devs.members.smembers(), set([twidi._pk]))
+        self.assertEqual(set(ybon.membership()), set())
+        self.assertEqual(set(twidi.membership()), set([core_devs._pk]))
+
+    def test_m2m_can_be_set_on_the_same_model(self):
+        ybon = Person(name='ybon')
+        twidi = Person(name='twidi')
+
+        twidi.following.sadd(ybon)
+
+        self.assertEqual(twidi.following.smembers(), set([ybon._pk]))
+        self.assertEqual(set(ybon.followers()), set([twidi._pk]))
+
+    def test_deleting_an_object_must_clean_m2m(self):
+        core_devs = Group(name='limpyd core devs')
+        ybon = Person(name='ybon')
+        twidi = Person(name='twidi')
+
+        core_devs.members.sadd(ybon._pk, twidi)
+        ybon.delete()
+
+        self.assertEqual(core_devs.members.smembers(), set([twidi._pk]))
+        self.assertEqual(set(twidi.membership()), set([core_devs._pk]))
+
+    def test_deleting_a_m2m_should_clear_collections(self):
+        core_devs = Group(name='limpyd core devs')
+        ybon = Person(name='ybon')
+        twidi = Person(name='twidi')
+
+        core_devs.members.sadd(ybon._pk, twidi)
+        core_devs.delete()
+
+        self.assertEqual(set(twidi.membership()), set([]))
+        self.assertEqual(set(ybon.membership()), set([]))
 
 
 class M2MListTest(LimpydBaseTest):
 
     class Group2(TestRedisModel):
+        name = fields.PKField()
         members = M2MListField(Person, related_name='members_set2')
+
+    def test_list_m2m_values_can_be_given_as_object(self):
+        core_devs = M2MListTest.Group2(name='limpyd core devs')
+        ybon = Person(name='ybon')
+        twidi = Person(name='twidi')
+
+        core_devs.members.rpush(ybon._pk, twidi)
+
+        self.assertEqual(core_devs.members.lrange(0, -1), [ybon._pk, twidi._pk])
+        self.assertEqual(set(ybon.members_set2()), set([core_devs._pk]))
+        self.assertEqual(set(twidi.members_set2()), set([core_devs._pk]))
 
 
 class M2MSortedSetTest(LimpydBaseTest):
 
     class Group3(TestRedisModel):
+        name = fields.PKField()
         members = M2MSortedSetField(Person, related_name='members_set3')
+
+    def test_zset_m2m_values_can_be_given_as_object(self):
+        core_devs = M2MSortedSetTest.Group3(name='limpyd core devs')
+        ybon = Person(name='ybon')
+        twidi = Person(name='twidi')
+
+        core_devs.members.zadd(20, ybon, 10, twidi._pk)
+
+        self.assertEqual(core_devs.members.zrange(0, -1), [twidi._pk, ybon._pk])
+        self.assertEqual(set(ybon.members_set3()), set([core_devs._pk]))
+        self.assertEqual(set(twidi.members_set3()), set([core_devs._pk]))
+
+    def test_zset_m2m_values_are_scored(self):
+        core_devs = M2MSortedSetTest.Group3(name='limpyd core devs')
+        ybon = Person(name='ybon')
+        twidi = Person(name='twidi')
+
+        core_devs.members.zadd(20, ybon, 10, twidi)
+
+        self.assertEqual(core_devs.members.zrange(0, -1, withscores=True), [(twidi._pk, 10.0), (ybon._pk, 20.0)])
+        self.assertEqual(core_devs.members.zscore(twidi), 10.0)
+        self.assertEqual(core_devs.members.zrevrangebyscore(25, 15), [ybon._pk])
 
 
 if __name__ == '__main__':
