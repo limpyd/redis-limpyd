@@ -328,12 +328,14 @@ class FKHashableField(RelatedFieldMixin, fields.HashableField):
 
 
 class M2MSetField(RelatedFieldMixin, fields.SetField):
+    _commands_with_single_value_from_python = ['sismember', ]
     _commands_with_many_values_from_python = ['sadd', 'srem', ]
     _related_remover = 'srem'
 
 
 class M2MListField(RelatedFieldMixin, fields.ListField):
-    _commands_with_many_values_from_python = ['lpush', 'rpush', 'lpushx', 'rpushx', ]
+    _commands_with_single_value_from_python = ['lpushx', 'rpushx', ]
+    _commands_with_many_values_from_python = ['lpush', 'rpush', ]
     _related_remover = 'lrem'
 
     def linsert(self, where, refvalue, value):
@@ -350,7 +352,8 @@ class M2MListField(RelatedFieldMixin, fields.ListField):
 
 
 class M2MSortedSetField(RelatedFieldMixin, fields.SortedSetField):
-    _commands_with_many_values_from_python = ['zrem', ]
+    _commands_with_single_value_from_python = ['zscore', 'zrank', 'zrevrank']
+    _commands_with_many_values_from_python = ['zrem']
     _related_remover = 'zrem'
 
     def zadd(self, *args, **kwargs):
@@ -378,3 +381,7 @@ class M2MSortedSetField(RelatedFieldMixin, fields.SortedSetField):
             pieces.extend(z)
 
         return super(M2MSortedSetField, self).zadd(*pieces)
+
+    def zincrby(self, value, amount=1):
+        value = self.from_python[value]
+        return super(M2MSortedSetField, self).zincrby(value, amout)
