@@ -158,8 +158,13 @@ class RedisModel(RedisProxyCommand):
             # (More robust than trying to manage a "pseudotransaction", as
             # redis do not has "real" transactions)
             # Here we do not set anything, in case one unique field fails
+            kwargs_pk_field_name = None
             for field_name, value in kwargs.iteritems():
-                if field_name == 'pk':
+                if self._field_is_pk(field_name):
+                    if kwargs_pk_field_name:
+                        raise ValueError(u'You cannot pass two values for the '
+                                           'primary key (pk and %s)' % pk_field_name)
+                    kwargs_pk_field_name = field_name
                     # always use the real field name, not always pk
                     field_name = pk_field_name
                 if field_name not in self._fields:
