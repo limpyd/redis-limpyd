@@ -89,6 +89,10 @@ class MetaRedisModel(MetaRedisProxy):
             if isinstance(field, HashableField):
                 _hashable_fields.append(field.name)
 
+        # keep the pk as first field
+        _fields.remove(pk_field.name)
+        _fields.insert(0, pk_field.name)
+
         # Save usefull attributes on the final model
         setattr(it, "_fields", _fields)
         setattr(it, "_hashable_fields", _hashable_fields)
