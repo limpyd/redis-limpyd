@@ -19,9 +19,9 @@ class MetaRedisModel(MetaRedisProxy):
     We make invisible for user that fields were class properties
     """
     def __new__(mcs, name, base, attrs):
-        is_abstract = attrs.get('abstract', False)
 
-        it = type.__new__(mcs, name, base, attrs)
+        it = super(MetaRedisModel, mcs).__new__(mcs, name, base, attrs)
+        is_abstract = attrs.get('abstract', False)
         setattr(it, "abstract", is_abstract)
 
         if not is_abstract:
