@@ -9,7 +9,7 @@ import unittest
 
 from limpyd import fields
 from limpyd.exceptions import *
-from limpyd.contrib.related import (RelatedModel,
+from limpyd.contrib.related import (RelatedModel, RelatedCollection,
                                     FKStringField, FKHashableField, M2MSetField,
                                     M2MListField, M2MSortedSetField)
 
@@ -32,6 +32,7 @@ class Person(TestRedisModel):
 
 class Group(TestRedisModel):
     name = fields.PKField()
+    status = fields.StringField(indexable=True)
     owner = FKHashableField(Person, related_name='owned_groups')
     parent = FKStringField('self', related_name='children')
     members = M2MSetField(Person, related_name='membership')
@@ -199,6 +200,41 @@ class RelatedNameTest(LimpydBaseTest):
             class PersonTest(TestRedisModel):
                 namespace = 'related-name-inv'
                 group = FKStringField('related-tests:Group', related_name='list-of-persons')
+
+
+class RelatedCollectionTest(LimpydBaseTest):
+    """ Test the reverse side of related field """
+
+    def test_related_collection_are_collections(self):
+        core_devs = Group(name='limpyd core devs')
+        ybon = Person(name='ybon')
+        core_devs.members.sadd(ybon)
+
+        self.assertTrue(isinstance(ybon.membership, RelatedCollection))
+        self.assertTrue(hasattr(ybon.membership(), '_lazy_collection'))
+
+    def test_return_value_of_related_collection(self):
+        core_devs = Group(name='limpyd core devs')
+        ybon = Person(name='ybon')
+        core_devs.members.sadd(ybon)
+
+        test1 = set(Group.collection(members=ybon._pk))
+        test2 = set(ybon.membership())
+
+        self.assertEqual(test1, test2)
+
+    def test_additional_filters_of_related_collection(self):
+        core_devs = Group(name='limpyd core devs', status='private')
+        fan_boys = Group(name='limpyd fan boys')
+        ybon = Person(name='ybon')
+        core_devs.members.sadd(ybon)
+        fan_boys.members.sadd(ybon)
+
+        test1 = set(Group.collection(members=ybon._pk, status='private'))
+        test2 = set(ybon.membership(status='private'))
+
+        self.assertEqual(test1, test2)
+        self.assertEqual(test2, set([core_devs._pk]))
 
 
 class FKTest(LimpydBaseTest):
