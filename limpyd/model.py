@@ -175,10 +175,14 @@ class RedisModel(RedisProxyCommand):
                     raise UniquenessError(u"Field `%s` must be unique. "
                                            "Value `%s` yet indexed." % (field.name, value))
 
-            # Do instanciate
-            for field_name, value in kwargs.iteritems():
+            # Do instanciate, starting by the pk and respecting fields order
+            if kwargs_pk_field_name:
+                self.pk.set(kwargs[kwargs_pk_field_name])
+            for field_name in self._fields:
+                if field_name not in kwargs or self._field_is_pk(field_name):
+                    continue
                 field = getattr(self, field_name)
-                field.proxy_set(value)
+                field.proxy_set(kwargs[field_name])
 
         # --- Instanciate from DB
         if len(args) == 1:
