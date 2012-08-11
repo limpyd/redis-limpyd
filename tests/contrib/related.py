@@ -1,19 +1,12 @@
 # -*- coding:utf-8 -*-
 
-# Add the tests main directory into the path, to be able to load things from base
-import os
-import sys
-sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(__file__), '..')))
-
-import unittest
-
 from limpyd import fields
 from limpyd.exceptions import *
 from limpyd.contrib.related import (RelatedModel, RelatedCollection,
                                     FKStringField, FKHashableField, M2MSetField,
                                     M2MListField, M2MSortedSetField)
 
-from base import LimpydBaseTest
+from ..base import LimpydBaseTest
 
 
 class TestRedisModel(RelatedModel):
@@ -411,7 +404,3 @@ class M2MSortedSetTest(LimpydBaseTest):
         self.assertEqual(core_devs.members.zrange(0, -1, withscores=True), [(twidi._pk, 10.0), (ybon._pk, 20.0)])
         self.assertEqual(core_devs.members.zscore(twidi), 10.0)
         self.assertEqual(core_devs.members.zrevrangebyscore(25, 15), [ybon._pk])
-
-
-if __name__ == '__main__':
-    unittest.main()
