@@ -21,7 +21,7 @@ class MetaRedisModel(MetaRedisProxy):
     def __new__(mcs, name, base, attrs):
         is_abstract = attrs.get('abstract', False)
 
-        it = type.__new__(mcs, name, base, attrs)
+        it = super(MetaRedisModel, mcs).__new__(mcs, name, base, attrs)
 
         if not is_abstract:
             if not hasattr(it, 'database') or not isinstance(it.database, RedisDatabase):
