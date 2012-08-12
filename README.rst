@@ -44,7 +44,7 @@ So you can use it like this::
     >>> mountainbike.wheels.get()
     '3'
     >>> mountainbike.name.set("tricycle")
-    >>> tricycle = Bike(name="tricycle")
+    >>> tricycle = Bike.collection(name="tricycle")[0]
     >>> tricycle.wheels.get()
     '3'
     >>> tricycle.hmset(color="blue")
