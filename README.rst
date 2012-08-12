@@ -72,17 +72,160 @@ In the following documentation you'll find these topics:
     - Pipelines_
     
 
+
+.. _RedisDatabase:
+
 ********
 Database
 ********
 
-*(documentation to come)*
+The first element to define when using `limpyd` is the database. The main goal of the database is to handle the conneciton to Redis_ and to host the models.
+
+It's easy to define a database, as its arguments are the same as for a standard connection to Redis_ via `redis-py <https://github.com/andymccurdy/redis-py>`_::
+
+    from limpyd.database import RedisDatabase
+    
+    main_database = RedisDatabase(host='localhost', port=6379, db=0)
+
+Then it's also easy to define the database (which is mandatory) on which a model is defined::
+
+    class Example(model.RedisModel):
+        database = main_database
+        some_field = fields.StringField()
+
+If you have more than one model to host on a database, it's a good idea to create an abstract model::
+
+    class BaseModel(model.RedisModel):
+        database = main_database
+        abstract = True
+
+    class Foo(BaseModel):
+        foo_field = fields.StringField()
+
+    class Bar(BaseModel):
+        bar_field = fields.StringField()
+
+Note that you cannot have two models with the same name (the name of the class) in the same database (for obvious collusion problems), but we provide a namespace attribute on models to resolve this problem (so you can use an external module with models named as yours). See Models_ to know how to use them.
+
+It's not a good idea to declare many RedisDatabase_ objects on the same Redis_ database (defined with host+port+db), because of obvious colusion problems if models have the same name in each. So do it only if you really know what you're doing, and with different models only.
+
+
+
+.. _RedisModel:
 
 ******
 Models
 ******
 
-*(documentation to come)*
+Models_ are the core of limpyd, it's why we're here. A RedisModel_ is a class, in a database, with some fields. Each instance of this model is a new object stored in Redis_ by `limpyd`.
+
+Here a simple example::
+
+    class Example(model.RedisModel):
+        database = main_database
+
+        foo = field.StringField()
+        bar = field.StringField()
+
+To create an instance, it's as easy as::
+
+    >>> example = Example(foo='FOO', bar='BAR')
+
+By just doing this, the fields are created, and a PKField_ is set with a value that you can use::
+
+    >>> print "New example object with pk #%s" % example.pk.get()
+    New example object with pk #1
+
+Then later to get an instance from Redis_ with it's pk, it's as simple as:
+
+    >>> example = Example(1)
+
+So, to create an object, pass fields and their values as named arguments, and to retrieve it, pass its pk as the only argument. To retrieave instances via other fields than the pk, check the Collections_ section later in this document.
+
+If you don't pass any argument to the RedisModel_, default one from fields are taken and are saved. But if no arguments and no default values, you get an empty instance, with no filled fields and no pk set. 
+
+The pk will be created with the first field. It's important to know that we do not store any concept of "model", each field is totally independent, thought the keys to save them in Redis_ are based on the object's pk. So you can have 50 fields in a model and save only one of them.
+
+Another really important thing to know is that when you create/retrieve an object, there is absolutely no data stored in it. Each time you access data via a field, the data is fetched from Redis_, except if you use the Cache_ (actually activated by default)
+
+Model attributes
+================
+
+When defining a model, you will add fields, but there is also some other attributes that are mandatory or may be useful.
+
+database
+^^^^^^^^^
+
+The `database` attribute is mandatory and must be a RedisDatabase_ instance. See Database_
+
+namespace
+^^^^^^^^^
+
+You can't have two models with the same name on the same database. Except if you use namespacing. 
+
+Each model has a `namespace`, default to an empty string. 
+
+The `namespace` can be used to regroup models. All models about registration could have the `namespace` "registration", ones about the payment could have "payment", and so on. 
+
+With this you can have models with the same name in different `namespaces`, because the Redis_ keys created to store your data is computed with the `namespace`, the model name, and the pk of objects.
+
+abstract
+^^^^^^^^^
+
+If you have many models sharing some field names, and/or within the same database and/or the same namespace, it could be useful to regroup all common stuff into a "base model", without using it to really store data in Redis_.
+
+For this you have the `abstract` attribute, `False` by default::
+
+    class Content(model.RedisModel):
+        database = main_database
+        namespace = "content"
+        abstract = True
+
+        title = fields.HashableField()
+        pub_date = field.HashableField()
+
+    class Article(Content):
+        content = fields.StringField()
+
+    class Image(Content):
+        path = fields.HashableField()
+
+In this example, only `Article` and `Image` are real models, both using the `main_database` database, the namespace "content", and having `title` and `pub_date` fields, in addition to their own.
+
+
+cacheable
+^^^^^^^^^
+
+As we don't store field values in the object, and to avoid querying Redis_ each time we need a value, `limpyd` implements a level of local cache.
+
+This cache is activated by default for each model. To deactivate it, it's as simple as adding the attribute `cacheable` to False on the model::
+
+    class Example(model.RedisModel):
+        database = main_database
+        cacheable = False
+
+        a_field = fields.StringField()
+
+The use of the cache is transparent. If you got a value from a field, without updating it after that, the next time you'll get it, the value will be fetched from the cache. When a field is updated, its cached is cleared.
+
+Example::
+
+    >>> example = Example()
+    >>> example.a_field.set('foo')
+    True
+    >>> example.a_field.get()  # call Redis_
+    'foo'
+    >>> example.a_field.get()  # hit the cache
+    'foo'
+    >>> example.a_field.set('bar')  # clear the cache
+    True
+    >>> example.a_field.get()  # call Redis_
+    'bar'
+
+Be careful that the cache is on the instance itself. If you create another instance on the same object, update a field, the cache from the first instance will not be cleared. It's also obviously the case if you work with multiple threads of workers.
+
+
+
 
 ******
 Fields
@@ -101,12 +244,93 @@ You can also manage primary keys with these too fields:
 - PKField_, based on StringField_
 - AutoPKField_, same as PKField_ but auto-incremented.
 
-All these fields can be indexed, cached, and manage the keys for you (they take the same arguments as the real `Redis` ones, as defined in the `StrictRedis` class of `redis-py <https://github.com/andymccurdy/redis-py>`_, but without the `key` parameter)
+All these fields can be indexed, cached, and manage the keys for you (they take the same arguments as the real Redis_ ones, as defined in the `StrictRedis` class of `redis-py`_, but without the `key` parameter)
 
 Another thing all fields have in common, is the way to delete them: use the `delete` method on a field, and both the field and its value will be removed from Redis_.
 
-StringField
+
+
+Field attributes
+================
+
+When adding fields to a model, you can configure it with some attributes:
+
+cacheable
+^^^^^^^^^
+
+If the cache is activated on the model, you can deactivate it at the field level. The reverse is not True (if the cache is deactivated for the model, you cannot activate it for a field).
+
+To deactivate it for the field, just set the `cacheable` argument to True::
+
+    class Example(model.RedisModel):
+        database = main_database
+        foo = fields.StringField()
+        bar = fields.StringField(cacheable=False)
+
+Here the cache is activated for `foo` but not for `bar`.
+
+default
+^^^^^^^
+
+It's possible to set default values for fields of type StringField_ and HashableField_::
+
+    class Example(model.RedisModel):
+        database = main_database
+        foo = fields.StringField(default='FOO')
+        bar = fields.StringField()
+
+    >>> example = Example(bar='BAR')
+    >>> example.foo.get()
+    'FOO'
+
+When setting a default value, the field will be saved when creating the instance. If you defined a PKField_ (not AutoPKField_), don't forget to pass a value for it when creating the instance, it's needed to store other fields.
+
+
+indexable
+^^^^^^^^^
+
+Sometimes getting objects from Redis_ by its primary key is not what you want. You may want to search for objects with a specific value for a specific field. 
+
+By setting the `indexable` argument to True when defining the field, this functionnality is automatically activated, and you'll be able to retrieve objects by filtering on this field using Collections_.
+
+To activate it, just set the `indexable` argument to True::
+
+    class Example(model.RedisModel):
+        database = main_database
+        foo = fields.StringField(indexable=True)
+        bar = fields.StringField()
+
+In this example you will be able to filter on the field `foo` but not on `bar`.
+
+See Collections_ to know how to filter objects.
+
+unique
+^^^^^^
+
+The `unique` argument is the same as the `indexable` one, except it will ensure that you can't have multiple objects with the same value for some fields. `unique` fields are also indexed, and can be filtered, as for the `indexable` argument.
+
+Example::
+
+    class Example(model.RedisModel):
+        database = main_database
+        foo = fields.StringField(indexable=True)
+        bar = fields.StringField(unique=True)
+
+    >>> example1 = Example(foo='FOO', bar='BAR')
+    True
+    >>> example2 = Example(foo='FOO', bar='BAR')
+    UniquenessError: Key :example:bar:BAR already exists (for instance 1)
+
+See Collections_ to know how to filter objects, as for `indexable`.
+
+
+
+Field types
 ===========
+
+
+StringField
+-----------
 
 StringField_ based fields allow the storage of strings, but some `Redis string commands <http://redis.io/commands#string>`_ allow to treat them as integer, float or bits.
 
@@ -132,7 +356,7 @@ You can use this model like this::
 The StringField_ type support these `Redis string commands`_:
 
 Getters
-*******
+^^^^^^^
 - `get`
 - `getbit`
 - `getrange`
@@ -140,7 +364,7 @@ Getters
 - `strlen`
 
 Modifiers
-*********
+^^^^^^^^^
 - `append`
 - `decr`
 - `decrby`
@@ -155,7 +379,7 @@ Modifiers
 
 
 HashableField
-=============
+-------------
 
 As for StringField_, HashableField_ based fields allow the storage of strings. But all the `HashableField` fields of an instance are stored in the same Redis_ hash, the name of the field being the key in the hash.
 
@@ -176,23 +400,23 @@ Example with simple commands::
 
 The HashableField_ type support these `Redis hash commands <http://redis.io/commands#hash>`_:
 
-Getters:
-********
+Getters
+^^^^^^^
 - hget
 
-Modifiers:
-**********
+Modifiers
+^^^^^^^^^
 - `hincrby`
 - `hincrbyfloat`
 - `hset`
 - `hsetnx`
 
-Deleter:
-********
+Deleter
+^^^^^^^
 * Note that to delete the value of a HashableField_, you can use the `hdel` command, which do the same as the main `delete` one.
 
-Multi:
-******
+Multi
+^^^^^
 
 The two following commands are not called on the fields themselves, but on an instance.
 
@@ -200,7 +424,7 @@ The two following commands are not called on the fields themselves, but on an in
 - hmset_
 
 hmget
------
+"""""
 
 hmget_ is called directly on an instance, and expects a list of field names to retrieve.
 
@@ -233,7 +457,7 @@ It's up to you to associate names and values, but you can find an example below:
     {'bar': 'BAR', 'foo': 'FOO'}
 
 hmset
------
+"""""
 
 hmset_ is the reverse of hmget_, and also called directly on an instance, and expects
 named arguments with field names as keys, and new values to set as values.
@@ -248,7 +472,7 @@ Example (with same model as for hmget_)::
 
 
 SetField
-========
+--------
 
 SetField_ based fields can store many values in one field, using the set data type of Redis_, an unordered set (with unique values).
 
@@ -279,22 +503,22 @@ You can use this model like this::
 
 The SetField_ type support these `Redis set commands <http://redis.io/commands#set>`_:
 
-Getters:
-********
+Getters
+^^^^^^^
 - `scard`
 - `sismember`
 - `smembers`
 - `srandmember`
 
-Modifiers:
-**********
+Modifiers
+^^^^^^^^^
 - `sadd`
 - `spop`
 - `srem`
 
 
 ListField
-=========
+---------
 
 ListField_ based fields can store many values in one field, using the list data type of Redis_. Values are ordered, and are not unique (you can push many times the same value).
 
@@ -325,14 +549,14 @@ You can use this model like this::
 
 The ListField_ type support these `Redis list commands <http://redis.io/commands#list>`_:
 
-Getters:
-********
+Getters
+^^^^^^^
 - `lindex`
 - `llen`
 - `lrange`
 
-Modifiers:
-**********
+Modifiers
+^^^^^^^^^
 - `linsert`
 - `lpop`
 - `lpush`
@@ -344,8 +568,9 @@ Modifiers:
 - `rpush`
 - `rpushx`
 
+
 SortedSetField
-==============
+--------------
 
 SortedSetField_ based fields can store many values, each scored, in one field using the sorted-set data type of Redis_. Values are unique (it's a set), and are ordered by their score.
 
@@ -376,8 +601,8 @@ You can use this model like this::
 
 The SortedSetField_ type support these `Redis sorted set commands <http://redis.io/commands#sorted_set>`_:
 
-Getters:
-********
+Getters
+^^^^^^^
 - `zcard`
 - `zcount`
 - `zrange`
@@ -388,16 +613,17 @@ Getters:
 - `zrevrank`
 - `zscore`
 
-Modifiers:
-**********
+Modifiers
+^^^^^^^^^
 - `zadd`
 - `zincrby`
 - `zrem`
 - `zremrangebyrank`
 - `zremrangebyscore`
 
+
 PKField
-=======
+-------
 
 PKField_ is a special subclass of StringField_ that manage primary keys of models. The PK of an object cannot be updated, as it serves to create keys of all its stored fields. It's this PK that is returned, with others, in Collections_.
 
@@ -446,8 +672,9 @@ To access the pk value of an object, you have many ways::
     >>> example.id.get()
     1
 
+
 AutoPKField
-===========
+-----------
 
 A AutoPKField_ field is a PKField_ filled with auto-incremented integers, starting to 1. Assigning a value to of AutoPKField_ is forbidden.
 
@@ -455,17 +682,23 @@ It's a AutoPKField_ that is attached by default to every model, if no other one 
 
 See PKField_ for more details.
 
+
+
 ***********
 Collections
 ***********
 
 *(documentation to come)*
 
+
+
 *****
 Cache
 *****
 
 *(documentation to come)*
+
+
 
 *******
 Contrib
@@ -476,10 +709,12 @@ To keep the core of `limpyd`, say, "limpid", we limited what it contains. But we
 - `Related fields`_
 - Pipelines_
 
+
 Related fields
 ==============
 
 *(documentation to come)*
+
 
 Pipelines
 =========
