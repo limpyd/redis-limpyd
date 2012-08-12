@@ -553,6 +553,10 @@ class PKFieldTest(LimpydBaseTest):
         self.assertEqual(set(self.RedefinedNotAutoPkField.collection(pk=1)), set(['1', ]))
         self.assertEqual(set(self.RedefinedNotAutoPkField.collection(id=2)), set(['2', ]))
 
+    def test_cannot_set_pk_with_two_names(self):
+        with self.assertRaises(ValueError):
+            self.RedefinedNotAutoPkField(name="foo", pk=1, id=2)
+
 
 class DeleteTest(LimpydBaseTest):
 
