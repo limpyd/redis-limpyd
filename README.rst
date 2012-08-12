@@ -153,13 +153,11 @@ Model attributes
 
 When defining a model, you will add fields, but there is also some other attributes that are mandatory or may be useful.
 
-database
-^^^^^^^^^
+**database**
 
 The `database` attribute is mandatory and must be a RedisDatabase_ instance. See Database_
 
-namespace
-^^^^^^^^^
+**namespace**
 
 You can't have two models with the same name on the same database. Except if you use namespacing. 
 
@@ -169,8 +167,7 @@ The `namespace` can be used to regroup models. All models about registration cou
 
 With this you can have models with the same name in different `namespaces`, because the Redis_ keys created to store your data is computed with the `namespace`, the model name, and the pk of objects.
 
-abstract
-^^^^^^^^^
+**abstract**
 
 If you have many models sharing some field names, and/or within the same database and/or the same namespace, it could be useful to regroup all common stuff into a "base model", without using it to really store data in Redis_.
 
@@ -193,8 +190,7 @@ For this you have the `abstract` attribute, `False` by default::
 In this example, only `Article` and `Image` are real models, both using the `main_database` database, the namespace "content", and having `title` and `pub_date` fields, in addition to their own.
 
 
-cacheable
-^^^^^^^^^
+**cacheable**
 
 As we don't store field values in the object, and to avoid querying Redis_ each time we need a value, `limpyd` implements a level of local cache. It's activated by default, just set the `cacheable` attribute on the model to False to deactivate it.
 
@@ -230,16 +226,14 @@ Field attributes
 
 When adding fields to a model, you can configure it with some attributes:
 
-cacheable
-^^^^^^^^^
+**cacheable**
 
 We provide a way to deactivate cache on a specific field is the cache is activated on the model. Simply pass the `cacheable` argument to False.
 
 For more informations about the cache, check Cache_.
 
 
-default
-^^^^^^^
+**default**
 
 It's possible to set default values for fields of type StringField_ and HashableField_::
 
@@ -255,8 +249,7 @@ It's possible to set default values for fields of type StringField_ and Hashable
 When setting a default value, the field will be saved when creating the instance. If you defined a PKField_ (not AutoPKField_), don't forget to pass a value for it when creating the instance, it's needed to store other fields.
 
 
-indexable
-^^^^^^^^^
+**indexable**
 
 Sometimes getting objects from Redis_ by its primary key is not what you want. You may want to search for objects with a specific value for a specific field. 
 
@@ -273,8 +266,7 @@ In this example you will be able to filter on the field `foo` but not on `bar`.
 
 See Collections_ to know how to filter objects.
 
-unique
-^^^^^^
+**unique**
 
 The `unique` argument is the same as the `indexable` one, except it will ensure that you can't have multiple objects with the same value for some fields. `unique` fields are also indexed, and can be filtered, as for the `indexable` argument.
 
@@ -324,16 +316,16 @@ You can use this model like this::
 
 The StringField_ type support these `Redis string commands`_:
 
-Getters
-^^^^^^^
+**Getters:**
+
 - `get`
 - `getbit`
 - `getrange`
 - `getset`
 - `strlen`
 
-Modifiers
-^^^^^^^^^
+**Modifiers:**
+
 - `append`
 - `decr`
 - `decrby`
@@ -369,23 +361,22 @@ Example with simple commands::
 
 The HashableField_ type support these `Redis hash commands <http://redis.io/commands#hash>`_:
 
-Getters
-^^^^^^^
+**Getters:**
+
 - hget
 
-Modifiers
-^^^^^^^^^
+**Modifiers:**
+
 - `hincrby`
 - `hincrbyfloat`
 - `hset`
 - `hsetnx`
 
-Deleter
-^^^^^^^
+**Deleter:**
+
 * Note that to delete the value of a HashableField_, you can use the `hdel` command, which do the same as the main `delete` one.
 
-Multi
-^^^^^
+**Multi:**
 
 The two following commands are not called on the fields themselves, but on an instance.
 
@@ -472,15 +463,15 @@ You can use this model like this::
 
 The SetField_ type support these `Redis set commands <http://redis.io/commands#set>`_:
 
-Getters
-^^^^^^^
+**Getters:**
+
 - `scard`
 - `sismember`
 - `smembers`
 - `srandmember`
 
-Modifiers
-^^^^^^^^^
+**Modifiers:**
+
 - `sadd`
 - `spop`
 - `srem`
@@ -518,14 +509,14 @@ You can use this model like this::
 
 The ListField_ type support these `Redis list commands <http://redis.io/commands#list>`_:
 
-Getters
-^^^^^^^
+**Getters:**
+
 - `lindex`
 - `llen`
 - `lrange`
 
-Modifiers
-^^^^^^^^^
+**Modifiers:**
+
 - `linsert`
 - `lpop`
 - `lpush`
@@ -570,8 +561,8 @@ You can use this model like this::
 
 The SortedSetField_ type support these `Redis sorted set commands <http://redis.io/commands#sorted_set>`_:
 
-Getters
-^^^^^^^
+**Getters:**
+
 - `zcard`
 - `zcount`
 - `zrange`
@@ -582,8 +573,8 @@ Getters
 - `zrevrank`
 - `zscore`
 
-Modifiers
-^^^^^^^^^
+**Modifiers:**
+
 - `zadd`
 - `zincrby`
 - `zrem`
@@ -697,7 +688,7 @@ We will explain Filtering_, Sorting_, Slicing_, Instanciating_, and Lazyness_ be
 
 
 Filtering
----------
+=========
 
 To filter, simply call the `collection` (class)method with fields you want to filter as keys, and wanted values as values::
 
@@ -714,7 +705,7 @@ You cannot pass two filters with the same name. All filters are "and"ed.
 
 
 Slicing
--------
+=======
 
 To slice the result, simply act as it's the result of a collection is a list::
 
@@ -725,7 +716,7 @@ To slice the result, simply act as it's the result of a collection is a list::
 
 
 Sorting
--------
+=======
 
 With the help of the `sort` command of Redis_, `limpyd` is able to sort the result of collections.
 
@@ -748,7 +739,7 @@ Example::
 
 
 Instanciating
--------------
+=============
 
 If you want to retrieve already instanciated objects, instead of only primary keys and having to do instanciation yourself, you simply have to call `instances()` on the result of the collection. The result of the collection and its methods (`sort` and `instances`) return a collection, so you can do chaining::
 
@@ -765,7 +756,7 @@ If you want to retrieve already instanciated objects, instead of only primary ke
 
 
 Lazyness
---------
+========
 
 The result of a collection is lazy. In fact it's the collection itself, it's why we can chain calls to `sort` and `instances`.
 
@@ -787,7 +778,7 @@ As we don't store field values in the object, and to avoid querying Redis_ each 
 
 
 On the model
-------------
+============
 
 This cache is activated by default for each model. To deactivate it, it's as simple as adding the attribute `cacheable` to False on the model::
 
@@ -815,7 +806,7 @@ Example::
 
 
 On fields
----------
+=========
 
 If the cache is activated on the model, you can deactivate it at the field level. The reverse is not True (if the cache is deactivated for the model, you cannot activate it for a field).
 
@@ -830,7 +821,7 @@ Here the cache is activated for `foo` but not for `bar`.
 
 
 WARNING
--------
+=======
 
 Be careful that the cache is on the instance itself. If you create another instance on the same object, update a field, the cache from the first instance will not be cleared. It's also obviously the case if you work with multiple threads of workers.
 
