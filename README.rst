@@ -347,17 +347,113 @@ Modifiers:
 SortedSetField
 ==============
 
-*(documentation to come)*
+SortedSetField_ based fields can store many values, each scored, in one field using the sorted-set data type of Redis_. Values are unique (it's a set), and are ordered by their score.
+
+Example::
+
+    from limpyd import model, fields
+    
+    class Example(model.RedisModel):
+        database = main_database
+        
+        stuff = fields.SortedSetField()
+
+You can use this model like this::
+    
+    >>> example = Example()
+    >>> example.stuff.zadd(foo=2.5, bar=1.1)
+    2  # number of values added to the sorted set
+    >>> example.stuff.zrange(0, -1)
+    ['bar', 'foo']
+    >>> example.stuff.zrangebyscore(1, 2, withscores=True)
+    [('bar', 1.1)]
+    >>> example.stuff.zrem('bar')
+    1  # number of values really removed
+    >>> example.stuff.zrangebyscore(1, 2, withscores=True)
+    []
+    >>> example.stuff.delete()
+    True
+
+The SortedSetField_ type support these `Redis sorted set commands <http://redis.io/commands#sorted_set>`_:
+
+Getters:
+********
+- `zcard`
+- `zcount`
+- `zrange`
+- `zrangebyscore`
+- `zrank`
+- `zrevrange`
+- `zrevrangebyscore`
+- `zrevrank`
+- `zscore`
+
+Modifiers:
+**********
+- `zadd`
+- `zincrby`
+- `zrem`
+- `zremrangebyrank`
+- `zremrangebyscore`
 
 PKField
 =======
 
-*(documentation to come)*
+PKField_ is a special subclass of StringField_ that manage primary keys of models. The PK of an object cannot be updated, as it serves to create keys of all its stored fields. It's this PK that is returned, with others, in Collections_.
+
+A PK can contain any sort of string you want: simple integers, float, long uuid, names...
+
+If you want a PKField which will be automatically filled, and auto-incremented, see AutoPKField_. Otherwise, with standard PKField_, you must assign a value to it when creating an instance.
+
+By default, a model has a AutoPKField_ attached to it, named `pk`. But you can redefine the nameand type of PKField you want.
+
+Examples::
+
+    class Foo(model.RedisModel):
+        """
+        The PK field is `pk`, and will be auto-incremented.
+        """
+        database = main_database
+
+    class Bar(model.RedisModel):
+        """
+        The PK field is `id`, and will be auto-incremented.
+        """
+        database = main_database
+        id = fields.AutoPKField()
+
+    class Baz(model.RedisModel):
+        """
+        The PK field is `name`, and won't be auto-incremented, so you must assign it a value when creating an instance.
+        """
+        database = main_database
+        name = fields.PKField()
+
+Note that wathever name you use for the PKField_ (or AutoPKField_), you can always access it via the name `pk` (but also we its real name). It's easier for abstraction.
+
+To access the pk value of an object, you have many ways::
+
+    class Example(model.RedisModel):
+        database = main_database
+        id = fields.AutoPKField()
+        name = fields.StringField()
+
+    >>> example = Example(name='foobar')
+    >>> example.get_pk()
+    1
+    >>> example.pk.get()
+    1
+    >>> example.id.get()
+    1
 
 AutoPKField
 ===========
 
-*(documentation to come)*
+A AutoPKField_ field is a PKField_ filled with auto-incremented integers, starting to 1. Assigning a value to of AutoPKField_ is forbidden.
+
+It's a AutoPKField_ that is attached by default to every model, if no other one is defined.
+
+See PKField_ for more details.
 
 ***********
 Collections
