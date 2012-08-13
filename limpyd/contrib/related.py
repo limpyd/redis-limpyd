@@ -19,9 +19,10 @@ class RelatedCollection(object):
 
     Exemple with these two related classes :
 
-        class Person(RelatedField):
+        class Person(RelatedModel):
             name = FKStringField()
             group = FKStringField('Group', related_name='members')
+
         class Group(RelatedField):
             name = FKStringField()
 
@@ -38,10 +39,10 @@ class RelatedCollection(object):
 
         members = group.members()
 
-    Note that you can pass filters as you can pass them to a collection:
-        members = group.members(a_filter=a_value, another_filter=another_value).
+    Note that you can pass filters the same way you can pass them to a collection:
+        members = group.members(a_filter=a_value, another_filter=another_value)
 
-    The result if a real collection, with lazy loading, sorting...
+    The result is a real collection, with lazy loading, sorting...
     """
 
     def __init__(self, instance, related_field):
@@ -89,10 +90,19 @@ class RelatedCollection(object):
 
 
 class RelatedModel(model.RedisModel):
+    """
+    This subclass of RedisModel handles creation of related collections, and
+    propagates to them the deletion of the instance. So it's needed for models
+    with related fields to subclass this RelatedModel instead of RedisModel.
+    """
 
     abstract = True
 
     def __init__(self, *args, **kwargs):
+        """
+        Create the instance then add all related collections (link between this
+        instance and related fields on other models)
+        """
         super(RelatedModel, self).__init__(*args, **kwargs)
 
         # create the related collections
@@ -110,6 +120,10 @@ class RelatedModel(model.RedisModel):
             self.related_collections.append(related_field.related_name)
 
     def delete(self):
+        """
+        When the instance is deleted, we propagate the deletion to the related
+        collections, which will remove it from the related fields.
+        """
         for related_collection_name in self.related_collections:
             related_collection = getattr(self, related_collection_name)
             related_collection.remove_instance()
@@ -145,7 +159,7 @@ class RelatedFieldMixin(fields.RedisField):
     "from_python" method. To do this automatically, simple add command names
     that accept only one value in "_commands_with_single_value_from_python" and
     ones that accept many values (without any other arguments) in
-    "_commands_with_many_values_from_python"
+    "_commands_with_many_values_from_python" (see RelatedFieldMetaclass)
     - management of related parameters: "to" and "related_name"
     """
     __metaclass__ = RelatedFieldMetaclass
@@ -160,7 +174,7 @@ class RelatedFieldMixin(fields.RedisField):
         """
         Force the field to be indexable and save related arguments.
         We also disable caching because cache is instance-related, and when
-        we deleting a object linked to a related field, we need to instantiate
+        we delete a object linked to a related field, we need to instanciate
         all instances linked to it to remove the link. But with cache enabled,
         the cache of just created instances is cleared, but not ones of
         already existing ones. Test "test_deleting_an_object_must_clear_the_fk"
@@ -236,7 +250,8 @@ class RelatedFieldMixin(fields.RedisField):
         else:
             raise ImplementationError("The `to` argument to a related field "
                                       "must be a RelatedModel as a class or as "
-                                      "a string (with or without namespace)")
+                                      "a string (with or without namespace). "
+                                      "Or simply 'self'.")
 
         return model_name.lower()
 
@@ -252,7 +267,7 @@ class RelatedFieldMixin(fields.RedisField):
         model. It's useful if the current model is abstract with many subclasses
 
         Exemples:
-            class Base(RelatedField):
+            class Base(RelatedModel):
                 abstract = True
                 namespace = 'project'
                 a_field = FKStringField('Other', related_name='%(namespace)s_%(model)s_related')
@@ -265,7 +280,7 @@ class RelatedFieldMixin(fields.RedisField):
             class ChildB(Base):
                 pass
 
-            class Other(RelatedField):
+            class Other(RelatedModel):
                 namespace = 'project'
                 field_a = FKStringField(ChildA)
                     # => related name accessible from ChildA and ChildB will be "other_related"
@@ -320,20 +335,24 @@ class RelatedFieldMixin(fields.RedisField):
 
 
 class FKStringField(RelatedFieldMixin, fields.StringField):
+    """ Related field based on a StringField, acting as a Foreign Key """
     _commands_with_single_value_from_python = ['set', 'setnx', 'getset', ]
 
 
 class FKHashableField(RelatedFieldMixin, fields.HashableField):
+    """ Related field based on a HashableField, acting as a Foreign Key """
     _commands_with_single_value_from_python = ['hset', 'hsetnx', ]
 
 
 class M2MSetField(RelatedFieldMixin, fields.SetField):
+    """ Related field based on a SetField, acting as a M2M """
     _commands_with_single_value_from_python = ['sismember', ]
     _commands_with_many_values_from_python = ['sadd', 'srem', ]
     _related_remover = 'srem'
 
 
 class M2MListField(RelatedFieldMixin, fields.ListField):
+    """ Related field based on a ListField, acting as a sorted M2M """
     _commands_with_single_value_from_python = ['lpushx', 'rpushx', ]
     _commands_with_many_values_from_python = ['lpush', 'rpush', ]
     _related_remover = 'lrem'
@@ -352,6 +371,7 @@ class M2MListField(RelatedFieldMixin, fields.ListField):
 
 
 class M2MSortedSetField(RelatedFieldMixin, fields.SortedSetField):
+    """ Related field based on a SortesSetField, acting as a M2M with scores """
     _commands_with_single_value_from_python = ['zscore', 'zrank', 'zrevrank']
     _commands_with_many_values_from_python = ['zrem']
     _related_remover = 'zrem'
