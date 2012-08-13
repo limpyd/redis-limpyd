@@ -8,7 +8,7 @@ from limpyd import model, fields
 from limpyd.exceptions import *
 
 # used to validate a related_name
-re_identifier = re.compile(r"[^a-zA-Z0-9_]")
+re_identifier = re.compile(r"\W")
 
 
 class RelatedCollection(object):
