@@ -876,6 +876,13 @@ With this we can do stuff like this::
     ['limpyd core devs']
 
 
+.. _RelatedModel:
+
+Related model
+-------------
+
+To use related fields, you must use `related.RelatedModel` instead of `model.RedisModel`. It handles creation of `related collections` and manage propagation of deletion for us.
+
 Related field types
 -------------------
 
@@ -886,21 +893,21 @@ There is one big addition on these fields over the normal one. Everywhere you ca
 Here are the new field types:
 
 FKStringField
-^^^^^^^^^^^^^
+"""""""""""""
 
 The FKStringField_ type is based on StringField_ and allow setting a foreign key.
 
 It just stores the primary key of the related object in a StringField_.
 
 FKHashableField
-^^^^^^^^^^^^^^^
+"""""""""""""""
 
 The FKHashableField_ type is based on HashableField_ and allow setting a foreign key.
 
 It works like FKStringField_ but, as a HashableField_, can be retrieved with other fields via the hmget_ method on the instance.
 
 M2MSetField
-^^^^^^^^^^^
+"""""""""""
 
 The M2MSetField_ type is based on SetField_ and allow setting many foreign keys, acting as a Many 2 Many fields.
 
@@ -909,7 +916,7 @@ If no order is needed, it's the best choice for M2M, because it's the lightest M
 If you need ordering *and* unicity, check M2MSortedSetField_.
 
 M2MListField
-^^^^^^^^^^^^
+""""""""""""
 
 The M2MListField_ type is based on ListField_ and allow setting many foreign keys, acting as a Many 2 Many fields.
 
@@ -923,7 +930,7 @@ This type is usefull to keep the order of the foreign keys, but as it does not e
 If you need ordering *and* unicity, check M2MSortedSetField_.
 
 M2MSortedSetField
-^^^^^^^^^^^^^^^^^
+"""""""""""""""""
 
 The M2MSortedSetField_ type is based on SortedSetField_ and allow setting many foreign keys, acting as a Many 2 Many fields.
 
@@ -937,7 +944,7 @@ Related field arguments
 The related fields accept two new arguments when declaring them. One to tell to which model it's related (to_), and one to give a name to the `related collection`_
 
 to
-^^^
+"""
 
 The first new argument (and the first in the list of accepted ones, useful to pass it without naming it), is `to`, the name of the model on which this field is related to. 
 
@@ -978,7 +985,7 @@ If you want to link to a model with a different namespace than the one for the c
 
 
 related_name
-^^^^^^^^^^^^
+""""""""""""
 
 The `related_name` argument is not mandatory, except in some cases described below.
 
@@ -1004,7 +1011,7 @@ If defined, it must be a string. This string can accept to formatable arguments:
     class PrivateGroup(BaseGroup):
         pass
 
-In this example, a person will have two `related collection`_s: 
+In this example, a person will have two related collections: 
 
 - `groups_publicgroup_set`, liked to the `parent` field of `PublicGroup`
 - `groups_privategroup_set`, liked to the `parent` field of `PrivateGroup`
