@@ -1073,4 +1073,128 @@ And it works with M2M fields too.
 Pipelines
 =========
 
-*(documentation to come)*
+In the contrib module, we provide a way to wirk with pipelines as defined in `redis-py`_, providimg abstraction to let the fields connect to the pipeline, not the real Redis_ connection (this won't be the case if you use the default pipeline in `redis-py`_)
+
+To activate this, you have to import and to use `PipelineDatabase` instead of the default `RedisDatabase`, without touching the arguments.
+
+Instead of doing this::
+
+    from limpyd.database import RedisDatabase
+
+    main_database = RedisDatabase(
+        host="localhost",
+        port=6379,
+        db=0
+    )
+
+Just do::
+
+    from limpyd.contrib.database import PipelineDatabase
+    
+    main_database = PipelineDatabase(
+        host="localhost",
+        port=6379,
+        db=0
+    )
+
+This `PipelineDatabase` class adds two methods: pipeline_ and transaction_
+
+pipeline
+--------
+
+The pipeline provides the same functionnalities as for the default pipeline in `redis-py`_, but it handles transparently the use of the pipeline instead of the default collection for all fields operation.
+
+But be aware that within a pipeline you cannot get values from fields to do something with them. It's because in a pipeline, all commands are sent in bulk, and all results are retrieved in bulk too (one for each command), when exiting the pipeline.
+
+It does not mean that you cannot set many fields in one time in a pipeline, but you must have values not depending of other fields, and, also very important, you cannot update indexable fields ! (so no related fields either, because they are all indexable)
+
+The best use for pipelines in `limpyd`, is to get a lot of values in one pass.
+
+Say we have this model::
+
+    from limpyd.contrib.database import PipelineDatabase
+
+    main_database = PipelineDatabase(
+        host="localhost",
+        port=6379,
+        db=0
+    )
+
+    class Person(model.RedisModel):
+        database = main_database
+        namespace='foo'
+        name = fields.StringField()
+        city = fields.StringField(indexable=True)
+
+Add some data::
+
+    Person(name='Jean Dupond', city='Paris')
+    Person(name='Francois Martin', city='Paris')
+    Person(name='John Smith', city='New York')
+    Person(name='John Doe', city='San Franciso')
+    Person(name='Paul Durand', city='Paris')
+
+Say we have already a lot of Person saved, we can retrieve all names this way::
+
+    persons = list(Person.collection(city='Paris').instances())
+    with main_database.pipeline() as pipeline:
+        for person in persons:
+            person.name.get()
+        names = pipeline.execute()
+    print names
+
+This will result in only one call (within the pipeline)::
+
+    >>> ['Jean Dupond', 'Francois Martin', 'Paul Durand']
+
+All in one only call to the Redis_ server.
+
+Note that in pipelines you can you the `watch` command, but it's easier to use the `transaction` method described below.
+
+transaction
+-----------
+
+The `transaction` method available on the `PipelineDatabase` object, is the same as the one in `redis-py`_, but using its own `pipeline` method.
+
+The goal is to help using pipelines with watches.
+
+The `watch` mechanism in Redis_ allow us to read values and use them in a pipeline, being sure that the values got in the first step were not updated by someone else since we read them.
+
+Imagine the `incr` method doesn't exists. Here is a way to implement it with a transaction without race condition (ie without the risk of having our value updated by someone else between the moment we read it, and the moment we save it)::
+
+    class Page(model.RedisModel):
+        database = main_database  # a PipelineDatabase object
+        url = fields.StringField(indexable=True)
+        hits = fields.StringField()
+
+        def incr_hits(self):
+            """
+            Increment the number of hits without race condition
+            """
+
+            def do_incr(pipeline):
+
+                # transaction not started, we can read values
+                previous_value = self.hits.get()
+
+                # start the transaction (MANDATORY CALL)
+                pipeline.multi()
+
+                # set the new value
+                self.hits.set(previous_value+1)
+
+
+            # run `do_incr` in a transaction, watching for the hits field
+            self.database.transaction(do_incr, *[self.hits])
+
+In this example, the `do_incr` method will be aborted and executed again, restarting the transaction, each time the `hits` field of the object is updated elsewhere. So we are absolutely sure that we don't have any race conditions.
+
+The argument of the `transaction` method are:
+
+- **func**, the function to run, encaspulated in a transaction. It must accept a `pipeline` argument.
+- **\*watches**, a list of keys to watch (if a watched key is updated, the transaction is restarted and the function aborted and executed again). Note that you can pass keys as string, or fields of limpyd model instances (so their keys will be retrieved for you).
+
+The `transaction` method returns the value returned by the execution of its internal pipeline. In our example, it will return `[True]`.
+
+Note that as for the `pipeline` method, you cannot update indexables fields in the transaction because read commands are used to update them.
+
