@@ -136,7 +136,7 @@ By just doing this, the fields are created, and a PKField_ is set with a value t
     >>> print "New example object with pk #%s" % example.pk.get()
     New example object with pk #1
 
-Then later to get an instance from Redis_ with it's pk, it's as simple as:
+Then later to get an instance from Redis_ with it's pk, it's as simple as::
 
     >>> example = Example(1)
 
@@ -762,7 +762,7 @@ The result of a collection is lazy. In fact it's the collection itself, it's why
 
 The query is sent to Redis_ only when the data are needed. In the previous examples, data was needed to display them.
 
-But if you do somthing like::
+But if you do something like::
 
     >>> results = Person.collection(firstname='John').instances())
 
@@ -840,7 +840,234 @@ To keep the core of `limpyd`, say, "limpid", we limited what it contains. But we
 Related fields
 ==============
 
-*(documentation to come)*
+`limpyd` provide a way to link models, via the `related` contrib module. It's only shortcuts to already existing stuff, aiming to make relations easy.
+
+Start with an example::
+
+    from limpyd import fields
+    from limpyd.contrib import related
+
+    class Person(related.RelatedModel):
+        database = main_database
+        name = fields.PKField()  # redefine a PK just for the example
+
+    class Group(related.RelatedModel):
+        database = main_database
+        name = fields.PKField()
+        private = fields.StringField()
+        owner = related.FKHashableField('Person')
+        members = related.M2MSetField('Person', related_name='membership')
+
+
+With this we can do stuff like this::
+
+    >>> core_devs = Group(name='limpyd core devs', private=0)
+    >>> ybon = Person(name='ybon')
+    >>> twidi = Person(name='twidi')
+    >>> core_devs.owner.hset(ybon)
+    1
+    >>> core_devs.members.sadd(twidi, ybon._pk)  # give a limpyd object, or a pk
+    2
+    >>> core_devs.members.smembers()
+    set(['ybon', 'twidi'])
+    >>> ybon.group_set(private=0)  # it's a collection, the limpyd way !
+    ['limpyd core devs']
+    >>> twidi.membership()  # it's a collection too
+    ['limpyd core devs']
+
+
+Related field types
+-------------------
+
+The `related` module provides 5 field types, based on the standard ones. All have the `indexable` attribute to True, and `cacheable` to False (for internal needs, we can't activate cache on related fields.)
+
+There is one big addition on these fields over the normal one. Everywhere you can pass a value to store (in theory you would pass an object's primary key), you can pass an instance of a limpyd model. The primary key of these instances will be extraced for you.
+
+Here are the new field types:
+
+FKStringField
+^^^^^^^^^^^^^
+
+The FKStringField_ type is based on StringField_ and allow setting a foreign key.
+
+It just stores the primary key of the related object in a StringField_.
+
+FKHashableField
+^^^^^^^^^^^^^^^
+
+The FKHashableField_ type is based on HashableField_ and allow setting a foreign key.
+
+It works like FKStringField_ but, as a HashableField_, can be retrieved with other fields via the hmget_ method on the instance.
+
+M2MSetField
+^^^^^^^^^^^
+
+The M2MSetField_ type is based on SetField_ and allow setting many foreign keys, acting as a Many 2 Many fields.
+
+If no order is needed, it's the best choice for M2M, because it's the lightest M2M field (memory occupation), and it's fast to check if an element is included (`sismember`, O(1)), or to remove one (`srem`, O(N) where N is the number of members to be removed.).
+
+If you need ordering *and* unicity, check M2MSortedSetField_.
+
+M2MListField
+^^^^^^^^^^^^
+
+The M2MListField_ type is based on ListField_ and allow setting many foreign keys, acting as a Many 2 Many fields.
+
+It works like M2MSetField_, with two differences, because it's a list and not a set:
+
+- the list of foreign keys is ordered
+- we can have many times the same foreign key
+
+This type is usefull to keep the order of the foreign keys, but as it does not ensure unicity, the use cases are less obvious.
+
+If you need ordering *and* unicity, check M2MSortedSetField_.
+
+M2MSortedSetField
+^^^^^^^^^^^^^^^^^
+
+The M2MSortedSetField_ type is based on SortedSetField_ and allow setting many foreign keys, acting as a Many 2 Many fields.
+
+It works like M2MSetField_, with one differences, because it's a sorted set and not a simple set: each foreign key has a score attached to it, and the list for foreign keys is sorted by this score.
+
+This score is usefull to keep the entries unique AND sorted. It can be a date (as a timestamp because the score must be numeric), allowing, in our example (Person/Group), to keep list of members in the order they joined the group.
+
+Related field arguments
+------------------------
+
+The related fields accept two new arguments when declaring them. One to tell to which model it's related (to_), and one to give a name to the `related collection`_
+
+to
+^^^
+
+The first new argument (and the first in the list of accepted ones, useful to pass it without naming it), is `to`, the name of the model on which this field is related to. 
+
+Note that the related model must be on the same database_.
+
+It can accept a RelatedModel_::
+
+    class Person(related.RelatedModel):
+        database = main_database
+        name = StringField()
+
+    class Group(related.RelatedModel):
+        database = main_database
+        name = StringField()
+        owner = FKStringField(Person)
+
+In this case the RelatedModel_ must be defined before the current model.
+
+And it can accept a string. There is two ways to define model with a string:
+
+- the name of a RelatedModel_::
+
+    class Group(related.RelatedModel):
+        database = main_database
+        owner = FKStringField('Person')
+
+If you want to link to a model with a different namespace than the one for the current model, you can add it::
+
+    class Group(related.RelatedModel):
+        database = main_database
+        owner = FKStringField('my_namespace:Person')
+
+- 'self', to define a link to the same model on which the related field is defined::
+
+    class Group(related.RelatedModel):
+        database = main_database
+        parent = FKStringField('self')
+
+
+related_name
+^^^^^^^^^^^^
+
+The `related_name` argument is not mandatory, except in some cases described below.
+
+This argument is the name which will be used to create the `Related collection`_ on the related model (the on described by the to_ argument)
+
+If defined, it must be a string. This string can accept to formatable arguments: `%(namespace)s` and `%(model)s` which will be replaced by the namespace and name of the model on which the related field is defined. It's usefull for subclassing::
+
+    class Person(related.RelatedModel):
+        database = main_database
+        name = StringField()
+
+    class BaseGroup(related.RelatedModel):
+        database = main_database
+        namespace = 'groups'
+        abstract = True
+
+        name = StringField()
+        owner = FKStringField('Person', related_name='%(namespace)s_%(model)s_set')
+
+    class PublicGroup(BaseGroup):
+        pass
+
+    class PrivateGroup(BaseGroup):
+        pass
+
+In this example, a person will have two `related collection`_s: 
+
+- `groups_publicgroup_set`, liked to the `parent` field of `PublicGroup`
+- `groups_privategroup_set`, liked to the `parent` field of `PrivateGroup`
+
+Note that, exept for namespace that will be automatically converted if needed, related names should be valid python identifiers.
+
+Related collection
+------------------
+
+Related collections are the other side of the relation. They are created on the related model, based on the related_name_ argument used when creating the related field.
+
+They are a shortcut to the real collection, but available to ease writing.
+
+Let's define some models::
+
+
+    class Person(related.RelatedModel):
+        database = main_database
+        name = PKStringField()
+
+    class Group(related.RelatedModel):
+        database = main_database
+        name = PKStringField()
+        private = fields.StringField(defaut=0)
+        owner = FKStringField('Person', related_name='owned_groups')
+
+Now we can do::
+
+    >>> group1 = Group(name='group 1')
+    >>> group2 = Group(name='group 1', private=1)
+    >>> person1 = Person(name='person 1')
+    >>> group1.owner.set(person1)
+    >>> group2.owner.set(person1)
+
+To retrieve groups owned by `person1`, we can use the standard way::
+
+    >>> Group.collection(owner=person1.get_pk())
+    ['group 1', 'group 2']
+
+or, with the related collection::
+
+    >>> person1.owned_groups()
+    ['group 1', 'group 2']
+
+These two lines return exactly the same thing, a lazy collection (See Collections_).
+
+You can pass other filters too::
+
+    >>> person1.owned_groups(private=1)
+    ['group 2']
+
+
+Update and deletion
+-------------------
+
+One of the main advantage of using related fields instead of doing it yourself, is that updates and deletions are handled as you would, transparently.
+
+In the previous example, if the owner of a group is updated (or deleted), the previous owner doesn't have this group in its owned_group collections.
+
+The same applies on the other side. If a person who is the owner of a group is deleted, the value of the groups'owner field is deleted too.
+
+And it works with M2M fields too.
+
 
 
 Pipelines
