@@ -310,7 +310,8 @@ class IndexableField(RedisField):
         # commands like ``append`` or ``setrange``, we let the command process
         # then check the result, and raise before modifying the indexes if the
         # value was not unique, and then remove the key
-        # We should try a better algo
+        # We should try a better algo (we lose the previous value here by doing
+        # that this way)
         if value:
             value = value.decode('utf-8')  # FIXME centralize utf-8 handling?
         key = self.index_key(value)
@@ -318,6 +319,7 @@ class IndexableField(RedisField):
             # Lets check if the index key already exist for another instance
             index = self.connection.smembers(key)
             if len(index) > 1:
+                # this may not happen !
                 raise UniquenessError("Multiple values indexed for unique field %s: %s" % (self.name, index))
             elif len(index) == 1:
                 indexed_instance_pk = index.pop()
