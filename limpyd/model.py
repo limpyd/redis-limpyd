@@ -217,20 +217,19 @@ class RedisModel(RedisProxyCommand):
             raise DoesNotExist("The current object doesn't exists anymore")
         if not self._pk:
             self.pk.set(None)
-            # Default must be setted only at first initialization
-            self.set_defaults()
+            # Default must be set only at first initialization
+            self._set_defaults()
         return self._pk
 
-    def set_defaults(self):
+    def _set_defaults(self):
         """
-        Set default values to fields, if they are not yet populated.
+        Set default values to fields. We assume that they are not yet populated
+        as this method is called in `get_pk`, just after creation of a new pk.
         """
         for field_name in self._fields:
             field = getattr(self, field_name)
             if hasattr(field, "default"):
-                has_value = field.proxy_get()
-                if has_value is None:
-                    field.proxy_set(field.default)
+                field.proxy_set(field.default)
 
     @classmethod
     def collection(cls, **filters):
