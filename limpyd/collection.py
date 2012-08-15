@@ -27,6 +27,10 @@ class CollectionManager(object):
         self._instances = False  # True when instances are asked
                                  # instead of raw pks
         self._sort = None  # Will store sorting parameters
+        self._len = None  # Store the result of the final collection, to avoid
+                          # having to compute the whole thing twice when doing
+                          # `list(Model.collection)` (a `list` will call
+                          # __iter__ AND __len__)
 
     def __iter__(self):
         return self._collection.__iter__()
@@ -65,6 +69,7 @@ class CollectionManager(object):
         Sorting is not available if a pk as been requested (this is linked
         to the fact that pk have no index, due to optimization reasons).
         """
+        self._len = None
         conn = self.cls.get_connection()
         if "keys" in self._lazy_collection:
             if self._sort is not None:
@@ -93,9 +98,12 @@ class CollectionManager(object):
             # Empty result
             collection = set()
         if self._instances:
-            return [self.cls(pk) for pk in collection]
+            result = [self.cls(pk) for pk in collection]
         else:
-            return list(collection)
+            result = list(collection)
+        # cache the len for future use
+        self._len = len(result)
+        return result
 
     def __call__(self, **filters):
         """Define self._lazy_collection according to filters."""
@@ -161,7 +169,9 @@ class CollectionManager(object):
         return self
 
     def __len__(self):
-        return self._collection.__len__()
+        if self._len is None:
+            self._len = self._collection.__len__()
+        return self._len
 
     def __repr__(self):
         return self._collection.__repr__()
