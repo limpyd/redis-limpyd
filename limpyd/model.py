@@ -263,7 +263,13 @@ class RedisModel(RedisProxyCommand):
         if len(kwargs) == 1 and cls._field_is_pk(kwargs.keys()[0]):
             return cls._redis_attr_pk.exists(kwargs.values()[0])
 
-        return len(cls.collection(**kwargs)) > 0
+        # get only the first element of the unsorted collection (the fastest)
+        try:
+            cls.collection(**kwargs).sort(by='nosort')[0]
+        except IndexError:
+            return False
+        else:
+            return True
 
     @classmethod
     def get(cls, *args, **kwargs):
