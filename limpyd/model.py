@@ -206,6 +206,13 @@ class RedisModel(RedisProxyCommand):
         return self._cache[self.name]
 
     def get_pk(self):
+        """
+        Return the primary key of the instance.
+        If the `_pk` attribute doesn't exist, it's because the instance was deleted.
+        And if it's present but empty, it's because it's a new instance without
+        primary key so we ask for a new one. Then, as the object is new, with a pk,
+        we save default values for fields.
+        """
         if not hasattr(self, '_pk'):
             raise DoesNotExist("The current object doesn't exists anymore")
         if not self._pk:
