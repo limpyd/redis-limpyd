@@ -152,6 +152,10 @@ class RedisModel(RedisProxyCommand):
         if len(args) > 0 and len(kwargs) > 0:
             raise ValueError('Cannot use args and kwargs to instanciate.')
 
+        # save name of fields given when creating the instance, to avoid setting
+        # them in the `_set_default` method
+        self._init_fields= set()
+
         # --- Instanciate new from kwargs
         if len(kwargs) > 0:
             # First check unique fields
@@ -174,6 +178,7 @@ class RedisModel(RedisProxyCommand):
                 if field.unique and self.exists(**{field_name: value}):
                     raise UniquenessError(u"Field `%s` must be unique. "
                                            "Value `%s` yet indexed." % (field.name, value))
+                self._init_fields.add(field_name)
 
             # Do instanciate, starting by the pk and respecting fields order
             if kwargs_pk_field_name:
@@ -227,9 +232,12 @@ class RedisModel(RedisProxyCommand):
         as this method is called in `get_pk`, just after creation of a new pk.
         """
         for field_name in self._fields:
+            if field_name in self._init_fields:
+                continue
             field = getattr(self, field_name)
             if hasattr(field, "default"):
                 field.proxy_set(field.default)
+        delattr(self, '_init_fields')
 
     @classmethod
     def collection(cls, **filters):
