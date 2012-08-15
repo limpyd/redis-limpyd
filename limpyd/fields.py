@@ -723,11 +723,18 @@ class PKField(RedisField):
 
     def get_new(self, value):
         """
-        Validate that a given new pk to set is always set, and return it
+        Validate that a given new pk to set is always set, and return it.
+        The returned value should be normalized, and will be used without check.
         """
         if value is None:
             raise ValueError('The pk for %s is not "auto-increment", you must fill it' % \
                             self._model._name)
+        value = self.normalize(value)
+
+        # Check that this pk does not already exist
+        if self.exists(value):
+            raise UniquenessError('PKField %s already exists for model %s)' % (value, self._instance.__class__))
+
         return value
 
     @property
@@ -775,11 +782,7 @@ class PKField(RedisField):
             raise ValueError('A primary key cannot be updated')
 
         # Validate and return the value to be used as a pk
-        value = self.normalize(self.get_new(value))
-
-        # Check that this pk does not already exist
-        if self.exists(value):
-            raise UniquenessError('PKField %s already exists for model %s)' % (value, self._instance.__class__))
+        value = self.get_new(value)
 
         # Tell the model the pk is now set
         self._instance._pk = value
@@ -820,4 +823,4 @@ class AutoPKField(PKField):
             raise ValueError('The pk for %s is "auto-increment", you must not fill it' % \
                             self._model._name)
         key = self._instance.make_key(self._model._name, 'max_pk')
-        return self.connection.incr(key)
+        return self.normalize(self.connection.incr(key))
