@@ -1,8 +1,8 @@
 # -*- coding:utf-8 -*-
 
-from logging import getLogger
-
 from limpyd.utils import unique_key
+from limpyd.exceptions import *
+
 
 class CollectionManager(object):
     """
@@ -36,7 +36,7 @@ class CollectionManager(object):
             # Force a sort
             # Redis need it, and getting items from their index whitout
             # sorting does not make sense
-            self._sort= {}
+            self._sort = {}
         if isinstance(arg, slice):
             # A slice has been requested
             # so add it to the sort parameters
@@ -117,7 +117,6 @@ class CollectionManager(object):
             self._lazy_collection = {
                 "keys": [self.cls._redis_attr_pk.collection_key]
             }
-
 
         # --- There is a pk in the filters
         #     Get the object, and check if requested filters match object

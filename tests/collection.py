@@ -2,7 +2,6 @@
 
 import unittest
 
-from limpyd import model
 from limpyd import fields
 from limpyd.exceptions import *
 from base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
@@ -19,6 +18,7 @@ class CollectionBaseTest(LimpydBaseTest):
         self.boat3 = Boat(name="Pen Duick III", length=17.45, launched=1966)
         self.boat4 = Boat(name="Rainbow Warrior I", power="engine", length=40, launched=1955)
 
+
 class CollectionTest(CollectionBaseTest):
     """
     Test the collection filtering method.
@@ -29,9 +29,9 @@ class CollectionTest(CollectionBaseTest):
         bike = Bike()
         self.assertEqual(set(Bike.collection()), set())
         bike1 = Bike(name="trotinette")
-        self.assertEqual(set(Bike.collection()), set(['1']))
+        self.assertEqual(set(Bike.collection()), set([bike1._pk]))
         bike2 = Bike(name="tommasini")
-        self.assertEqual(set(Bike.collection()), set(['1', '2']))
+        self.assertEqual(set(Bike.collection()), set([bike1._pk, bike2._pk]))
 
     def test_filter_from_kwargs(self):
         self.assertEqual(len(Boat.collection()), 4)
