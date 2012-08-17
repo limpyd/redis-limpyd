@@ -414,57 +414,62 @@ class MultiValuesField(RedisField):
         indexed or deindexed.
         But if an empty list/set is given, no values are indexed/deindexed.
         """
+        params = dict((key, kwargs.pop(key, None)) for key in ('to_deindex', 'to_index', 'pre_callback', 'post_collback'))
 
-        # Commands defined in "_commands_to_proxy" are handled here, to call
-        # their proxy methods. Then, these proxy methods can call this
-        # _traverse_command method with a named argument "_bypass_proxy" to True
-        # to really do (de)indexing and execute the command
-        bypass_proxy = kwargs.pop('_bypass_proxy', False)
-        if name in self._commands_to_proxy and not bypass_proxy:
+        if name in self._commands_to_proxy:
             command = getattr(self, self._commands_to_proxy[name])
-            return command(name, *args)
+            (args, kwargs, params) = command(name, *args, **kwargs)
 
-        values_to_index = kwargs.pop('_to_index', None)
-        values_to_deindex = kwargs.pop('_to_deindex', None)
+        if params.get('pre_collback', None) is not None:
+            (args, kwargs) = params['pre_collback'](name, *args, **kwargs)
 
         # TODO manage transaction
         if self.indexable and name in self.available_modifiers:
-            self.deindex(values_to_deindex)
+            self.deindex(params['to_deindex'])
 
         # we don't call _traverse_command from RedisField, but the one from
         # RedisProxyCommand because we manage indexes manually here
         result = super(RedisField, self)._traverse_command(name, *args, **kwargs)
 
         if self.indexable and name in self.available_modifiers:
-            self.index(values_to_index)
+            self.index(params['to_index'])
+
+        if params.get('post_collback', None) is not None:
+            result = params['post_collback'](result)
 
         return result
 
-    def _add(self, command, *args):
+    def _add(self, command, *args, **kwargs):
         """
         Helper for commands that only remove values from the field.
         Added values will be indexed.
         """
-        return self._traverse_command(command, *args, _to_index=args, _to_deindex=[], _bypass_proxy=True)
+        return (args, kwargs, {'to_index': args, 'to_deindex': []})
 
-    def _rem(self, command, *args):
+    def _rem(self, command, *args, **kwargs):
         """
         Helper for commands that only remove values from the field.
         Removed values will be deindexed.
         """
-        return self._traverse_command(command, *args, _to_index=[], _to_deindex=args, _bypass_proxy=True)
+        return (args, kwargs, {'to_index': [], 'to_deindex': args})
 
-    def _pop(self, command, *args):
+    def _pop(self, command, *args, **kwargs):
         """
         Helper for commands that pop a value from the field, returning it while
         removing it.
         The returned value will be deindexed
         """
-        # we don't call _traverse_command from RedisField, but the one from
-        # RedisProxyCommand because we manage indexes manually here
-        result = super(RedisField, self)._traverse_command(command)
-        if self.indexable and result is not None:
-            self.deindex([result])
+        result = (args, kwargs, {'to_index': [], 'to_deindex': []})
+
+        if self.indexable:
+
+            def deindex_result(command_result):
+                if command_result is not None:
+                    self.deindex([command_result])
+                return command_result
+
+            result[2]['post_collback'] = deindex_result
+
         return result
 
 
@@ -511,14 +516,14 @@ class SortedSetField(MultiValuesField):
             keys.extend(args[1::2])
         for pair in kwargs.iteritems():
             keys.append(pair[0])
-        return self._traverse_command('zadd', *args, _to_index=keys, _to_deindex=[], **kwargs)
+        return self._traverse_command('zadd', *args, to_index=keys, to_deindex=[], **kwargs)
 
     def zincrby(self, value, amount=1):
         """
         This command update a score of a given value. But it can be a new value
         of the sorted set, so we index it.
         """
-        return self._traverse_command('zincrby', value, amount, _to_index=[value], _to_deindex=[])
+        return self._traverse_command('zincrby', value, amount, to_index=[value], to_deindex=[])
 
 
 class SetField(MultiValuesField):
@@ -574,18 +579,24 @@ class ListField(MultiValuesField):
         return self.lrange(0, -1)
 
     def linsert(self, where, refvalue, value):
-        return self._traverse_command('linsert', where, refvalue, value, _to_index=[value], _to_deindex=[])
+        return self._traverse_command('linsert', where, refvalue, value, to_index=[value], to_deindex=[])
 
-    def _pushx(self, command, *args):
+    def _pushx(self, command, *args, **kwargs):
         """
         Helper for lpushx and rpushx, that only index the new values if the list
         existed when the command was called
         """
-        # we don't call _traverse_command from RedisField, but the one from
-        # RedisProxyCommand because we manage indexes manually here
-        result = super(RedisField, self)._traverse_command(command, *args)
-        if result and self.indexable:
-            self.index(args)
+        result = (args, kwargs, {'to_index': [], 'to_deindex': []})
+
+        if self.indexable:
+
+            def index_args(command_result):
+                if command_result:
+                    self.index(args)
+                return command_result
+
+            result[2]['post_collback'] = index_args
+
         return result
 
     def lrem(self, count, value):
@@ -599,7 +610,7 @@ class ListField(MultiValuesField):
         if not count:
             to_index = []
             to_deindex = [value]
-        return self._traverse_command('lrem', count, value, _to_index=to_index, _to_deindex=to_deindex)
+        return self._traverse_command('lrem', count, value, to_index=to_index, to_deindex=to_deindex)
 
     def lset(self, index, value):
         """
@@ -611,7 +622,7 @@ class ListField(MultiValuesField):
         old_value = self.lindex(index)
         if old_value is not None:
             to_deindex = [old_value]
-        return self._traverse_command('lset', index, value, _to_index=[value], _to_deindex=to_deindex)
+        return self._traverse_command('lset', index, value, to_index=[value], to_deindex=to_deindex)
 
 
 class HashableField(RedisField):
@@ -621,6 +632,17 @@ class HashableField(RedisField):
     proxy_setter = "hset"
     available_getters = ('hget', )
     available_modifiers = ('hincrby', 'hincrbyfloat', 'hset', 'hsetnx')
+
+    _commands = {
+        'getters': ('hget', ),
+        'full_modifiers': ('hset', 'hsetnx', ),
+        'partial_modifiers': ('hincrby', 'hincrbyfloat', ),
+    }
+
+    _commands_to_proxy = {
+        'hset': '_set',
+        'hsetnx': '_set'
+    }
 
     @property
     def key(self):
