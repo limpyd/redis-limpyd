@@ -118,7 +118,7 @@ class RedisField(RedisProxyCommand):
     _copy_conf = {
         'args': [],
         'kwargs': ['cacheable', 'default'],
-        'attrs': ['name', '_instance', '_model']
+        'attrs': ['name', '_instance', '_model', 'indexable', 'unique']
     }
 
     def __init__(self, *args, **kwargs):
@@ -126,6 +126,13 @@ class RedisField(RedisProxyCommand):
         self.cacheable = kwargs.get('cacheable', True)
         if "default" in kwargs:
             self.default = kwargs["default"]
+
+        self.indexable = kwargs.get("indexable", False)
+        self.unique = kwargs.get("unique", False)
+        if self.unique:
+            if hasattr(self, "default"):
+                raise ImplementationError('Cannot set "default" and "unique" together!')
+            self.indexable = True
 
         # keep fields ordered
         self._creation_order = RedisField._creation_order
@@ -237,6 +244,8 @@ class RedisField(RedisProxyCommand):
         """
         Delete the field from redis.
         """
+        if self.indexable:
+            self.deindex()
         result = self._delete_key()
         if self.cacheable:
             # delete cache
@@ -276,31 +285,11 @@ class RedisField(RedisProxyCommand):
         else:
             return self.connection.exists(key)
 
-
-class IndexableField(RedisField):
-    """
-    Base field for the indexable fields.
-
-    Store data in index at save.
-    Retrieve instances from these indexes.
-    """
-    _copy_conf = copy(RedisField._copy_conf)
-    _copy_conf['kwargs'] += ['indexable', 'unique']
-
-    def __init__(self, *args, **kwargs):
-        super(IndexableField, self).__init__(*args, **kwargs)
-        self.indexable = kwargs.get("indexable", False)
-        self.unique = kwargs.get("unique", False)
-        if self.unique:
-            if hasattr(self, "default"):
-                raise ImplementationError('Cannot set "default" and "unique" together!')
-            self.indexable = True
-
     def _traverse_command(self, name, *args, **kwargs):
         # TODO manage transaction
         if self.indexable and name in self.available_modifiers:
             self.deindex()
-        result = super(IndexableField, self)._traverse_command(name, *args, **kwargs)
+        result = super(RedisField, self)._traverse_command(name, *args, **kwargs)
         if self.indexable and name in self.available_modifiers:
             self.index()
         return result
@@ -352,11 +341,6 @@ class IndexableField(RedisField):
         """
         self.deindex_value(self.proxy_get())
 
-    def delete(self):
-        if self.indexable:
-            self.deindex()
-        return super(IndexableField, self).delete()
-
     def index_key(self, value):
         # Ex. bikemodel:name:{bikename}
         if not self.indexable:
@@ -367,16 +351,9 @@ class IndexableField(RedisField):
             value,
         )
 
-    def populate_instance_pk_from_index(self, value):
-        key = self.index_key(value)
-        pk = self.connection.get(key)
-        if pk:
-            self._instance._pk = int(pk)
-        else:
-            raise ValueError("Can't retrieve instance pk with %s = %s" % (self.name, value))
 
 
-class StringField(IndexableField):
+class StringField(RedisField):
 
     proxy_getter = "get"
     proxy_setter = "set"
@@ -384,11 +361,12 @@ class StringField(IndexableField):
     available_modifiers = ('append', 'decr', 'decrby', 'getset', 'incr', 'incrby', 'incrbyfloat', 'set', 'setbit', 'setnx', 'setrange')
 
 
-class IndexableMultiValuesField(IndexableField):
+
+class MultiValuesField(RedisField):
     """
     It's a base class for SetField, SortedSetField and ListField, to manage
     indexes when their constructor got the param "indexable" set to True.
-    Indexes need more work than for simple IndexableFields as we have here many
+    Indexes need more work than for simple RedisField as we have here many
     values in each field.
     A naive implementation is to simply deindex all existing values, call the
     wanted redis command, then reindex all.
@@ -429,7 +407,7 @@ class IndexableMultiValuesField(IndexableField):
 
     def _traverse_command(self, name, *args, **kwargs):
         """
-        The only difference with the method from IndexableField is that we can
+        The only difference with the method from RedisField is that we can
         specify which values to index/deindex, by passing two arguments in kwargs:
         "_to_index" and "_to_deindex".
         If one of these arguments is None, or not given, all values will be
@@ -453,9 +431,9 @@ class IndexableMultiValuesField(IndexableField):
         if self.indexable and name in self.available_modifiers:
             self.deindex(values_to_deindex)
 
-        # we don't call _traverse_command from IndexableField, but the one from
-        # RedisField because we manage indexes manually here
-        result = super(IndexableField, self)._traverse_command(name, *args, **kwargs)
+        # we don't call _traverse_command from RedisField, but the one from
+        # RedisProxyCommand because we manage indexes manually here
+        result = super(RedisField, self)._traverse_command(name, *args, **kwargs)
 
         if self.indexable and name in self.available_modifiers:
             self.index(values_to_index)
@@ -482,15 +460,15 @@ class IndexableMultiValuesField(IndexableField):
         removing it.
         The returned value will be deindexed
         """
-        # we don't call _traverse_command from IndexableField, but the one from
-        # RedisField because we manage indexes manually here
-        result = super(IndexableField, self)._traverse_command(command)
+        # we don't call _traverse_command from RedisField, but the one from
+        # RedisProxyCommand because we manage indexes manually here
+        result = super(RedisField, self)._traverse_command(command)
         if self.indexable and result is not None:
             self.deindex([result])
         return result
 
 
-class SortedSetField(IndexableMultiValuesField):
+class SortedSetField(MultiValuesField):
     """
     A field with values stored in a sorted set.
     If the indexable argument is set to True on the constructor, all stored
@@ -543,7 +521,7 @@ class SortedSetField(IndexableMultiValuesField):
         return self._traverse_command('zincrby', value, amount, _to_index=[value], _to_deindex=[])
 
 
-class SetField(IndexableMultiValuesField):
+class SetField(MultiValuesField):
     """
     A field with values stored in a redis set.
     If the indexable argument is set to True on the constructor, all stored
@@ -563,7 +541,7 @@ class SetField(IndexableMultiValuesField):
     }
 
 
-class ListField(IndexableMultiValuesField):
+class ListField(MultiValuesField):
     """
     A field with values stored in a list.
     If the indexable argument is set to True on the constructor, all stored
@@ -603,9 +581,9 @@ class ListField(IndexableMultiValuesField):
         Helper for lpushx and rpushx, that only index the new values if the list
         existed when the command was called
         """
-        # we don't call _traverse_command from IndexableField, but the one from
-        # RedisField because we manage indexes manually here
-        result = super(IndexableField, self)._traverse_command(command, *args)
+        # we don't call _traverse_command from RedisField, but the one from
+        # RedisProxyCommand because we manage indexes manually here
+        result = super(RedisField, self)._traverse_command(command, *args)
         if result and self.indexable:
             self.index(args)
         return result
@@ -636,7 +614,7 @@ class ListField(IndexableMultiValuesField):
         return self._traverse_command('lset', index, value, _to_index=[value], _to_deindex=to_deindex)
 
 
-class HashableField(IndexableField):
+class HashableField(RedisField):
     """Field stored in the parent object hash."""
 
     proxy_getter = "hget"
@@ -706,7 +684,8 @@ class PKField(RedisField):
     available_modifiers = ('set',)
 
     name = 'pk'  # Default name ok the pk, can be changed by declaring a new PKField
-    unique = True  # Not an indexable field, but can be usefull in loops
+    indexable = False  # Not an `indexable` field...
+    unique = True  # ... but `unique` can be usefull in loops
     _auto_increment = False  # False for PKField, True for AutoPKField
     _auto_added = False  # True only if automatically added by limpyd
     _set = False  # True when set for the first (and unique) time
