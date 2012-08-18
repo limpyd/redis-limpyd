@@ -111,6 +111,13 @@ class RedisField(RedisProxyCommand):
     """
     Wrapper to help use the redis data structures.
     """
+    # The "_commands_to_proxy" dict take redis commands as keys, and proxy
+    # method names as values. There proxy_methods must take the real command
+    # name in first parameter, and a *args+**kwargs to pass needed values.
+    # Their goal is to simplify management of values to index/deindex for simple
+    # redis commands.
+    _commands_to_proxy = {}
+
     _creation_order = 0  # internal class counter to keep fields ordered
 
     proxy_setter = None
@@ -286,12 +293,50 @@ class RedisField(RedisProxyCommand):
             return self.connection.exists(key)
 
     def _traverse_command(self, name, *args, **kwargs):
-        # TODO manage transaction
+        """
+        In addition to the default _traverse_command, we manage indexes.
+        Values to specifically deindex and index can be passed in kwargs via the
+        "to_index" and "to_deindex" arguments (without them, the whole field
+        will be deindexed and/or indexed)
+        It's also possible to pass two callbacks as kwargs:
+        - "pre_callback" will be executed before starting the whole stuff, ie
+          before starting deindexaction. It takes the command name, and *args
+          and **kwargs. Local args and kwargs will be updated with the result of
+          the call to this callback
+        - "post_callback" will be executed after the whole stuff is done, ie
+          after the indexation is done. It takes the command's result and return
+          a final one.
+
+        """
+        available_params = ('to_deindex', 'to_index', 'pre_callback', 'post_callback')
+        params = dict((key, kwargs.pop(key, None)) for key in available_params)
+
+        # if we have a proxy, call it to get update args and kwargs, to get
+        # value(s) to deindex and index, and to get some callbacks
+        if name in self._commands_to_proxy:
+            command = getattr(self, self._commands_to_proxy[name])
+            (args, kwargs, new_params) = command(name, *args, **kwargs)
+            params = dict((key, new_params.get(key, None)) for key in available_params)
+
+        # call the pre_callback if we have one to update args and kwargs
+        if params.get('pre_callback', None) is not None:
+            (args, kwargs) = params['pre_callback'](name, *args, **kwargs)
+
+        # deindex given values (or all in the field if none)
         if self.indexable and name in self.available_modifiers:
-            self.deindex()
+            self.deindex(params['to_deindex'])
+
+        # ask redis to run the command
         result = super(RedisField, self)._traverse_command(name, *args, **kwargs)
+
+        # index given values (or all in the field if none)
         if self.indexable and name in self.available_modifiers:
-            self.index()
+            self.index(params['to_index'])
+
+        # call the post_callback if we have one, to update the command's result
+        if params.get('post_callback', None) is not None:
+            result = params['post_callback'](result)
+
         return result
 
     def index_value(self, value):
@@ -318,11 +363,13 @@ class RedisField(RedisProxyCommand):
         log.debug("indexing %s with key %s" % (key, self._instance.get_pk()))
         return self.connection.sadd(key, self._instance.get_pk())
 
-    def index(self):
+    def index(self, value=None):
         """
         Index the current value of the field
         """
-        self.index_value(self.proxy_get())
+        if value is None:
+            value = self.proxy_get()
+        self.index_value(value)
 
     def deindex_value(self, value):
         """
@@ -335,11 +382,13 @@ class RedisField(RedisProxyCommand):
         else:
             return True  # True?
 
-    def deindex(self):
+    def deindex(self, value=None):
         """
         Deindex the current value of the field
         """
-        self.deindex_value(self.proxy_get())
+        if value is None:
+            value = self.proxy_get()
+        self.deindex_value(value)
 
     def index_key(self, value):
         # Ex. bikemodel:name:{bikename}
@@ -380,13 +429,6 @@ class MultiValuesField(RedisField):
     are defined.
     """
 
-    # The "_commands_to_proxy" dict take redis commands as keys, and proxy
-    # method names as values. There proxy_methods must take the real command
-    # name in first parameter, and a *args to pass needed values. Some proxy
-    # methods defined here are _add, _rem and _pop. Their goal is to simplify
-    # management of values to index/deindex for simple redis commands.
-    _commands_to_proxy = {}
-
     def index(self, values=None):
         """
         Index all values stored in the field, or only given ones if any.
@@ -404,40 +446,6 @@ class MultiValuesField(RedisField):
             values = self.proxy_get()
         for value in values:
             self.deindex_value(value)
-
-    def _traverse_command(self, name, *args, **kwargs):
-        """
-        The only difference with the method from RedisField is that we can
-        specify which values to index/deindex, by passing two arguments in kwargs:
-        "_to_index" and "_to_deindex".
-        If one of these arguments is None, or not given, all values will be
-        indexed or deindexed.
-        But if an empty list/set is given, no values are indexed/deindexed.
-        """
-        params = dict((key, kwargs.pop(key, None)) for key in ('to_deindex', 'to_index', 'pre_callback', 'post_collback'))
-
-        if name in self._commands_to_proxy:
-            command = getattr(self, self._commands_to_proxy[name])
-            (args, kwargs, params) = command(name, *args, **kwargs)
-
-        if params.get('pre_collback', None) is not None:
-            (args, kwargs) = params['pre_collback'](name, *args, **kwargs)
-
-        # TODO manage transaction
-        if self.indexable and name in self.available_modifiers:
-            self.deindex(params['to_deindex'])
-
-        # we don't call _traverse_command from RedisField, but the one from
-        # RedisProxyCommand because we manage indexes manually here
-        result = super(RedisField, self)._traverse_command(name, *args, **kwargs)
-
-        if self.indexable and name in self.available_modifiers:
-            self.index(params['to_index'])
-
-        if params.get('post_collback', None) is not None:
-            result = params['post_collback'](result)
-
-        return result
 
     def _add(self, command, *args, **kwargs):
         """
@@ -468,7 +476,7 @@ class MultiValuesField(RedisField):
                     self.deindex([command_result])
                 return command_result
 
-            result[2]['post_collback'] = deindex_result
+            result[2]['post_callback'] = deindex_result
 
         return result
 
@@ -595,7 +603,7 @@ class ListField(MultiValuesField):
                     self.index(args)
                 return command_result
 
-            result[2]['post_collback'] = index_args
+            result[2]['post_callback'] = index_args
 
         return result
 
