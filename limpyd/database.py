@@ -20,11 +20,11 @@ class RedisDatabase(object):
     """
     _connection = None
     discard_cache = False
-    # _models keep an entry for each defined model on this database
-    _models = dict()
 
     def __init__(self, **connection_settings):
         self.connection_settings = connection_settings or DEFAULT_CONNECTION_SETTINGS
+        # _models keep an entry for each defined model on this database
+        self._models = dict()
         super(RedisDatabase, self).__init__()
 
     def _add_model(self, model):
