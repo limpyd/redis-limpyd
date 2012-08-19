@@ -451,6 +451,19 @@ class StringField(RedisField):
     available_getters = ('get', 'getbit', 'getrange', 'getset', 'strlen')
     available_modifiers = ('append', 'decr', 'decrby', 'getset', 'incr', 'incrby', 'incrbyfloat', 'set', 'setbit', 'setnx', 'setrange')
 
+    _commands_to_proxy = {
+        'getset': '_set',
+        'set': '_set',
+    }
+
+    def _set(self, command, *args, **kwargs):
+        """
+        Helper for commands that only set a value to the field.
+        The value is either in the kwargs, or as the first argument of the args.
+        """
+        value = kwargs.get('value', args[0])
+        return (args, kwargs, {'to_index': value, 'to_deindex': None})
+
 
 class MultiValuesField(RedisField):
     """
@@ -682,6 +695,10 @@ class HashableField(RedisField):
     available_getters = ('hget', )
     available_modifiers = ('hincrby', 'hincrbyfloat', 'hset', 'hsetnx')
 
+    _commands_to_proxy = {
+        'hset': '_set',
+    }
+
     @property
     def key(self):
         return self._instance.key
@@ -726,6 +743,15 @@ class HashableField(RedisField):
         else:
             return self.connection.hexists(key, self.name)
     exists = hexists
+
+    def _set(self, command, *args, **kwargs):
+        """
+        Helper for commands that only set a value to the field.
+        The value is either in the kwargs, or as the second argument of the args
+        (the first one is the hash entry)
+        """
+        value = kwargs.get('value', args[1])
+        return (args, kwargs, {'to_index': value, 'to_deindex': None})
 
 
 class PKField(RedisField):
