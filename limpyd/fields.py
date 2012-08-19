@@ -640,17 +640,6 @@ class HashableField(RedisField):
     available_getters = ('hget', )
     available_modifiers = ('hincrby', 'hincrbyfloat', 'hset', 'hsetnx')
 
-    _commands = {
-        'getters': ('hget', ),
-        'full_modifiers': ('hset', 'hsetnx', ),
-        'partial_modifiers': ('hincrby', 'hincrbyfloat', ),
-    }
-
-    _commands_to_proxy = {
-        'hset': '_set',
-        'hsetnx': '_set'
-    }
-
     @property
     def key(self):
         return self._instance.key
