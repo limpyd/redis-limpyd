@@ -24,6 +24,12 @@ __all__ = [
 
 
 class MetaRedisProxy(type):
+    """
+    This metaclass create the class normally, then takes a list of redis
+    commands found in the "available_commands" class attribute, and for each one
+    create the corresponding method if it not exists yet. Created methos simply
+    call _traverse_command.
+    """
 
     def __new__(mcs, name, base, dct):
         it = super(MetaRedisProxy, mcs).__new__(mcs, name, base, dct)
@@ -53,7 +59,9 @@ class RedisProxyCommand(object):
 
     @memoize_command()
     def _traverse_command(self, name, *args, **kwargs):
-        """Add the key to the args and call the Redis command."""
+        """
+        Add the key to the args and call the Redis command.
+        """
         # TODO: implement instance level cache
         if not name in self.available_commands:
             raise AttributeError("%s is not an available command for %s" % (name, self.__class__.__name__))
@@ -71,6 +79,10 @@ class RedisProxyCommand(object):
         return result
 
     def post_command(self, sender, name, result, args, kwargs):
+        """
+        Call after we got the result of a redis command.
+        By default, does nothing, but must return a value.
+        """
         return result
 
     @classmethod
@@ -89,11 +101,15 @@ class RedisProxyCommand(object):
         return self.get_connection()
 
     def init_cache(self):
-        # Implemented in fields and models.
+        """
+        Initialize the cache Must be implemented in fields and models.
+        """
         pass
 
     def get_cache(self):
-        # Implemented in fields and models.
+        """
+        Retrieve the cache Must be implemented in fields and models.
+        """
         pass
 
     def has_cache(self):
@@ -101,15 +117,16 @@ class RedisProxyCommand(object):
         Is the cache already initialized?
         """
         try:
-            cache = self.get_cache()
-            return True
+            self.get_cache()
         except (KeyError, AttributeError):
             return False
+        else:
+            return True
 
 
 class RedisField(RedisProxyCommand):
     """
-    Wrapper to help use the redis data structures.
+    Base class for all fields using redis data structures.
     """
     # The "_commands_to_proxy" dict take redis commands as keys, and proxy
     # method names as values. There proxy_methods must take the real command
@@ -129,6 +146,9 @@ class RedisField(RedisProxyCommand):
     }
 
     def __init__(self, *args, **kwargs):
+        """
+        Manage all field attributes
+        """
         self.indexable = False
         self.cacheable = kwargs.get('cacheable', True)
         if "default" in kwargs:
@@ -174,6 +194,9 @@ class RedisField(RedisProxyCommand):
 
     @property
     def key(self):
+        """
+        A property to return the key used in redis for the current field.
+        """
         return self.make_key(
             self._instance._name,
             self._instance.get_pk(),
@@ -182,6 +205,9 @@ class RedisField(RedisProxyCommand):
 
     @property
     def database(self):
+        """
+        A simple shortcut to access the database property of the field's instance
+        """
         if not self._model:
             raise TypeError('A field cannot use a database if not linked to a model')
         return self._model.database
@@ -199,6 +225,9 @@ class RedisField(RedisProxyCommand):
 
     @property
     def connection(self):
+        """
+        A simple shortcut to get the connections of the field's instance's model
+        """
         if not self._model:
             raise TypeError('A field cannot use a connection if not linked to a model')
         return self._model.get_connection()
@@ -245,6 +274,10 @@ class RedisField(RedisProxyCommand):
         return new_copy
 
     def make_key(self, *args):
+        """
+        Simple shortcut to the make_key global function to create a redis key
+        based on all given arguments.
+        """
         return make_key(*args)
 
     def delete(self):
@@ -266,7 +299,10 @@ class RedisField(RedisProxyCommand):
         return self.connection.delete(self.key)
 
     def post_command(self, sender, name, result, args, kwargs):
-        # By default, let the instance manage the post_modify signal
+        """
+        Call after we got the result of a redis command.
+        By default, let the instance manage the post_modify signal
+        """
         return self._instance.post_command(
                    sender=self,
                    name=name,
@@ -340,11 +376,15 @@ class RedisField(RedisProxyCommand):
         return result
 
     def index_value(self, value):
-        # Has traverse_commande is blind, and can't infer the final value from
-        # commands like ``append`` or ``setrange``, we let the command process
-        # then check the result, and raise before modifying the indexes if the
-        # value was not unique, and then remove the key
-        # We should try a better algo
+        """
+        index a specific value for this field.
+        Has traverse_commande is blind, and can't infer the final value from
+        commands like ``append`` or ``setrange``, we let the command process
+        then check the result, and raise before modifying the indexes if the
+        value was not unique, and then remove the key.
+        We should try a better algo because we can lose data if the
+        UniquenessError is raised.
+        """
         key = self.index_key(value)
         if self.unique:
             # Lets check if the index key already exist for another instance
@@ -388,6 +428,10 @@ class RedisField(RedisProxyCommand):
         self.deindex_value(value)
 
     def index_key(self, value):
+        """
+        Return the redis key used to store all pk of objects having the given
+        value. It's the index's key.
+        """
         # Ex. bikemodel:name:{bikename}
         if not self.indexable:
             raise ValueError("Field %s is not indexable, cannot ask its index_key" % self.name)
@@ -400,14 +444,12 @@ class RedisField(RedisProxyCommand):
         )
 
 
-
 class StringField(RedisField):
 
     proxy_getter = "get"
     proxy_setter = "set"
     available_getters = ('get', 'getbit', 'getrange', 'getset', 'strlen')
     available_modifiers = ('append', 'decr', 'decrby', 'getset', 'incr', 'incrby', 'incrbyfloat', 'set', 'setbit', 'setnx', 'setrange')
-
 
 
 class MultiValuesField(RedisField):
