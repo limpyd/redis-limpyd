@@ -99,6 +99,7 @@ class MetaRedisModel(MetaRedisProxy):
         if pk_field.name != 'pk':
             setattr(it, "_redis_attr_pk", getattr(it, "_redis_attr_%s" % pk_field.name))
         setattr(it, "abstract", is_abstract)
+        setattr(it, "_fields_locked_by_self", {})
 
         return it
 
@@ -115,7 +116,6 @@ class RedisModel(RedisProxyCommand):
     lockable = True
     abstract = True
     DoesNotExist = DoesNotExist
-    _fields_locked_by_self = {}
 
     def __init__(self, *args, **kwargs):
         """
