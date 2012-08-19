@@ -337,10 +337,10 @@ class RedisField(RedisProxyCommand):
         """
         In addition to the default _traverse_command, we manage indexes.
         Values to specifically deindex and index can be passed in kwargs via the
-        "to_index" and "to_deindex" arguments (without them, the whole field
+        "_to_index" and "_to_deindex" arguments (without them, the whole field
         will be deindexed and/or indexed)
         It's also possible to pass two callbacks as kwargs:
-        - "pre_callback" will be executed before starting the whole stuff, ie
+        - "_pre_callback" will be executed before starting the whole stuff, ie
           before starting deindexaction. It takes the command name, and *args
           and **kwargs. Local args and kwargs will be updated with the result of
           the call to this callback
@@ -349,7 +349,7 @@ class RedisField(RedisProxyCommand):
           a final one.
 
         """
-        available_params = ('to_deindex', 'to_index', 'pre_callback', 'post_callback')
+        available_params = ('_to_deindex', '_to_index', '_pre_callback', '_post_callback')
         params = dict((key, kwargs.pop(key, None)) for key in available_params)
 
         # if we have a proxy, call it to get update args and kwargs, to get
@@ -357,14 +357,14 @@ class RedisField(RedisProxyCommand):
         if name in self._commands_to_proxy:
             command = getattr(self, self._commands_to_proxy[name])
             (args, kwargs, new_params) = command(name, *args, **kwargs)
-            params = dict((key, new_params.get(key, None)) for key in available_params)
+            params = dict((key, new_params.get(key, params[key])) for key in available_params)
 
         # we have many commands to handle for only one asked, do it while
         # blocking all others write access to the current model, using a lock on
         # the field
         if self.lockable and (self.indexable and name in self._commands['modifiers']
-                              or params.get('pre_callback', None) is not None
-                              or params.get('post_callback', None) is not None):
+                              or params.get('_pre_callback', None) is not None
+                              or params.get('_post_callback', None) is not None):
 
             with FieldLock(self):
                 return self._really_traverse_command(params, name, *args, **kwargs)
@@ -379,24 +379,24 @@ class RedisField(RedisProxyCommand):
         Finally the result of the really called comamnd is returned.
         """
 
-        # call the pre_callback if we have one to update args and kwargs
-        if params.get('pre_callback', None) is not None:
-            (args, kwargs) = params['pre_callback'](name, *args, **kwargs)
+        # call the _pre_callback if we have one to update args and kwargs
+        if params.get('_pre_callback', None) is not None:
+            (args, kwargs) = params['_pre_callback'](name, *args, **kwargs)
 
         # deindex given values (or all in the field if none)
         if self.indexable and name in self._commands['modifiers']:
-            self.deindex(params['to_deindex'])
+            self.deindex(params['_to_deindex'])
 
         # ask redis to run the command
         result = super(RedisField, self)._traverse_command(name, *args, **kwargs)
 
         # index given values (or all in the field if none)
         if self.indexable and name in self._commands['modifiers']:
-            self.index(params['to_index'])
+            self.index(params['_to_index'])
 
-        # call the post_callback if we have one, to update the command's result
-        if params.get('post_callback', None) is not None:
-            result = params['post_callback'](result)
+        # call the _post_callback if we have one, to update the command's result
+        if params.get('_post_callback', None) is not None:
+            result = params['_post_callback'](result)
 
         return result
 
@@ -491,7 +491,7 @@ class StringField(RedisField):
         The value is either in the kwargs, or as the first argument of the args.
         """
         value = kwargs.get('value', args[0])
-        return (args, kwargs, {'to_index': value, 'to_deindex': None})
+        return (args, kwargs, {'_to_index': value, '_to_deindex': None})
 
 
 class MultiValuesField(RedisField):
@@ -535,14 +535,14 @@ class MultiValuesField(RedisField):
         Helper for commands that only remove values from the field.
         Added values will be indexed.
         """
-        return (args, kwargs, {'to_index': args, 'to_deindex': []})
+        return (args, kwargs, {'_to_index': args, '_to_deindex': []})
 
     def _rem(self, command, *args, **kwargs):
         """
         Helper for commands that only remove values from the field.
         Removed values will be deindexed.
         """
-        return (args, kwargs, {'to_index': [], 'to_deindex': args})
+        return (args, kwargs, {'_to_index': [], '_to_deindex': args})
 
     def _pop(self, command, *args, **kwargs):
         """
@@ -550,7 +550,7 @@ class MultiValuesField(RedisField):
         removing it.
         The returned value will be deindexed
         """
-        result = (args, kwargs, {'to_index': [], 'to_deindex': []})
+        result = (args, kwargs, {'_to_index': [], '_to_deindex': []})
 
         if self.indexable:
 
@@ -559,7 +559,7 @@ class MultiValuesField(RedisField):
                     self.deindex([command_result])
                 return command_result
 
-            result[2]['post_callback'] = deindex_result
+            result[2]['_post_callback'] = deindex_result
 
         return result
 
@@ -611,14 +611,14 @@ class SortedSetField(MultiValuesField):
             keys.extend(args[1::2])
         for pair in kwargs.iteritems():
             keys.append(pair[0])
-        return self._traverse_command('zadd', *args, to_index=keys, to_deindex=[], **kwargs)
+        return self._traverse_command('zadd', *args, _to_index=keys, _to_deindex=[], **kwargs)
 
     def zincrby(self, value, amount=1):
         """
         This command update a score of a given value. But it can be a new value
         of the sorted set, so we index it.
         """
-        return self._traverse_command('zincrby', value, amount, to_index=[value], to_deindex=[])
+        return self._traverse_command('zincrby', value, amount, _to_index=[value], _to_deindex=[])
 
 
 class SetField(MultiValuesField):
@@ -682,14 +682,14 @@ class ListField(MultiValuesField):
         return self.lrange(0, -1)
 
     def linsert(self, where, refvalue, value):
-        return self._traverse_command('linsert', where, refvalue, value, to_index=[value], to_deindex=[])
+        return self._traverse_command('linsert', where, refvalue, value, _to_index=[value], _to_deindex=[])
 
     def _pushx(self, command, *args, **kwargs):
         """
         Helper for lpushx and rpushx, that only index the new values if the list
         existed when the command was called
         """
-        result = (args, kwargs, {'to_index': [], 'to_deindex': []})
+        result = (args, kwargs, {'_to_index': [], '_to_deindex': []})
 
         if self.indexable:
 
@@ -698,7 +698,7 @@ class ListField(MultiValuesField):
                     self.index(args)
                 return command_result
 
-            result[2]['post_callback'] = index_args
+            result[2]['_post_callback'] = index_args
 
         return result
 
@@ -713,7 +713,7 @@ class ListField(MultiValuesField):
         if not count:
             to_index = []
             to_deindex = [value]
-        return self._traverse_command('lrem', count, value, to_index=to_index, to_deindex=to_deindex)
+        return self._traverse_command('lrem', count, value, _to_index=to_index, _to_deindex=to_deindex)
 
     def lset(self, index, value):
         """
@@ -725,7 +725,7 @@ class ListField(MultiValuesField):
         old_value = self.lindex(index)
         if old_value is not None:
             to_deindex = [old_value]
-        return self._traverse_command('lset', index, value, to_index=[value], to_deindex=to_deindex)
+        return self._traverse_command('lset', index, value, _to_index=[value], _to_deindex=to_deindex)
 
 
 class HashableField(RedisField):
@@ -796,7 +796,7 @@ class HashableField(RedisField):
         (the first one is the hash entry)
         """
         value = kwargs.get('value', args[1])
-        return (args, kwargs, {'to_index': value, 'to_deindex': None})
+        return (args, kwargs, {'_to_index': value, '_to_deindex': None})
 
 
 class PKField(RedisField):
