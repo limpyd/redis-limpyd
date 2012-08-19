@@ -879,16 +879,18 @@ class IndexableSortedSetFieldTest(LimpydBaseTest):
         self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set())
 
         # add another value
-        with self.assertNumCommands(2):
-            # check that only two commands occured: zadd + index of value
+        with self.assertNumCommands(5):
+            # check that only 5 commands occured: zadd + index of value
+            # + 3 for the lock (set at the biginning, check/unset at the end))
             obj.field.zadd(2.0, 'bar')
         # check collections
         self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set([obj._pk]))
         self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set([obj._pk]))
 
         # remove a value
-        with self.assertNumCommands(2):
-            # check that only two commands occured: zrem + deindex of value
+        with self.assertNumCommands(5):
+            # check that only 5 commands occured: zrem + deindex of value
+            # + 3 for the lock (set at the biginning, check/unset at the end))
             obj.field.zrem('foo')
         # check collections
         self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set())
@@ -905,8 +907,9 @@ class IndexableSortedSetFieldTest(LimpydBaseTest):
         # add a value, to check that its index is not updated
         obj.field.zadd(ignorable=1)
 
-        with self.assertNumCommands(2):
-            # check that we had only two commands: one for zincr, one for indexing the value
+        with self.assertNumCommands(5):
+            # check that we had only 5 commands: one for zincr, one for indexing the value
+            # + 3 for the lock (set at the biginning, check/unset at the end))
             obj.field.zincrby('foo', 5.0)
 
         # check that the new value is indexed
@@ -921,13 +924,14 @@ class IndexableSortedSetFieldTest(LimpydBaseTest):
         obj.field.zadd(foo=1, bar=2, baz=3)
 
         # we remove two values
-        with self.assertNumCommands(7):
-            # check that we had 7 commands:
+        with self.assertNumCommands(10):
+            # check that we had 10 commands:
             # - 1 to get all existing values to deindex
             # - 3 to deindex all values
             # - 1 for the zremrange
             # - 1 to get all remaining values to index
             # - 1 to index the only remaining value
+            # - 3 for the lock (set at the biginning, check/unset at the end))
             obj.field.zremrangebyscore(1, 2)
 
         # check that all values are correctly indexed/deindexed
@@ -973,8 +977,9 @@ class IndexableSetFieldTest(LimpydBaseTest):
 
         obj.field.sadd(*values)
 
-        with self.assertNumCommands(2):
-            # check that we had only two commands: one for spop, one for deindexing the value
+        with self.assertNumCommands(5):
+            # check that we had only 5 commands: one for spop, one for deindexing the value
+            # + 3 for the lock (set at the biginning, check/unset at the end))
             poped_value = obj.field.spop()
 
         values.remove(poped_value)
@@ -1021,8 +1026,9 @@ class IndexableListFieldTest(LimpydBaseTest):
 
         obj.field.lpush('foo', 'bar')
 
-        with self.assertNumCommands(2):
-            # check that we had only two commands: one for lpop, one for deindexing the value
+        with self.assertNumCommands(5):
+            # check that we had only 5 commands: one for lpop, one for deindexing the value
+            # + 3 for the lock (set at the biginning, check/unset at the end))
             bar = obj.field.lpop()
 
         self.assertEqual(bar, 'bar')
@@ -1040,8 +1046,9 @@ class IndexableListFieldTest(LimpydBaseTest):
         # add a value to really test pushx
         obj.field.lpush('foo')
         # then test pushx
-        with self.assertNumCommands(2):
-            # check that we had only two comands, one for the rpushx, one for indexing the value
+        with self.assertNumCommands(5):
+            # check that we had only 5 comands, one for the rpushx, one for indexing the value
+            # + 3 for the lock (set at the biginning, check/unset at the end))
             obj.field.rpushx('bar')
 
         # test list and collection, to be sure
@@ -1054,8 +1061,9 @@ class IndexableListFieldTest(LimpydBaseTest):
         obj.field.lpush('foo', 'bar', 'foo',)
 
         #remove all foo
-        with self.assertNumCommands(2):
-            # check that we had only two comands, one for the lrem, one for indexing the value
+        with self.assertNumCommands(5):
+            # check that we had only 5 comands, one for the lrem, one for indexing the value
+            # + 3 for the lock (set at the biginning, check/unset at the end))
             obj.field.lrem(0, 'foo')
 
         # no more foo in the list
@@ -1068,13 +1076,14 @@ class IndexableListFieldTest(LimpydBaseTest):
         obj.field.rpush('foo')
 
         # remove foo at the start
-        with self.assertNumCommands(8):
+        with self.assertNumCommands(11):
             # we did a lot of calls to reindex, just check this:
             # - 1 lrange to get all values before the lrem
             # - 3 srem to deindex the 3 values (even if two values are the same)
             # - 1 lrem call
             # - 1 lrange to get all values after the rem
             # - 2 sadd to index the two remaining values
+            # - 3 for the lock (set at the biginning, check/unset at the end))
             obj.field.lrem(1, 'foo')
 
         # still a foo in the list
@@ -1087,12 +1096,13 @@ class IndexableListFieldTest(LimpydBaseTest):
         obj.field.lpush('foo')
 
         # replace foo with bar
-        with self.assertNumCommands(4):
-            # we should have 4 calls:
+        with self.assertNumCommands(7):
+            # we should have 7 calls:
             # - 1 lindex to get the current value
             # - 1 to deindex this value
             # - 1 for the lset call
             # - 1 to index the new value
+            # - 3 for the lock (set at the biginning, check/unset at the end))
             obj.field.lset(0, 'bar')
 
         # check collections
@@ -1100,12 +1110,13 @@ class IndexableListFieldTest(LimpydBaseTest):
         self.assertEqual(set(self.ListModel.collection(field='foo')), set())
         self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
 
-        # replace an inexisting value will raise, without (de)indexing anything
-        with self.assertNumCommands(2):
-            # we should have 2 calls:
+        # replace an inexisting value will raise, without (de)indexing anything)
+        with self.assertNumCommands(5):
+            # we should have 5 calls:
             # - 1 lindex to get the current value, which is None (out f range) so
             #   nothing to deindex
             # - 1 for the lset call
+            # + 3 for the lock (set at the biginning, check/unset at the end))
             with self.assertRaises(RedisError):
                 obj.field.lset(1, 'baz')
 
