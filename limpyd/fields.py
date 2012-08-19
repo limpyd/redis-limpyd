@@ -145,7 +145,7 @@ class RedisField(RedisProxyCommand):
     unique = False
     _copy_conf = {
         'args': [],
-        'kwargs': ['cacheable', 'default'],
+        'kwargs': ['cacheable', 'lockable', 'default'],
         'attrs': ['name', '_instance', '_model', 'indexable', 'unique']
     }
 
@@ -155,6 +155,7 @@ class RedisField(RedisProxyCommand):
         """
         self.indexable = False
         self.cacheable = kwargs.get('cacheable', True)
+        self.lockable = kwargs.get('lockable', True)
         if "default" in kwargs:
             self.default = kwargs["default"]
 
@@ -344,7 +345,7 @@ class RedisField(RedisProxyCommand):
           and **kwargs. Local args and kwargs will be updated with the result of
           the call to this callback
         - "post_callback" will be executed after the whole stuff is done, ie
-          after the indexation is done. It takes the command's result and return
+          after the indexing is done. It takes the command's result and return
           a final one.
 
         """
@@ -359,47 +360,43 @@ class RedisField(RedisProxyCommand):
             params = dict((key, new_params.get(key, None)) for key in available_params)
 
         # we have many commands to handle for only one asked, do it while
-        # blocking all others write access to the current model, using Lock
-        if (self.indexable and name in self._commands['modifiers']
-                or params.get('pre_callback', None) is not None
-                or params.get('post_callback', None) is not None):
-            return self._lock_traverse_command(params, name, *args, **kwargs)
+        # blocking all others write access to the current model, using a lock on
+        # the field
+        if self.lockable and (self.indexable and name in self._commands['modifiers']
+                              or params.get('pre_callback', None) is not None
+                              or params.get('post_callback', None) is not None):
+
+            with FieldLock(self):
+                return self._really_traverse_command(params, name, *args, **kwargs)
 
         # only one command, simply run it and return the result
-        return super(RedisField, self)._traverse_command(name, *args, **kwargs)
+        return self._really_traverse_command(params, name, *args, **kwargs)
 
-    def _lock_traverse_command(self, params, name, *args, **kwargs):
+    def _really_traverse_command(self, params, name, *args, **kwargs):
         """
-        This method is called by _traverse_command when more than one real redis
-        commands are needed to update a field. It can be:
-        - a modifier on an indexable field
-        - a command with a pre or post collback.
-        We mark the field as locked, in Redis, to block all other threads that
-        would also want to update if. it's not the field of this particular
-        instance that is locked, but the field for all instances, to avoid
-        collisions during update of indexes.
+        Really do stuff needed to run a command. If needed, pre and post
+        callbacks are called, deindexing and indexing are done.
+        Finally the result of the really called comamnd is returned.
         """
 
-        with FieldLock(self):
+        # call the pre_callback if we have one to update args and kwargs
+        if params.get('pre_callback', None) is not None:
+            (args, kwargs) = params['pre_callback'](name, *args, **kwargs)
 
-            # call the pre_callback if we have one to update args and kwargs
-            if params.get('pre_callback', None) is not None:
-                (args, kwargs) = params['pre_callback'](name, *args, **kwargs)
+        # deindex given values (or all in the field if none)
+        if self.indexable and name in self._commands['modifiers']:
+            self.deindex(params['to_deindex'])
 
-            # deindex given values (or all in the field if none)
-            if self.indexable and name in self._commands['modifiers']:
-                self.deindex(params['to_deindex'])
+        # ask redis to run the command
+        result = super(RedisField, self)._traverse_command(name, *args, **kwargs)
 
-            # ask redis to run the command
-            result = super(RedisField, self)._traverse_command(name, *args, **kwargs)
+        # index given values (or all in the field if none)
+        if self.indexable and name in self._commands['modifiers']:
+            self.index(params['to_index'])
 
-            # index given values (or all in the field if none)
-            if self.indexable and name in self._commands['modifiers']:
-                self.index(params['to_index'])
-
-            # call the post_callback if we have one, to update the command's result
-            if params.get('post_callback', None) is not None:
-                result = params['post_callback'](result)
+        # call the post_callback if we have one, to update the command's result
+        if params.get('post_callback', None) is not None:
+            result = params['post_callback'](result)
 
         return result
 

@@ -112,6 +112,7 @@ class RedisModel(RedisProxyCommand):
 
     namespace = None  # all models in an app may have the same namespace
     cacheable = True
+    lockable = True
     abstract = True
     DoesNotExist = DoesNotExist
     _fields_locked_by_self = {}
@@ -127,6 +128,7 @@ class RedisModel(RedisProxyCommand):
         - one arg == get from pk
         """
         self.cacheable = self.__class__.cacheable
+        self.lockable = self.__class__.lockable
 
         # --- Meta stuff
         # Put back the fields with the original names
@@ -135,8 +137,9 @@ class RedisModel(RedisProxyCommand):
             # Copy it, to avoid sharing fields between model instances
             newattr = copy(attr)
             newattr._instance = self
-            # Force field.cacheable to False if it's False for the model
+            # Force field.cacheable and lockable to False if it's False for the model
             newattr.cacheable = newattr.cacheable and self.cacheable
+            newattr.lockable = newattr.lockable and self.lockable
             setattr(self, attr_name, newattr)
 
         # The `pk` field always exists, even if the real pk has another name
