@@ -343,13 +343,21 @@ class MetaRedisProxyTest(LimpydBaseTest):
         available_commands must exists on Fields and it must contain getters and modifiers.
         """
         def check_available_commands(cls):
-            for command in cls.available_getters:
-                self.assertTrue(command in cls.available_commands)
+            for command in cls._commands['getters']:
+                self.assertTrue(command in cls._commands['all'])
+            for command in cls._commands['full_modifiers']:
+                self.assertTrue(command in cls._commands['all'])
+                self.assertTrue(command in cls._commands['modifiers'])
+            for command in cls._commands['partial_modifiers']:
+                self.assertTrue(command in cls._commands['all'])
+                self.assertTrue(command in cls._commands['modifiers'])
         check_available_commands(fields.StringField)
         check_available_commands(fields.HashableField)
         check_available_commands(fields.SortedSetField)
         check_available_commands(fields.SetField)
         check_available_commands(fields.ListField)
+        check_available_commands(fields.PKField)
+        check_available_commands(fields.AutoPKField)
 
 
 class PostCommandTest(LimpydBaseTest):
@@ -360,7 +368,7 @@ class PostCommandTest(LimpydBaseTest):
 
         def post_command(self, sender, name, result, args, kwargs):
             if isinstance(sender, fields.RedisField) and sender.name == "name":
-                if name in sender.available_modifiers:
+                if name in sender._commands['modifiers']:
                     self.last_modification_date.hset(datetime.now())
                 elif name == "hget":
                     result = "modifed_result"

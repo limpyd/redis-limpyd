@@ -26,16 +26,16 @@ __all__ = [
 class MetaRedisProxy(type):
     """
     This metaclass create the class normally, then takes a list of redis
-    commands found in the "available_commands" class attribute, and for each one
+    commands found in the "_commands" class attribute, and for each one
     create the corresponding method if it not exists yet. Created methos simply
     call _traverse_command.
     """
 
     def __new__(mcs, name, base, dct):
         it = super(MetaRedisProxy, mcs).__new__(mcs, name, base, dct)
-        available_commands = set(it.available_getters + it.available_modifiers)
-        setattr(it, "available_commands", available_commands)
-        for command_name in [c for c in available_commands if not hasattr(it, c)]:
+        it._commands['modifiers'] = it._commands['full_modifiers'] + it._commands['partial_modifiers']
+        it._commands['all'] = set(it._commands['getters'] + it._commands['modifiers'])
+        for command_name in [c for c in it._commands['all'] if not hasattr(it, c)]:
             setattr(it, command_name, it._make_command_method(command_name))
         return it
 
@@ -43,9 +43,12 @@ class MetaRedisProxy(type):
 class RedisProxyCommand(object):
 
     __metaclass__ = MetaRedisProxy
-    available_getters = tuple()
-    available_modifiers = tuple()
-    available_commands = available_getters + available_modifiers
+
+    _commands = {
+        'getters': (),
+        'full_modifiers': (),
+        'partial_modifiers': (),
+    }
 
     @classmethod
     def _make_command_method(cls, command_name):
@@ -63,7 +66,7 @@ class RedisProxyCommand(object):
         Add the key to the args and call the Redis command.
         """
         # TODO: implement instance level cache
-        if not name in self.available_commands:
+        if not name in self._commands['all']:
             raise AttributeError("%s is not an available command for %s" % (name, self.__class__.__name__))
         attr = getattr(self.connection, "%s" % name)
         key = self.key
@@ -359,14 +362,14 @@ class RedisField(RedisProxyCommand):
             (args, kwargs) = params['pre_callback'](name, *args, **kwargs)
 
         # deindex given values (or all in the field if none)
-        if self.indexable and name in self.available_modifiers:
+        if self.indexable and name in self._commands['modifiers']:
             self.deindex(params['to_deindex'])
 
         # ask redis to run the command
         result = super(RedisField, self)._traverse_command(name, *args, **kwargs)
 
         # index given values (or all in the field if none)
-        if self.indexable and name in self.available_modifiers:
+        if self.indexable and name in self._commands['modifiers']:
             self.index(params['to_index'])
 
         # call the post_callback if we have one, to update the command's result
@@ -448,8 +451,12 @@ class StringField(RedisField):
 
     proxy_getter = "get"
     proxy_setter = "set"
-    available_getters = ('get', 'getbit', 'getrange', 'getset', 'strlen')
-    available_modifiers = ('append', 'decr', 'decrby', 'getset', 'incr', 'incrby', 'incrbyfloat', 'set', 'setbit', 'setnx', 'setrange')
+
+    _commands = {
+        'getters': ('get', 'getbit', 'getrange', 'strlen', ),
+        'full_modifiers': ('getset', 'set', ),
+        'partial_modifiers': ('append', 'decr', 'decrby', 'incr', 'incrby', 'incrbyfloat', 'setbit', 'setex', 'setnx', 'setrange', )
+    }
 
     _commands_to_proxy = {
         'getset': '_set',
@@ -547,8 +554,12 @@ class SortedSetField(MultiValuesField):
 
     proxy_getter = "zmembers"
     proxy_setter = "zadd"
-    available_getters = ('zcard', 'zcount', 'zrange', 'zrangebyscore', 'zrank', 'zrevrange', 'zrevrangebyscore', 'zrevrank', 'zscore')
-    available_modifiers = ('zadd', 'zincrby', 'zrem', 'zremrangebyrank', 'zremrangebyscore')
+
+    _commands = {
+        'getters': ('zcard', 'zcount', 'zrange', 'zrangebyscore', 'zrank', 'zrevrange', 'zrevrangebyscore', 'zrevrank', 'zscore', ),
+        'full_modifiers': ('zadd', 'zincrby', 'zrem', ),
+        'partial_modifiers': ('zremrangebyrank', 'zremrangebyscore', ),
+    }
 
     _commands_to_proxy = {
         'zrem': '_rem',
@@ -598,8 +609,12 @@ class SetField(MultiValuesField):
 
     proxy_getter = "smembers"
     proxy_setter = "sadd"
-    available_getters = ('scard', 'sismember', 'smembers', 'srandmember')
-    available_modifiers = ('sadd', 'spop', 'srem',)
+
+    _commands = {
+        'getters': ('scard', 'sismember', 'smembers', 'srandmember', ),
+        'full_modifiers': ('sadd', 'srem', ),
+        'partial_modifiers': ('spop', ),
+    }
 
     _commands_to_proxy = {
         'sadd': '_add',
@@ -622,8 +637,12 @@ class ListField(MultiValuesField):
 
     proxy_getter = "lmembers"
     proxy_setter = "lpush"
-    available_getters = ('lindex', 'llen', 'lrange')
-    available_modifiers = ('linsert', 'lpop', 'lpush', 'lpushx', 'lrem', 'lset', 'ltrim', 'rpop', 'rpush', 'rpushx')
+
+    _commands = {
+        'getters': ('lindex', 'llen', 'lrange', ),
+        'full_modifiers': ('linsert', 'lpop', 'lpush', 'lpushx', 'lrem', 'rpop', 'rpush', 'rpushx', ),
+        'partial_modifiers': ('lset', 'ltrim', ),
+    }
 
     _commands_to_proxy = {
         'lpop': '_pop',
@@ -692,8 +711,12 @@ class HashableField(RedisField):
 
     proxy_getter = "hget"
     proxy_setter = "hset"
-    available_getters = ('hget', )
-    available_modifiers = ('hincrby', 'hincrbyfloat', 'hset', 'hsetnx')
+
+    _commands = {
+        'getters': ('hget', ),
+        'full_modifiers': ('hset', 'hsetnx', ),
+        'partial_modifiers': ('hincrby', 'hincrbyfloat', ),
+    }
 
     _commands_to_proxy = {
         'hset': '_set',
@@ -766,8 +789,12 @@ class PKField(RedisField):
     # Use only a simple getter and setter. We take all control on the setter.
     proxy_getter = "get"
     proxy_setter = "set"
-    available_getters = ('get',)
-    available_modifiers = ('set',)
+
+    _commands = {
+        'getters': ('get',),
+        'full_modifiers': ('set',),
+        'partial_modifiers': (),
+    }
 
     name = 'pk'  # Default name ok the pk, can be changed by declaring a new PKField
     indexable = False  # Not an `indexable` field...
