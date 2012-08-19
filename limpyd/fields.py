@@ -345,8 +345,6 @@ class RedisField(RedisProxyCommand):
         # then check the result, and raise before modifying the indexes if the
         # value was not unique, and then remove the key
         # We should try a better algo
-        if value:
-            value = value.decode('utf-8')  # FIXME centralize utf-8 handling?
         key = self.index_key(value)
         if self.unique:
             # Lets check if the index key already exist for another instance
@@ -376,7 +374,6 @@ class RedisField(RedisProxyCommand):
         Remove stored index if needed.
         """
         if value:
-            value = value.decode('utf-8')
             key = self.index_key(value)
             return self.connection.srem(key, self._instance.get_pk())
         else:
@@ -394,6 +391,8 @@ class RedisField(RedisProxyCommand):
         # Ex. bikemodel:name:{bikename}
         if not self.indexable:
             raise ValueError("Field %s is not indexable, cannot ask its index_key" % self.name)
+        if value and isinstance(value, str):
+            value = value.decode('utf-8')
         return self.make_key(
             self._model._name,
             self.name,
