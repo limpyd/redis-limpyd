@@ -3,6 +3,7 @@
 from logging import getLogger
 from copy import copy
 from redis.exceptions import RedisError
+from redis.client import Lock
 
 from limpyd.utils import make_key, memoize_command
 from limpyd.exceptions import *
@@ -357,24 +358,48 @@ class RedisField(RedisProxyCommand):
             (args, kwargs, new_params) = command(name, *args, **kwargs)
             params = dict((key, new_params.get(key, None)) for key in available_params)
 
-        # call the pre_callback if we have one to update args and kwargs
-        if params.get('pre_callback', None) is not None:
-            (args, kwargs) = params['pre_callback'](name, *args, **kwargs)
+        # we have many commands to handle for only one asked, do it while
+        # blocking all others write access to the current model, using Lock
+        if (self.indexable and name in self._commands['modifiers']
+                or params.get('pre_callback', None) is not None
+                or params.get('post_callback', None) is not None):
+            return self._lock_traverse_command(params, name, *args, **kwargs)
 
-        # deindex given values (or all in the field if none)
-        if self.indexable and name in self._commands['modifiers']:
-            self.deindex(params['to_deindex'])
+        # only one command, simply run it and return the result
+        return super(RedisField, self)._traverse_command(name, *args, **kwargs)
 
-        # ask redis to run the command
-        result = super(RedisField, self)._traverse_command(name, *args, **kwargs)
+    def _lock_traverse_command(self, params, name, *args, **kwargs):
+        """
+        This method is called by _traverse_command when more than one real redis
+        commands are needed to update a field. It can be:
+        - a modifier on an indexable field
+        - a command with a pre or post collback.
+        We mark the field as locked, in Redis, to block all other threads that
+        would also want to update if. it's not the field of this particular
+        instance that is locked, but the field for all instances, to avoid
+        collisions during update of indexes.
+        """
 
-        # index given values (or all in the field if none)
-        if self.indexable and name in self._commands['modifiers']:
-            self.index(params['to_index'])
+        with FieldLock(self):
 
-        # call the post_callback if we have one, to update the command's result
-        if params.get('post_callback', None) is not None:
-            result = params['post_callback'](result)
+            # call the pre_callback if we have one to update args and kwargs
+            if params.get('pre_callback', None) is not None:
+                (args, kwargs) = params['pre_callback'](name, *args, **kwargs)
+
+            # deindex given values (or all in the field if none)
+            if self.indexable and name in self._commands['modifiers']:
+                self.deindex(params['to_deindex'])
+
+            # ask redis to run the command
+            result = super(RedisField, self)._traverse_command(name, *args, **kwargs)
+
+            # index given values (or all in the field if none)
+            if self.indexable and name in self._commands['modifiers']:
+                self.index(params['to_index'])
+
+            # call the post_callback if we have one, to update the command's result
+            if params.get('post_callback', None) is not None:
+                result = params['post_callback'](result)
 
         return result
 
@@ -913,3 +938,70 @@ class AutoPKField(PKField):
                             self._model._name)
         key = self._instance.make_key(self._model._name, 'max_pk')
         return self.connection.incr(key)
+
+
+class FieldLock(Lock):
+    """
+    This subclass of the Lock object is used to add a lock on the field. It will
+    be used on write operations to block writes for other instances on this
+    field, during all operations needed to do a deindex+write+index.
+    Only one lock is done on a specific field for a specific model. If during
+    lock, another one is asked in the same thread, we assume that it's a
+    operation that must be done during the main lock and we don't wait for
+    relase.
+    """
+
+    def __init__(self, field, timeout=5, sleep=0.1):
+        """
+        Save the field and create a real lock,, using the correct connection
+        and a computed lock key based on the names of the field and its model.
+        """
+        self.field = field
+        self.dummy_lock = False
+        super(FieldLock, self).__init__(
+            redis = field._model.get_connection(),
+            name = make_key(field._model._name, 'lock-for-update', field.name),
+            timeout = timeout,
+            sleep = sleep,
+        )
+
+    def _get_already_locked_by_model(self):
+        """
+        A lock is self_locked if already set for the current field+model on the current
+        thread.
+        """
+        return self.field._model._fields_locked_by_self.get(self.field.name, False)
+
+    def _set_already_locked_by_model(self, value):
+        self.field._model._fields_locked_by_self[self.field.name] = value
+
+    already_locked_by_model = property(_get_already_locked_by_model, _set_already_locked_by_model)
+
+    def acquire(self, *args, **kwargs):
+        """
+        Really acquire the lock only if it's not a dummy one. Then save the
+        dummy status.
+        """
+        if self.already_locked_by_model:
+            self.dummy_lock = True
+            return
+        self.already_locked_by_model = True
+        super(FieldLock, self).acquire(*args, **kwargs)
+
+    def release(self, *args, **kwargs):
+        """
+        Really release the lock only if it's not a dummy one. Then save the
+        dummy status.
+        """
+        if self.dummy_lock:
+            return
+        super(FieldLock, self).release(*args, **kwargs)
+        self.already_locked_by_model = self.dummy_lock = False
+
+    def __exit__(self, *args, **kwargs):
+        """
+        Ensure that a not-dummy lock is set as dummy when exiting.
+        """
+        super(FieldLock, self).__exit__(*args, **kwargs)
+        if not self.dummy_lock:
+            self.already_locked_by_model = self.dummy_lock = False

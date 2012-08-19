@@ -114,6 +114,7 @@ class RedisModel(RedisProxyCommand):
     cacheable = True
     abstract = True
     DoesNotExist = DoesNotExist
+    _fields_locked_by_self = {}
 
     def __init__(self, *args, **kwargs):
         """
