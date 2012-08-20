@@ -5,10 +5,9 @@ import unittest
 import threading
 import time
 
-from limpyd.database import RedisDatabase
 from limpyd.utils import make_key
 
-from base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
+from base import LimpydBaseTest
 from model import Bike
 
 
@@ -20,80 +19,60 @@ class LockTest(LimpydBaseTest):
         using redis pubsub to allow main thread and ones based on this to
         discuss (for example, at a given time, when ready, , tell the child
         thread to try to do some limpyd stuff).
-        This class also simulates a real external worker by declaring a given
-        model on a new database. As we have another instance of the database, we
-        can redeclare an existing model without error, so the new model don't
-        share any attributes with the main one, allowing us to test lock (
-        because _fields_locked_by_self is not shared)
         """
 
         # list of methods that can be called after a ping from another thread
         methods = []
 
-        def __init__(self, test, original_model):
-            """
-            Create the thread. Take the current test and the model to fake.
-            """
+        def __init__(self, test, model):
             self.test = test
-            self.original_model = original_model
+            self.model = model
             super(LockTest.LockModelThread, self).__init__()
-
-        def create_model(self):
-            """
-            Create a new database object, without models registered on it.
-            The subclasses must have a "define_model" method which will really
-            create the model.
-            """
-            self.database = RedisDatabase(**TEST_CONNECTION_SETTINGS)
-            self.model = self.define_model()
 
         def run(self):
             """
-            Main method of the thread. Creates the model theen enter the wait
-            loop. Each time a ping is received that is an existing method, we
-            call this method. These methods must be defined in the "methods"
-            attribute of the thread class.
+            Main method of the thread. Enter the wait loop. Each time a ping is
+            received that is an existing method, we call this method. These
+            methods must be defined in the "methods" attribute of the thread class.
             At the end, we send a ping to indicate the main thread that all
             work is done. This ping is sent when ALL the methods defined in
             "methods" are called.
             """
-            self.create_model()
 
             def ping_callback(name):
                 if hasattr(self, name) and callable(getattr(self, name)):
                     getattr(self, name)()
 
-            LockTest.wait_for_ping(self.database, self.methods, ping_callback)
-            LockTest.ping(self.database, 'thread_end')
+            LockTest.wait_for_ping(self.methods, ping_callback)
+            LockTest.ping('thread_end')
 
         def test_lock(self, field_name, must_exists=True):
             """
-            Test that a lock exists or not  on the given field name for the
-            thread's model.
+            Test that a lock exists or not on the given field name.
             """
             lock_key = make_key(self.model._name, 'lock-for-update', field_name)
             method = self.test.assertTrue if must_exists else self.test.assertFalse
-            method(self.database.connection.exists(lock_key))
+            method(LimpydBaseTest.database.connection.exists(lock_key))
 
     @staticmethod
-    def ping(database, name):
+    def ping(name):
         """
         Send a ping to the given channel name. It's a pubsub publish, used to
         communicate within threads. Use wait_for_ping below to receive pings
         and call a callback.
         """
-        database.connection.publish(name, 1)
+        LimpydBaseTest.database.connection.publish(name, 1)
 
     @staticmethod
-    def wait_for_ping(database, names, callback=None):
+    def wait_for_ping(names, callback=None):
         """
         When a ping (see above) with a name in the given names is received, the
         callback is executed. We also stop listening for pings with the received
         name. As waiting is a blocking process (using redis pubsub subscribe),
-        it can be used to cll a callback or simply to wait for a ping to
+        it can be used to call a callback or simply to wait for a ping to
         continue execution.
         """
-        pubsub = database.connection.pubsub()
+        pubsub = LimpydBaseTest.database.connection.pubsub()
         pubsub.subscribe(names)
         for message in pubsub.listen():
             if message['type'] == 'message':
@@ -112,22 +91,12 @@ class LockTest(LimpydBaseTest):
         """
 
         class BikeLockThread(LockTest.LockModelThread):
-            """ A tread defining a new Bike model """
             methods = ['test_create_new_bike']
-
-            def define_model(self):
-                """
-                Create a copy of the Bike model on the thread's database.
-                """
-                class Bike(self.original_model):
-                    database = self.database
-                return Bike
 
             def test_create_new_bike(self):
                 """
                 Create a new instance of the thread's model
                 """
-
                 # test that we have a lock
                 self.test_lock('name')
 
@@ -160,7 +129,7 @@ class LockTest(LimpydBaseTest):
             saved and indexed.
             """
             time.sleep(0.1)  # wait for thread to be ready
-            LockTest.ping(LimpydBaseTest.database, 'test_create_new_bike')
+            LockTest.ping('test_create_new_bike')
             time.sleep(0.1)  # to be sure the we can test lock in the thread
             return (args, kwargs)
 
@@ -185,7 +154,7 @@ class LockTest(LimpydBaseTest):
 
         # wait before thread exit
         if thread.is_alive():
-            LockTest.wait_for_ping(LimpydBaseTest.database, 'thread_end', None)
+            LockTest.wait_for_ping('thread_end', None)
 
         # now we should have the both bikes fully created
         self.assertEqual(len(Bike.collection()), 2)
@@ -200,17 +169,8 @@ class LockTest(LimpydBaseTest):
         class UnlockableBike(Bike):
             lockable = False
 
-        class BikeLockThread(LockTest.LockModelThread):
-            """ A tread defining a new Bike model """
+        class UnlockableBikeLockThread(LockTest.LockModelThread):
             methods = ['test_create_new_bike']
-
-            def define_model(self):
-                """
-                Create a copy of the Bike model on the thread's database.
-                """
-                class UnlockableBike(self.original_model):
-                    database = self.database
-                return UnlockableBike
 
             def test_create_new_bike(self):
                 """
@@ -227,7 +187,7 @@ class LockTest(LimpydBaseTest):
                     """
                     This function will be used as a pre_callback when setting a
                     new name of the thread's bike object. It will test that we
-                    doesn't have a bike in the collection.
+                    doesn't have a bike yet in the collection.
                     """
                     self.test.assertEqual(len(self.model.collection()), 0)
                     return (args, kwargs)
@@ -236,7 +196,7 @@ class LockTest(LimpydBaseTest):
                 bike.name.set('velocipede', _pre_callback=test_before_update)
 
         # start a new thread to work on the model Bike
-        thread = BikeLockThread(self, UnlockableBike)
+        thread = UnlockableBikeLockThread(self, UnlockableBike)
         thread.start()
 
         def ping_thread(name, *args, **kwargs):
@@ -244,12 +204,12 @@ class LockTest(LimpydBaseTest):
             This function will be used as a pre_callback when setting a new
             name of the local bike object. It send a ping telling the thread
             that it must create a new bike, with a name. As the model is not
-            lockable, not lock will be acquired, so the new bike in the thread
+            lockable, no lock will be acquired, so the new bike in the thread
             should be created as soon as possible, without waiting for the local
             one to be saved.
             """
             time.sleep(0.1)  # wait for thread to be ready
-            LockTest.ping(LimpydBaseTest.database, 'test_create_new_bike')
+            LockTest.ping('test_create_new_bike')
             time.sleep(0.1)  # to be sure the we can test no-lock in the thread
             return (args, kwargs)
 
@@ -260,9 +220,9 @@ class LockTest(LimpydBaseTest):
         bike.name.set('rosalie', _pre_callback=ping_thread)
 
         # wait before thread exit
-        LockTest.ping(LimpydBaseTest.database, 'exit')
+        LockTest.ping('exit')
         if thread.is_alive():
-            LockTest.wait_for_ping(LimpydBaseTest.database, 'thread_end', None)
+            LockTest.wait_for_ping('thread_end')
 
         # now we should have the both bikes fully created
         self.assertEqual(len(UnlockableBike.collection()), 2)

@@ -2,6 +2,7 @@
 
 from logging import getLogger
 from copy import copy
+import threading
 
 from limpyd.fields import *
 from limpyd.utils import make_key, make_cache_key
@@ -12,7 +13,7 @@ from limpyd.collection import CollectionManager
 __all__ = ['RedisModel', ]
 
 log = getLogger(__name__)
-
+threadlocal = threading.local()
 
 class MetaRedisModel(MetaRedisProxy):
     """
@@ -99,7 +100,6 @@ class MetaRedisModel(MetaRedisProxy):
         if pk_field.name != 'pk':
             setattr(it, "_redis_attr_pk", getattr(it, "_redis_attr_%s" % pk_field.name))
         setattr(it, "abstract", is_abstract)
-        setattr(it, "_fields_locked_by_self", {})
 
         return it
 
@@ -431,3 +431,28 @@ class RedisModel(RedisProxyCommand):
         self.connection.srem(self._redis_attr_pk.collection_key, self._pk)
         # Deactivate the instance
         delattr(self, "_pk")
+
+    @property
+    def _thread_lock_storage(self):
+        """
+        We mark each locked field in a thread, to allow other operations in the
+        same thread on the same field (for the same instance or others). This
+        way, operations within the lock, in the same thread, can bypass it (the
+        whole set of operations must be locked)
+        """
+        if not hasattr(threadlocal, 'limpyd_locked_fields'):
+            threadlocal.limpyd_locked_fields = {}
+        if self._name not in threadlocal.limpyd_locked_fields:
+            threadlocal.limpyd_locked_fields[self._name] = set()
+        return threadlocal.limpyd_locked_fields[self._name]
+
+    def _mark_field_as_locked(self, field):
+        self._thread_lock_storage.add(field.name)
+
+    def _unmark_field_as_locked(self, field):
+        if field.name in self._thread_lock_storage:
+            self._thread_lock_storage.remove(field.name)
+
+    def _is_field_locked(self, field):
+        return field.name in self._thread_lock_storage
+
