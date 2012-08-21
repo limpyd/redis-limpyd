@@ -289,19 +289,7 @@ class RedisField(RedisProxyCommand):
         """
         Delete the field from redis.
         """
-        if self.indexable:
-            self.deindex()
-        result = self._delete_key()
-        if self.cacheable:
-            # delete cache
-            self.init_cache()
-        return result
-
-    def _delete_key(self):
-        """
-        Delete the field specific key.
-        """
-        return self.connection.delete(self.key)
+        return self._traverse_command('delete', _to_index=[])
 
     def post_command(self, sender, name, result, args, kwargs):
         """
@@ -484,7 +472,7 @@ class StringField(RedisField):
 
     _commands = {
         'getters': ('get', 'getbit', 'getrange', 'strlen', ),
-        'full_modifiers': ('getset', 'set', ),
+        'full_modifiers': ('delete', 'getset', 'set', ),
         'partial_modifiers': ('append', 'decr', 'decrby', 'incr', 'incrby', 'incrbyfloat', 'setbit', 'setex', 'setnx', 'setrange', )
     }
 
@@ -575,7 +563,7 @@ class SortedSetField(MultiValuesField):
 
     _commands = {
         'getters': ('zcard', 'zcount', 'zrange', 'zrangebyscore', 'zrank', 'zrevrange', 'zrevrangebyscore', 'zrevrank', 'zscore', ),
-        'full_modifiers': ('zadd', 'zincrby', 'zrem', ),
+        'full_modifiers': ('delete', 'zadd', 'zincrby', 'zrem', ),
         'partial_modifiers': ('zremrangebyrank', 'zremrangebyscore', ),
     }
 
@@ -630,7 +618,7 @@ class SetField(MultiValuesField):
 
     _commands = {
         'getters': ('scard', 'sismember', 'smembers', 'srandmember', ),
-        'full_modifiers': ('sadd', 'srem', ),
+        'full_modifiers': ('delete', 'sadd', 'srem', ),
         'partial_modifiers': ('spop', ),
     }
 
@@ -658,7 +646,7 @@ class ListField(MultiValuesField):
 
     _commands = {
         'getters': ('lindex', 'llen', 'lrange', ),
-        'full_modifiers': ('linsert', 'lpop', 'lpush', 'lpushx', 'lrem', 'rpop', 'rpush', 'rpushx', ),
+        'full_modifiers': ('delete', 'linsert', 'lpop', 'lpush', 'lpushx', 'lrem', 'rpop', 'rpush', 'rpushx', ),
         'partial_modifiers': ('lset', 'ltrim', ),
     }
 
@@ -732,7 +720,7 @@ class HashableField(RedisField):
 
     _commands = {
         'getters': ('hget', ),
-        'full_modifiers': ('hset', 'hsetnx', ),
+        'full_modifiers': ('hdel', 'hset', 'hsetnx', ),
         'partial_modifiers': ('hincrby', 'hincrbyfloat', ),
     }
 
@@ -754,18 +742,12 @@ class HashableField(RedisField):
         args.insert(0, self.name)
         return super(HashableField, self)._traverse_command(name, *args, **kwargs)
 
-    def _delete_key(self):
+    def delete(self):
         """
-        We need to delete only the field in the parent hash.
+        Delete the field from redis, only the hash entry
         """
-        return self.connection.hdel(self.key, self.name)
-
-    def hdel(self):
-        """
-        A simple proxy to the main delete method, but here to provide the real
-        redis command name
-        """
-        return self.delete()
+        return self._traverse_command('hdel', _to_index=[])
+    hdel = delete
 
     def hexists(self):
         """
