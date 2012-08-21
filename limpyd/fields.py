@@ -945,13 +945,13 @@ class FieldLock(Lock):
         A lock is self_locked if already set for the current field+model on the current
         thread.
         """
-        return self.field._instance._is_field_locked(self.field)
+        return self.field._model._is_field_locked(self.field)
 
     def _set_already_locked_by_model(self, value):
         if value:
-            self.field._instance._mark_field_as_locked(self.field)
+            self.field._model._mark_field_as_locked(self.field)
         else:
-            self.field._instance._unmark_field_as_locked(self.field)
+            self.field._model._unmark_field_as_locked(self.field)
 
     already_locked_by_model = property(_get_already_locked_by_model, _set_already_locked_by_model)
 

@@ -432,8 +432,8 @@ class RedisModel(RedisProxyCommand):
         # Deactivate the instance
         delattr(self, "_pk")
 
-    @property
-    def _thread_lock_storage(self):
+    @classmethod
+    def _thread_lock_storage(cls):
         """
         We mark each locked field in a thread, to allow other operations in the
         same thread on the same field (for the same instance or others). This
@@ -442,17 +442,20 @@ class RedisModel(RedisProxyCommand):
         """
         if not hasattr(threadlocal, 'limpyd_locked_fields'):
             threadlocal.limpyd_locked_fields = {}
-        if self._name not in threadlocal.limpyd_locked_fields:
-            threadlocal.limpyd_locked_fields[self._name] = set()
-        return threadlocal.limpyd_locked_fields[self._name]
+        if cls._name not in threadlocal.limpyd_locked_fields:
+            threadlocal.limpyd_locked_fields[cls._name] = set()
+        return threadlocal.limpyd_locked_fields[cls._name]
 
-    def _mark_field_as_locked(self, field):
-        self._thread_lock_storage.add(field.name)
+    @classmethod
+    def _mark_field_as_locked(cls, field):
+        cls._thread_lock_storage().add(field.name)
 
-    def _unmark_field_as_locked(self, field):
-        if field.name in self._thread_lock_storage:
-            self._thread_lock_storage.remove(field.name)
+    @classmethod
+    def _unmark_field_as_locked(cls, field):
+        if field.name in cls._thread_lock_storage():
+            cls._thread_lock_storage().remove(field.name)
 
-    def _is_field_locked(self, field):
-        return field.name in self._thread_lock_storage
+    @classmethod
+    def _is_field_locked(cls, field):
+        return field.name in cls._thread_lock_storage()
 
