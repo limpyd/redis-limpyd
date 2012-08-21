@@ -426,13 +426,20 @@ class RedisField(RedisProxyCommand):
         log.debug("indexing %s with key %s" % (key, self._instance.get_pk()))
         return self.connection.sadd(key, self._instance.get_pk())
 
-    def index(self, value=None):
+    def values_for_indexing(self):
         """
-        Index the current value of the field
+        Values for indexing must be a list, so return the simple value as a list
         """
-        if value is None:
-            value = self.proxy_get()
-        self.index_value(value)
+        return [self.proxy_get()]
+
+    def index(self, values=None):
+        """
+        Index all values stored in the field, or only given ones if any.
+        """
+        if values is None:
+            values = self.values_for_indexing()
+        for value in values:
+            self.index_value(value)
 
     def deindex_value(self, value):
         """
@@ -444,13 +451,14 @@ class RedisField(RedisProxyCommand):
         else:
             return True  # True?
 
-    def deindex(self, value=None):
+    def deindex(self, values=None):
         """
-        Deindex the current value of the field
+        Deindex all values stored in the field, or only given ones if any.
         """
-        if value is None:
-            value = self.proxy_get()
-        self.deindex_value(value)
+        if values is None:
+            values = self.values_for_indexing()
+        for value in values:
+            self.deindex_value(value)
 
     def index_key(self, value):
         """
@@ -491,7 +499,7 @@ class StringField(RedisField):
         The value is either in the kwargs, or as the first argument of the args.
         """
         value = kwargs.get('value', args[0])
-        return (args, kwargs, {'_to_index': value, '_to_deindex': None})
+        return (args, kwargs, {'_to_index': [value], '_to_deindex': None})
 
 
 class MultiValuesField(RedisField):
@@ -512,23 +520,11 @@ class MultiValuesField(RedisField):
     are defined.
     """
 
-    def index(self, values=None):
+    def values_for_indexing(self):
         """
-        Index all values stored in the field, or only given ones if any.
+        Return all values in the field for (de)indexing
         """
-        if values is None:
-            values = self.proxy_get()
-        for value in values:
-            self.index_value(value)
-
-    def deindex(self, values=None):
-        """
-        Deindex all values stored in the field, or only given ones if any.
-        """
-        if values is None:
-            values = self.proxy_get()
-        for value in values:
-            self.deindex_value(value)
+        return self.proxy_get()
 
     def _add(self, command, *args, **kwargs):
         """
@@ -796,7 +792,7 @@ class HashableField(RedisField):
         (the first one is the hash entry)
         """
         value = kwargs.get('value', args[1])
-        return (args, kwargs, {'_to_index': value, '_to_deindex': None})
+        return (args, kwargs, {'_to_index': [value], '_to_deindex': None})
 
 
 class PKField(RedisField):
