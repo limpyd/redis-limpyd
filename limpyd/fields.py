@@ -350,9 +350,9 @@ class RedisField(RedisProxyCommand):
         # we have many commands to handle for only one asked, do it while
         # blocking all others write access to the current model, using a lock on
         # the field
-        if self.lockable and (self.indexable and name in self._commands['modifiers']
-                              or params.get('_pre_callback', None) is not None
-                              or params.get('_post_callback', None) is not None):
+        if (self.indexable and name in self._commands['modifiers']
+                or params.get('_pre_callback', None) is not None
+                or params.get('_post_callback', None) is not None):
 
             with FieldLock(self):
                 return self._really_traverse_command(params, name, *args, **kwargs)
@@ -960,6 +960,8 @@ class FieldLock(Lock):
         Really acquire the lock only if it's not a dummy one. Then save the
         dummy status.
         """
+        if not self.field.lockable:
+            return
         if self.already_locked_by_model:
             self.dummy_lock = True
             return
@@ -971,6 +973,8 @@ class FieldLock(Lock):
         Really release the lock only if it's not a dummy one. Then save the
         dummy status.
         """
+        if not self.field.lockable:
+            return
         if self.dummy_lock:
             return
         super(FieldLock, self).release(*args, **kwargs)
@@ -981,5 +985,7 @@ class FieldLock(Lock):
         Ensure that a not-dummy lock is set as dummy when exiting.
         """
         super(FieldLock, self).__exit__(*args, **kwargs)
+        if not self.field.lockable:
+            return
         if not self.dummy_lock:
             self.already_locked_by_model = self.dummy_lock = False
