@@ -26,6 +26,8 @@ class CollectionManager(object):
                                       # collection.
         self._instances = False  # True when instances are asked
                                  # instead of raw pks
+        self._instances_skip_exist_test = False  # If True will return instances
+                                                 # without testing if pk exist
         self._sort = None  # Will store sorting parameters
         self._len = None  # Store the result of the final collection, to avoid
                           # having to compute the whole thing twice when doing
@@ -98,7 +100,8 @@ class CollectionManager(object):
             # Empty result
             collection = set()
         if self._instances:
-            result = [self.cls(pk) for pk in collection]
+            result = [self.cls(pk, _skip_exist_test=self._instances_skip_exist_test)
+                                                                for pk in collection]
         else:
             result = list(collection)
         # cache the len for future use
@@ -179,8 +182,13 @@ class CollectionManager(object):
     def pop(self):
         return self._collection.pop()
 
-    def instances(self):
+    def instances(self, skip_exist_test=False):
+        """
+        If skip_exist_test is set to True, the instances returned by the
+        collection won't have their primary key checked for existence.
+        """
         self._instances = True
+        self._instances_skip_exist_test = skip_exist_test
         return self
 
     def _coerce_by_parameter(self, parameters):

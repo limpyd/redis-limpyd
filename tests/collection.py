@@ -201,5 +201,13 @@ class InstancesTest(CollectionBaseTest):
             radiohead._pk
         )
 
+    def test_skip_exist_test_should_not_test_pk_existence(self):
+        with self.assertNumCommands(5):
+            # 1 command for the collection, one to test each PKs (4 objects)
+            list(Boat.collection().instances())
+        with self.assertNumCommands(1):
+            # 1 command for the collection, none to test PKs
+            list(Boat.collection().instances(skip_exist_test=True))
+
 if __name__ == '__main__':
     unittest.main()

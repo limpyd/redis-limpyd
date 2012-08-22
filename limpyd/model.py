@@ -152,13 +152,16 @@ class RedisModel(RedisProxyCommand):
         # Prepare command internal caching
         self.init_cache()
 
+        # Get specific params and remove them from kwargs
+        params = dict((key, kwargs.pop(key, None)) for key in ('_skip_exist_test',))
+
         # Validate arguments
         if len(args) > 0 and len(kwargs) > 0:
             raise ValueError('Cannot use args and kwargs to instanciate.')
 
         # save name of fields given when creating the instance, to avoid setting
         # them in the `_set_default` method
-        self._init_fields= set()
+        self._init_fields = set()
 
         # --- Instanciate new from kwargs
         if len(kwargs) > 0:
@@ -196,7 +199,7 @@ class RedisModel(RedisProxyCommand):
         # --- Instanciate from DB
         if len(args) == 1:
             value = args[0]
-            if self.exists(pk=value):
+            if params['_skip_exist_test'] or self.exists(pk=value):
                 self._pk = self.pk.normalize(value)
             else:
                 raise ValueError("No %s found with pk %s" % (self.__class__.__name__, value))
