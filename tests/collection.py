@@ -209,5 +209,115 @@ class InstancesTest(CollectionBaseTest):
             # 1 command for the collection, none to test PKs
             list(Boat.collection().instances(skip_exist_test=True))
 
+
+class ValuesTest(CollectionBaseTest):
+    def test_values_should_return_a_list_of_dicts(self):
+        boats = list(Boat.collection().values('pk', 'name', 'launched'))
+        self.assertEqual(len(boats), 4)
+        for boat in boats:
+            self.assertTrue(isinstance(boat, dict))
+            self.assertEqual(set(boat.keys()), set(['pk', 'name', 'launched']))
+            test_boat = Boat(boat['pk'])
+            self.assertEqual(test_boat.name.get(), boat['name'])
+            self.assertEqual(test_boat.launched.get(), boat['launched'])
+
+    def test_values_without_argument_returns_all_fields(self):
+        boats = list(Boat.collection().values())
+        self.assertEqual(len(boats), 4)
+        self.assertTrue(isinstance(boats[0], dict))
+        self.assertEqual(set(boats[0].keys()), set(['pk', 'name', 'power', 'launched', 'length']))
+
+    def test_values_should_only_accept_simple_fields(self):
+        with self.assertRaises(ValueError):
+            # test a field that does not exist
+            Boat.collection().values('foo')
+
+        class BoatWithSet(Boat):
+            passengers = fields.SetField()
+
+        with self.assertRaises(ValueError):
+            # test a field that is not a *simple* field
+            Boat.collection().values('passengers')
+
+    def test_values_should_accept_pk(self):
+        #... but pk only has no advantage over simple collection result
+        boats = list(Boat.collection(pk=self.boat1.get_pk()).values('pk'))
+        self.assertEqual(boats[0]['pk'], self.boat1.get_pk())
+
+        class BoatWithNewPk(Boat):
+            id = fields.AutoPKField()
+        boat = BoatWithNewPk()
+
+        boats = list(BoatWithNewPk.collection(pk=boat.get_pk()).values('pk'))
+        self.assertFalse('id' in boats[0])
+        self.assertEqual(boats[0]['pk'], boat.get_pk())
+
+        boats = list(BoatWithNewPk.collection(pk=boat.get_pk()).values('id'))
+        self.assertFalse('pk' in boats[0])
+        self.assertEqual(boats[0]['id'], boat.get_pk())
+
+
+class ValuesListTest(CollectionBaseTest):
+    def test_values_list_should_return_a_list_of_tuples(self):
+        boats = list(Boat.collection().values_list('pk', 'name', 'launched'))
+        self.assertEqual(len(boats), 4)
+        for boat in boats:
+            self.assertTrue(isinstance(boat, tuple))
+            self.assertTrue(len(boat), 3)
+            test_boat = Boat(boat[0])
+            self.assertEqual(test_boat.name.get(), boat[1])
+            self.assertEqual(test_boat.launched.get(), boat[2])
+
+    def test_values_list_without_argument_returns_all_fields(self):
+        boats = list(Boat.collection().values_list())
+        self.assertEqual(len(boats), 4)
+        self.assertTrue(isinstance(boats[0], tuple))
+        self.assertEqual(len(boats[0]), 5)
+        test_boat = Boat(boats[0][0])
+        self.assertEqual(test_boat.name.get(), boats[0][1])
+        self.assertEqual(test_boat.power.hget(), boats[0][2])
+        self.assertEqual(test_boat.launched.get(), boats[0][3])
+        self.assertEqual(test_boat.length.get(), boats[0][4])
+
+    def test_values_list_should_only_accept_simple_fields(self):
+        with self.assertRaises(ValueError):
+            # test a field that does not exist
+            Boat.collection().values_list('foo')
+
+        class BoatWithSet(Boat):
+            passengers = fields.SetField()
+
+        with self.assertRaises(ValueError):
+            # test a field that is not a *simple* field
+            Boat.collection().values_list('passengers')
+
+    def test_values_list_should_accept_pk(self):
+        #... but pk only has no advantage over simple collection result
+        boats = list(Boat.collection(pk=self.boat1.get_pk()).values_list('pk'))
+        self.assertEqual(boats[0][0], self.boat1.get_pk())
+
+        class BoatWithNewPk(Boat):
+            id = fields.AutoPKField()
+        boat = BoatWithNewPk()
+
+        boats = list(BoatWithNewPk.collection(pk=boat.get_pk()).values_list('pk'))
+        self.assertEqual(boats[0][0], boat.get_pk())
+
+        boats = list(BoatWithNewPk.collection(pk=boat.get_pk()).values_list('id'))
+        self.assertEqual(boats[0][0], boat.get_pk())
+
+    def test_flat_argument_should_return_flat_list(self):
+        names = list(Boat.collection().values_list('name', flat=True))
+        self.assertTrue(isinstance(names, list))
+        self.assertEqual(names, [self.boat1.name.get(), self.boat2.name.get(),
+                                 self.boat3.name.get(), self.boat4.name.get(), ])
+
+    def test_flat_argument_should_be_refused_if_many_fields(self):
+        with self.assertRaises(ValueError):
+            Boat.collection().values_list('name', 'length', flat=True)
+
+        with self.assertRaises(ValueError):
+            Boat.collection().values_list(flat=True)
+
 if __name__ == '__main__':
     unittest.main()

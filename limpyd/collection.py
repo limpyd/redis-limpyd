@@ -2,6 +2,7 @@
 
 from limpyd.utils import unique_key
 from limpyd.exceptions import *
+from limpyd.fields import MultiValuesField
 
 
 class CollectionManager(object):
@@ -15,6 +16,12 @@ class CollectionManager(object):
     MyModel.collection().sort(by='field') => return the collection sorted.
     MyModel.collection().sort(by='field')[:10] => slice the sorted collection.
     MyModel.collection().instances() => return the instances
+    MyModel.collection().values('foo', 'bar') => return a list of dictionnaries
+                                                 for the wanted fields (or all)
+    MyModel.collection().values_list('foo', 'bar') => return a list of tuples
+                                                      for the wanted fields (or all)
+    MyModel.collection().values_list('foo', flat=True) => return a flat list of
+                                                          the wanted field
 
     Note:
     Slicing a collection will force a sort.
@@ -33,6 +40,7 @@ class CollectionManager(object):
                           # having to compute the whole thing twice when doing
                           # `list(Model.collection)` (a `list` will call
                           # __iter__ AND __len__)
+        self._values = None  # Will store parameters used to retrieve values
 
     def __iter__(self):
         return self._collection.__iter__()
@@ -74,6 +82,14 @@ class CollectionManager(object):
         self._len = None
         conn = self.cls.get_connection()
         if "keys" in self._lazy_collection:
+
+            if self._values is not None:
+                # if we asked for values, we have to use the redis 'sort'
+                # command, which is able to return other fields.
+                if self._sort is None:
+                    self._sort = {}
+                self._sort['get'] = self._values['fields']['keys']
+
             if self._sort is not None:
                 if len(self._lazy_collection['keys']) > 1:
                     # Optimization: store only if there is more
@@ -102,6 +118,15 @@ class CollectionManager(object):
         if self._instances:
             result = [self.cls(pk, _skip_exist_test=self._instances_skip_exist_test)
                                                                 for pk in collection]
+        elif self._values and self._values['mode'] != 'flat':
+            # Regroup values in tuples or dicts for each "instance".
+            # Exemple: Given this result from redis: ['id1', 'name1', 'id2', 'name2']
+            # tuples: [('id1', 'name1'), ('id2', 'name2')]
+            # dicts:  [{'id': 'id1', 'name': 'name1'}, {'id': 'id2', 'name': 'name2'}]
+            result = zip(*([iter(collection)] * len(self._values['fields']['names'])))
+            if self._values['mode'] == 'dicts':
+                result = [dict(zip(self._values['fields']['names'], a_result))
+                                                    for a_result in result]
         else:
             result = list(collection)
         # cache the len for future use
@@ -187,9 +212,90 @@ class CollectionManager(object):
         If skip_exist_test is set to True, the instances returned by the
         collection won't have their primary key checked for existence.
         """
+        self._values = None
         self._instances = True
         self._instances_skip_exist_test = skip_exist_test
         return self
+
+    def _get_simple_fields(self):
+        """
+        Return a list of the names of all fields that handle simple values
+        (StringField or HashableField), that redis can use to return values via
+        the sort command (so, exclude all fields based on MultiValuesField)
+        """
+        fields = []
+        for field_name in self.cls._fields:
+            field = getattr(self.cls, "_redis_attr_%s" % field_name)
+            if not isinstance(field, MultiValuesField):
+                fields.append(field_name)
+        return fields
+
+    def values(self, *fields):
+        """
+        Ask the collection to return a list of dict of given fields for each
+        instance found in the collection.
+        If no fields are given, all "simple value" fields are used.
+        """
+        if not fields:
+            fields = self._get_simple_fields()
+
+        fields = self._coerce_fields_parameters(fields)
+
+        self._instances = False
+        self._values = {'fields': fields, 'mode': 'dicts'}
+        return self
+
+    def values_list(self, *fields, **kwargs):
+        """
+        Ask the collection to return a list of tuples of given fields (in the
+        given order) for each instance found in the collection.
+        If 'flat=True' is passed, the resulting list will be flat, ie without
+        tuple. It's a valid kwarg only if only one field is given.
+        If no fields are given, all "simple value" fields are used.
+        """
+        flat = kwargs.pop('flat', False)
+        if kwargs:
+            raise ValueError('Unexpected keyword arguments for the values method: %s'
+                             % (kwargs.keys(),))
+
+        if not fields:
+            fields = self._get_simple_fields()
+
+        if flat and len(fields) > 1:
+            raise ValueError("'flat' is not valid when values is called with more than one field.")
+
+        fields = self._coerce_fields_parameters(fields)
+
+        self._instances = False
+        self._values = {'fields': fields, 'mode': 'flat' if flat else 'tuples'}
+        return self
+
+    def _coerce_fields_parameters(self, fields):
+        """
+        Used by values and values_list to get the list of fields to use in the
+        redis sort command to retrieve fields.
+        The result is a dict with two lists:
+          - 'names', with wanted field names
+          - 'keys', with keys to use in the sort command
+        """
+        final_fields = {'names': [], 'keys': []}
+        for field_name in fields:
+            if self.cls._field_is_pk(field_name):
+                final_fields['names'].append(field_name)
+                final_fields['keys'].append('#')
+            else:
+                try:
+                    field = getattr(self.cls, "_redis_attr_%s" % field_name)
+                except AttributeError:
+                    raise ValueError("%s if not a valid field to get from collection"
+                                     " for %s" % (field_name, self.cls.__name__))
+                else:
+                    if isinstance(field, MultiValuesField):
+                        raise ValueError("It's not possible to get a MultiValuesField"
+                                         " from a collection (asked: %s" % field_name)
+                    final_fields['names'].append(field_name)
+                    final_fields['keys'].append(field.sort_wildcard)
+        return final_fields
 
     def _coerce_by_parameter(self, parameters):
         if "by" in parameters:
