@@ -324,7 +324,8 @@ class IndexableField(RedisField):
         # commands like ``append`` or ``setrange``, we let the command process
         # then check the result, and raise before modifying the indexes if the
         # value was not unique, and then remove the key
-        # We should try a better algo
+        # We should try a better algo (we lose the previous value here by doing
+        # that this way)
         if value:
             value = value.decode('utf-8')  # FIXME centralize utf-8 handling?
         key = self.index_key(value)
@@ -332,6 +333,7 @@ class IndexableField(RedisField):
             # Lets check if the index key already exist for another instance
             index = self.connection.smembers(key)
             if len(index) > 1:
+                # this may not happen !
                 raise UniquenessError("Multiple values indexed for unique field %s: %s" % (self.name, index))
             elif len(index) == 1:
                 indexed_instance_pk = index.pop()
@@ -737,11 +739,18 @@ class PKField(RedisField):
 
     def get_new(self, value):
         """
-        Validate that a given new pk to set is always set, and return it
+        Validate that a given new pk to set is always set, and return it.
+        The returned value should be normalized, and will be used without check.
         """
         if value is None:
             raise ValueError('The pk for %s is not "auto-increment", you must fill it' % \
                             self._model._name)
+        value = self.normalize(value)
+
+        # Check that this pk does not already exist
+        if self.exists(value):
+            raise UniquenessError('PKField %s already exists for model %s)' % (value, self._instance.__class__))
+
         return value
 
     @property
@@ -789,11 +798,7 @@ class PKField(RedisField):
             raise ValueError('A primary key cannot be updated')
 
         # Validate and return the value to be used as a pk
-        value = self.normalize(self.get_new(value))
-
-        # Check that this pk does not already exist
-        if self.exists(value):
-            raise UniquenessError('PKField %s already exists for model %s)' % (value, self._instance.__class__))
+        value = self.get_new(value)
 
         # Tell the model the pk is now set
         self._instance._pk = value
@@ -834,4 +839,4 @@ class AutoPKField(PKField):
             raise ValueError('The pk for %s is "auto-increment", you must not fill it' % \
                             self._model._name)
         key = self._instance.make_key(self._model._name, 'max_pk')
-        return self.connection.incr(key)
+        return self.normalize(self.connection.incr(key))

@@ -152,6 +152,10 @@ class RedisModel(RedisProxyCommand):
         if len(args) > 0 and len(kwargs) > 0:
             raise ValueError('Cannot use args and kwargs to instanciate.')
 
+        # save name of fields given when creating the instance, to avoid setting
+        # them in the `_set_default` method
+        self._init_fields= set()
+
         # --- Instanciate new from kwargs
         if len(kwargs) > 0:
             # First check unique fields
@@ -174,6 +178,7 @@ class RedisModel(RedisProxyCommand):
                 if field.unique and self.exists(**{field_name: value}):
                     raise UniquenessError(u"Field `%s` must be unique. "
                                            "Value `%s` yet indexed." % (field.name, value))
+                self._init_fields.add(field_name)
 
             # Do instanciate, starting by the pk and respecting fields order
             if kwargs_pk_field_name:
@@ -206,24 +211,33 @@ class RedisModel(RedisProxyCommand):
         return self._cache[self.name]
 
     def get_pk(self):
+        """
+        Return the primary key of the instance.
+        If the `_pk` attribute doesn't exist, it's because the instance was deleted.
+        And if it's present but empty, it's because it's a new instance without
+        primary key so we ask for a new one. Then, as the object is new, with a pk,
+        we save default values for fields.
+        """
         if not hasattr(self, '_pk'):
             raise DoesNotExist("The current object doesn't exists anymore")
         if not self._pk:
             self.pk.set(None)
-            # Default must be setted only at first initialization
-            self.set_defaults()
+            # Default must be set only at first initialization
+            self._set_defaults()
         return self._pk
 
-    def set_defaults(self):
+    def _set_defaults(self):
         """
-        Set default values to fields, if they are not yet populated.
+        Set default values to fields. We assume that they are not yet populated
+        as this method is called in `get_pk`, just after creation of a new pk.
         """
         for field_name in self._fields:
+            if field_name in self._init_fields:
+                continue
             field = getattr(self, field_name)
             if hasattr(field, "default"):
-                has_value = field.proxy_get()
-                if has_value is None:
-                    field.proxy_set(field.default)
+                field.proxy_set(field.default)
+        delattr(self, '_init_fields')
 
     @classmethod
     def collection(cls, **filters):
@@ -257,7 +271,13 @@ class RedisModel(RedisProxyCommand):
         if len(kwargs) == 1 and cls._field_is_pk(kwargs.keys()[0]):
             return cls._redis_attr_pk.exists(kwargs.values()[0])
 
-        return len(cls.collection(**kwargs)) > 0
+        # get only the first element of the unsorted collection (the fastest)
+        try:
+            cls.collection(**kwargs).sort(by='nosort')[0]
+        except IndexError:
+            return False
+        else:
+            return True
 
     @classmethod
     def get(cls, *args, **kwargs):
