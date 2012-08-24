@@ -19,9 +19,10 @@ class MetaRedisModel(MetaRedisProxy):
     We make invisible for user that fields were class properties
     """
     def __new__(mcs, name, base, attrs):
-        is_abstract = attrs.get('abstract', False)
 
         it = super(MetaRedisModel, mcs).__new__(mcs, name, base, attrs)
+        is_abstract = attrs.get('abstract', False)
+        setattr(it, "abstract", is_abstract)
 
         if not is_abstract:
             if not hasattr(it, 'database') or not isinstance(it.database, RedisDatabase):
@@ -70,7 +71,7 @@ class MetaRedisModel(MetaRedisProxy):
             key = "_redis_attr_%s" % field_name
             field = getattr(it, key)
             ownfield = copy(field)
-            ownfield._model = it
+            ownfield._attach_to_model(it)
             setattr(it, key, ownfield)
 
         # Auto create missing primary key (it will always be called in RedisModel)
@@ -81,7 +82,7 @@ class MetaRedisModel(MetaRedisProxy):
 
         # Loop on new fields to prepare them
         for field in own_fields:
-            field._model = it
+            field._attach_to_model(it)
             _fields.append(field.name)
             setattr(it, "_redis_attr_%s" % field.name, field)
             if field.name in attrs:
@@ -98,7 +99,6 @@ class MetaRedisModel(MetaRedisProxy):
         setattr(it, "_hashable_fields", _hashable_fields)
         if pk_field.name != 'pk':
             setattr(it, "_redis_attr_pk", getattr(it, "_redis_attr_%s" % pk_field.name))
-        setattr(it, "abstract", is_abstract)
 
         return it
 
@@ -133,7 +133,7 @@ class RedisModel(RedisProxyCommand):
             attr = getattr(self, "_redis_attr_%s" % attr_name)
             # Copy it, to avoid sharing fields between model instances
             newattr = copy(attr)
-            newattr._instance = self
+            newattr._attach_to_instance(self)
             # Force field.cacheable to False if it's False for the model
             newattr.cacheable = newattr.cacheable and self.cacheable
             setattr(self, attr_name, newattr)

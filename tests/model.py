@@ -13,8 +13,7 @@ from base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
 
 class TestRedisModel(model.RedisModel):
     """
-    Use it in first class for all RedisModel created for tests, or define
-    the following database
+    Use it as a base for all RedisModel created for tests
     """
     database = LimpydBaseTest.database
     abstract = True

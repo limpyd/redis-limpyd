@@ -276,6 +276,20 @@ class RedisField(RedisProxyCommand):
         else:
             return self.connection.exists(key)
 
+    def _attach_to_model(self, model):
+        """
+        Attach the current field to a model. Can be overriden to do something
+        when a model is set
+        """
+        self._model = model
+
+    def _attach_to_instance(self, instance):
+        """
+        Attach the current field to an instance of a model. Can be overriden to
+        do something when an instance is set
+        """
+        self._instance = instance
+
 
 class IndexableField(RedisField):
     """
