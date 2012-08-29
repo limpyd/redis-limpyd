@@ -97,6 +97,30 @@ class InitTest(LimpydBaseTest):
         motorbike = MotorBike()
         self.assertEqual(motorbike._fields, ['pk', 'name', 'wheels', 'passengers', 'power'])
 
+    def test_skip_paramter_skip_existence_check(self):
+        bike = Bike(name="rosalie", wheels=4)
+        # get an object with an existing pk
+        with self.assertNumCommands(0):
+            bike2 = Bike(bike._pk, _skip_exist_test=True)
+        # set a field
+        bike2.name.set('velocipede')
+        # test if the value was correctly set
+        with self.assertNumCommands(1):
+            bike3 = Bike(bike._pk)
+        self.assertEqual(bike3.name.get(), 'velocipede')
+
+        # get an object with a non-existing pk
+        with self.assertNumCommands(0):
+            bike4 = Bike(1000, _skip_exist_test=True)
+        # set a field: should work because we have a pk...
+        bike4.name.set('monocycle')
+        # test if the value was correctly set
+        bike5 = Bike(1000, _skip_exist_test=True)
+        self.assertEqual(bike5.name.get(), 'monocycle')
+        # but trying to get this object, verifying its pk fails
+        with self.assertRaises(ValueError):
+            Bike(1000)
+
 
 class DatabaseTest(LimpydBaseTest):
 
@@ -169,6 +193,12 @@ class GetTest(LimpydBaseTest):
         boat3 = Boat.get(name="Pen Duick I", power="sail")
         self.assertEqual(boat1.get_pk(), boat3.get_pk())
         self.assertEqual(boat1.name.get(), boat3.name.get())
+
+    def test_should_accepte_a_simple_pk_as_kwargs(self):
+        boat1 = Boat(name="Pen Duick I", length=15.1)
+        with self.assertNumCommands(1):  # only a sismember
+            boat2 = Boat.get(pk=boat1.get_pk())
+        self.assertEqual(boat1.get_pk(), boat2.get_pk())
 
     def test_should_raise_if_more_than_one_match(self):
         boat1 = Boat(name="Pen Duick I")
