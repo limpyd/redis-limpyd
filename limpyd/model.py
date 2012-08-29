@@ -296,13 +296,17 @@ class RedisModel(RedisProxyCommand):
         if len(args) == 1:  # Guess it's a pk
             pk = args[0]
         elif kwargs:
-            result = cls.collection(**kwargs)
-            if len(result) == 0:
-                raise DoesNotExist(u"No object matching filter: %s" % kwargs)
-            elif len(result) > 1:
-                raise ValueError(u"More than one object matching filter: %s" % kwargs)
-            else:
-                pk = result.pop()
+            # special case to check for a simple pk
+            if len(kwargs) == 1 and cls._field_is_pk(kwargs.keys()[0]):
+                pk = kwargs.values()[0]
+            else:  # case with many filters
+                result = cls.collection(**kwargs).sort(by='nosort')
+                if len(result) == 0:
+                    raise DoesNotExist(u"No object matching filter: %s" % kwargs)
+                elif len(result) > 1:
+                    raise ValueError(u"More than one object matching filter: %s" % kwargs)
+                else:
+                    pk = result.pop()
         else:
             raise ValueError("Invalid `get` usage with args %s and kwargs %s" % (args, kwargs))
         return cls(pk)
