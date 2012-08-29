@@ -29,7 +29,7 @@ class MetaRedisProxy(type):
     This metaclass create the class normally, then takes a list of redis
     commands found in the "_commands" class attribute, and for each one
     create the corresponding method if it not exists yet. Created methos simply
-    call _traverse_command.
+    call _call_command.
     """
 
     def __new__(mcs, name, base, dct):
@@ -54,12 +54,29 @@ class RedisProxyCommand(object):
     @classmethod
     def _make_command_method(cls, command_name):
         """
-        Return a function which call _traverse_command for the given name.
+        Return a function which call _call_command for the given name.
         Used to bind redis commands to our own calls
         """
         def func(self, *args, **kwargs):
-            return self._traverse_command(command_name, *args, **kwargs)
+            return self._call_command(command_name, *args, **kwargs)
         return func
+
+    def _call_command(self, name, *args, **kwargs):
+        """
+        Check if the command to be executed is a modifier, to flag the object as
+        being in an update. Then call _traverse_command.
+        """
+        obj = getattr(self, '_instance', self)  # _instance if a field, self if an instance
+        if name in self._commands['modifiers']:
+            obj._update_running = True
+        try:
+            result = self._traverse_command(name, *args, **kwargs)
+        except:
+            obj._update_running = False
+            raise  # raise the original exception
+        else:
+            obj._update_running = False
+            return result
 
     @memoize_command()
     def _traverse_command(self, name, *args, **kwargs):
@@ -289,7 +306,7 @@ class RedisField(RedisProxyCommand):
         """
         Delete the field from redis.
         """
-        return self._traverse_command('delete', _to_index=[])
+        return self._call_command('delete', _to_index=[])
 
     def post_command(self, sender, name, result, args, kwargs):
         """
@@ -610,14 +627,14 @@ class SortedSetField(MultiValuesField):
             keys.extend(args[1::2])
         for pair in kwargs.iteritems():
             keys.append(pair[0])
-        return self._traverse_command('zadd', *args, _to_index=keys, _to_deindex=[], **kwargs)
+        return self._call_command('zadd', *args, _to_index=keys, _to_deindex=[], **kwargs)
 
     def zincrby(self, value, amount=1):
         """
         This command update a score of a given value. But it can be a new value
         of the sorted set, so we index it.
         """
-        return self._traverse_command('zincrby', value, amount, _to_index=[value], _to_deindex=[])
+        return self._call_command('zincrby', value, amount, _to_index=[value], _to_deindex=[])
 
 
 class SetField(MultiValuesField):
@@ -681,7 +698,7 @@ class ListField(MultiValuesField):
         return self.lrange(0, -1)
 
     def linsert(self, where, refvalue, value):
-        return self._traverse_command('linsert', where, refvalue, value, _to_index=[value], _to_deindex=[])
+        return self._call_command('linsert', where, refvalue, value, _to_index=[value], _to_deindex=[])
 
     def _pushx(self, command, *args, **kwargs):
         """
@@ -712,7 +729,7 @@ class ListField(MultiValuesField):
         if not count:
             to_index = []
             to_deindex = [value]
-        return self._traverse_command('lrem', count, value, _to_index=to_index, _to_deindex=to_deindex)
+        return self._call_command('lrem', count, value, _to_index=to_index, _to_deindex=to_deindex)
 
     def lset(self, index, value):
         """
@@ -724,7 +741,7 @@ class ListField(MultiValuesField):
         old_value = self.lindex(index)
         if old_value is not None:
             to_deindex = [old_value]
-        return self._traverse_command('lset', index, value, _to_index=[value], _to_deindex=to_deindex)
+        return self._call_command('lset', index, value, _to_index=[value], _to_deindex=to_deindex)
 
 
 class HashableField(RedisField):
@@ -761,7 +778,7 @@ class HashableField(RedisField):
         """
         Delete the field from redis, only the hash entry
         """
-        return self._traverse_command('hdel', _to_index=[])
+        return self._call_command('hdel', _to_index=[])
     hdel = delete
 
     def hexists(self):

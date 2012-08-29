@@ -97,11 +97,13 @@ class InitTest(LimpydBaseTest):
         motorbike = MotorBike()
         self.assertEqual(motorbike._fields, ['pk', 'name', 'wheels', 'passengers', 'power'])
 
-    def test_skip_paramter_skip_existence_check(self):
+    def test_skip_paramter_should_skip_existence_check(self):
         bike = Bike(name="rosalie", wheels=4)
         # get an object with an existing pk
         with self.assertNumCommands(0):
             bike2 = Bike(bike._pk, _skip_exist_test=True)
+        # test a field
+        self.assertEqual(bike2.name.get(), 'rosalie')
         # set a field
         bike2.name.set('velocipede')
         # test if the value was correctly set
@@ -112,14 +114,11 @@ class InitTest(LimpydBaseTest):
         # get an object with a non-existing pk
         with self.assertNumCommands(0):
             bike4 = Bike(1000, _skip_exist_test=True)
-        # set a field: should work because we have a pk...
-        bike4.name.set('monocycle')
-        # test if the value was correctly set
-        bike5 = Bike(1000, _skip_exist_test=True)
-        self.assertEqual(bike5.name.get(), 'monocycle')
-        # but trying to get this object, verifying its pk fails
+        # set a field: we check pk for the first update if skipped the existence test
         with self.assertRaises(ValueError):
-            Bike(1000)
+            bike4.name.set('monocycle')
+        # but we can get a field, no test is done here (simply return None if not exists)
+        self.assertEqual(bike4.name.get(), None)
 
 
 class DatabaseTest(LimpydBaseTest):

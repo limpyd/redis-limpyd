@@ -130,6 +130,9 @@ class RedisModel(RedisProxyCommand):
         self.cacheable = self.__class__.cacheable
         self.lockable = self.__class__.lockable
 
+        self._update_running = False
+        self._exist_test_skipped = False
+
         # --- Meta stuff
         # Put back the fields with the original names
         for attr_name in self._fields:
@@ -201,6 +204,7 @@ class RedisModel(RedisProxyCommand):
             value = args[0]
             if params['_skip_exist_test'] or self.exists(pk=value):
                 self._pk = self.pk.normalize(value)
+                self._exist_test_skipped = bool(params['_skip_exist_test'])
             else:
                 raise ValueError("No %s found with pk %s" % (self.__class__.__name__, value))
 
@@ -231,6 +235,10 @@ class RedisModel(RedisProxyCommand):
             self.pk.set(None)
             # Default must be set only at first initialization
             self._set_defaults()
+        elif self._update_running and self._exist_test_skipped:
+            if not self.pk.exists():
+                raise ValueError("No %s found with pk %s" % (self.__class__.__name__, self._pk))
+            self._exist_test_skipped = False
         return self._pk
 
     def _set_defaults(self):
