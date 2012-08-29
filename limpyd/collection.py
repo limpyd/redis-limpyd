@@ -2,7 +2,7 @@
 
 from limpyd.utils import unique_key
 from limpyd.exceptions import *
-from limpyd.fields import MultiValuesField
+from limpyd.fields import SetField, MultiValuesField
 
 
 class CollectionManager(object):
@@ -29,8 +29,8 @@ class CollectionManager(object):
 
     def __init__(self, cls):
         self.cls = cls
-        self._lazy_collection = None  # Store infos to make the requested
-                                      # collection.
+        self._lazy_collection = {}  # Store infos to make the requested
+                                    # collection.
         self._instances = False  # True when instances are asked
                                  # instead of raw pks
         self._instances_skip_exist_test = False  # If True will return instances
@@ -76,46 +76,47 @@ class CollectionManager(object):
     def _collection(self):
         """
         Effectively retrieve data according to lazy_collection.
-        Sorting is not available if a pk as been requested (this is linked
-        to the fact that pk have no index, due to optimization reasons).
         """
-        self._len = None
+        self._len = 0
+        pk = self._lazy_collection.get('pk', None)
+
+        # Quick check if the pk exists. If not, the collection fails (empty)
+        if pk is not None and not self.cls._redis_attr_pk.exists(pk):
+            return []
+
         conn = self.cls.get_connection()
-        if "keys" in self._lazy_collection:
+        sets = self._lazy_collection.get('sets', None)
+        collection = set()
 
-            if self._values is not None:
-                # if we asked for values, we have to use the redis 'sort'
-                # command, which is able to return other fields.
-                if self._sort is None:
-                    self._sort = {}
-                self._sort['get'] = self._values['fields']['keys']
+        if self._values:
+            # if we asked for values, we have to use the redis 'sort'
+            # command, which is able to return other fields.
+            if self._sort is None:
+                self._sort = {}
+            self._sort['get'] = self._values['fields']['keys']
 
-            if self._sort is not None:
-                if len(self._lazy_collection['keys']) > 1:
-                    # Optimization: store only if there is more
-                    # than one set
-                    tmp_key = self._unique_key()
-                    conn.sinterstore(tmp_key, self._lazy_collection['keys'])
-                    collection = conn.sort(tmp_key, **self._sort)
-                    conn.delete(tmp_key)
-                else:
-                    collection = conn.sort(
-                        self._lazy_collection['keys'][0],
-                        **self._sort
-                    )
-            else:
-                if len(self._lazy_collection['keys']) > 1:
-                    collection = conn.sinter(self._lazy_collection['keys'])
-                else:
-                    collection = conn.smembers(self._lazy_collection['keys'][0])
-        elif "pk" in self._lazy_collection:
-            if self._sort is not None:
-                raise ImplementationError("Cannot sort when using a pk parameter.")
-            collection = set([self._lazy_collection['pk']])
+        if pk is not None and not sets and (self._sort is None or self._values is None):
+            # we have a pk without other sets, and no needs to get values
+            # so we can simply return the pk
+            collection = set([pk])
+
         else:
-            # Empty result
-            collection = set()
+            set_, delete_key = self._get_final_set()
+
+            if self._sort is not None:
+                # a sort, or values, call the SORT command on the set
+                collection = conn.sort(set_, **self._sort)
+            else:
+                # no sort, nor values, simply return the full set
+                collection = conn.smembers(set_)
+
+            if delete_key:
+                # we were asked to delete the set's key, a temporary one
+                conn.delete(set_)
+
         if self._instances:
+            # we want instances, so create an object for each pk, without
+            # checking for pk existence if asked
             result = [self.cls(pk, _skip_exist_test=self._instances_skip_exist_test)
                                                                 for pk in collection]
         elif self._values and self._values['mode'] != 'flat':
@@ -128,17 +129,72 @@ class CollectionManager(object):
                 result = [dict(zip(self._values['fields']['names'], a_result))
                                                     for a_result in result]
         else:
+            # nothing particular to do with the result, simply return it as a list
             result = list(collection)
+
         # cache the len for future use
         self._len = len(result)
         return result
 
+    def _get_final_set(self):
+        """
+        Called by _collection to get the final set to work on. Return the name
+        of the set to use, and a flag if we have to delete it once the
+        collection really called (in case of a computed set based on multiple
+        ones)
+        """
+        conn = self.cls.get_connection()
+        sets = []
+        tmp_keys = []
+
+        iter_sets = self._lazy_collection.get('sets', [])
+        pk = self._lazy_collection.get('pk', None)
+
+        def get_tmp_key():
+            """
+            Create a key to store a set of data, and flag it as temporary (to
+            delete it when exiting _get_final_set)
+            """
+            tmp_key = self._unique_key()
+            tmp_keys.append(tmp_key)
+            return tmp_key
+
+        if iter_sets or pk:
+            if iter_sets:
+                sets += iter_sets
+            if pk is not None:
+                # create a set with the pk to do intersection (and to pass it to
+                # the store command to retrieve values if needed)
+                tmp_key = get_tmp_key()
+                conn.sadd(tmp_key, pk)
+                sets.append(tmp_key)
+
+        else:
+            # no sets or pk, use the whole collection instead
+            sets.append(self.cls._redis_attr_pk.collection_key)
+
+        if len(sets) == 1:
+            # if we have only one set, we  delete the set after calling
+            # collection only if it's a temporary one, and we do not delete
+            # it right now
+            delete_set_later = bool(tmp_keys)
+            final_set = sets[0]
+            tmp_keys = []
+        else:
+            # more than one set, do an intersection on all of them in a new key
+            # that will must be deleted once the collection is called.
+            delete_set_later = True
+            final_set = self._unique_key()
+            conn.sinterstore(final_set, sets)
+
+        if tmp_keys:
+            conn.delete(*tmp_keys)
+
+        # return the final set to work on, and a flag if we later need to delete it
+        return (final_set, delete_set_later)
+
     def __call__(self, **filters):
         """Define self._lazy_collection according to filters."""
-        # FIXME should we really implement the pk + filters option?
-        # It could be cleaner to leave this kind of specific usage to the
-        # implementer of the lib
-        # FIXME review the whole algo, it lacks readability
 
         query_fields = filters.copy()
 
@@ -147,53 +203,19 @@ class CollectionManager(object):
         if len(pk_fields) > 1:
             raise ValueError("You must use only one pk field in filtering")
 
-        # --- No filters, return the whole collection
-        if not query_fields:
-            # No pk, no other kwargs, return all the collection
-            self._lazy_collection = {
-                "keys": [self.cls._redis_attr_pk.collection_key]
-            }
-
         # --- There is a pk in the filters
-        #     Get the object, and check if requested filters match object
-        #     values
-        elif pk_fields:
-            field_name = pk_fields[0]
-            value = filters[field_name]
-            query_fields.pop(field_name)
-            try:
-                # try to get the object
-                obj = self.cls(value)
-            except ValueError:  # FIXME use DoesNotExist
-                # A non existing pk = empty result
-                self._lazy_collection = {}
-            else:
-                # Existing object, check all fields
-                fail = False
-                if query_fields:
-                    for obj_field_name, obj_value in query_fields.iteritems():
-                        field = getattr(obj, obj_field_name)
-                        if field.proxy_get() != obj_value:
-                            # Some asked field value differs from the object
-                            # Nothing can be returned
-                            self._lazy_collection = {}
-                            fail = True
-                            break
-                if not fail:
-                    self._lazy_collection = {
-                        "pk": obj.pk.normalize(value)
-                    }
+        if pk_fields:
+            pk_field = pk_fields[0]
+            pk = query_fields.pop(pk_field)
+            self._lazy_collection['pk'] = self.cls._redis_attr_pk.normalize(pk)
 
         # --- Filters
-        else:
+        if query_fields:
             # Prepare a list of sets for each query parameter
-            index_keys = []
             for field_name, value in query_fields.iteritems():
                 field = getattr(self.cls, "_redis_attr_%s" % field_name)
-                index_keys.append(field.index_key(value))
+                self._lazy_collection.setdefault('sets', []).append(field.index_key(value))
 
-            # Return intersection of all sets to get matching entries
-            self._lazy_collection = {"keys": index_keys}
         return self
 
     def __len__(self):
