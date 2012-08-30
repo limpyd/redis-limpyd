@@ -770,6 +770,13 @@ class HMTest(LimpydBaseTest):
         # hmget should have hit redis to get bar
         self.assertEqual(hits_before + 1, hits_after)
 
+    def test_hmget_result_is_not_cached_itself(self):
+        obj = self.HMTestModel()
+        obj.hmset(foo='FOO', bar='BAR')
+        obj.hmget()
+        with self.assertNumCommands(1):
+            obj.hmget()
+
     def test_hmset_should_accept_a_dict_or_kwargs(self):
         obj = self.HMTestModel()
         # test passing key|values as **kwargs

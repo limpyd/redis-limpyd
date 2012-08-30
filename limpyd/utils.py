@@ -50,8 +50,10 @@ class memoize_command(object):
         @wraps(func)
         def wrapper(self, *args, **kwargs):
             # self here is a field instance
+            command_name = args[0]
 
-            if not self.cacheable or self.database.discard_cache:
+            if (not self.cacheable or self.database.discard_cache or
+                    command_name in self._commands['no_cache_getters']):
                 return func(self, *args, **kwargs)
 
             haxh = make_cache_key(*args, **kwargs)
@@ -63,7 +65,6 @@ class memoize_command(object):
                 self.init_cache()
             cache = self.get_cache()
             # Warning: Some commands are both setter and modifiers (getset)
-            command_name = args[0]
             if command_name in self._commands['modifiers']:
                 # clear cache each time a modifier affects the field
                 log.debug("Clearing cache for %s" % name)
