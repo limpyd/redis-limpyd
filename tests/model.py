@@ -750,9 +750,7 @@ class HMTest(LimpydBaseTest):
         self.assertEqual(set(self.HMTestModel.collection(bar='BAR')), set())
 
     def test_hmget_should_get_values_from_cache(self):
-        obj = self.HMTestModel()
-        # set some values
-        obj.hmset(foo='FOO', bar='BAR')
+        obj = self.HMTestModel(foo='FOO', bar='BAR')
         # fill the cache
         obj.foo.hget()
 
@@ -770,12 +768,20 @@ class HMTest(LimpydBaseTest):
         # hmget should have hit redis to get bar
         self.assertEqual(hits_before + 1, hits_after)
 
+    def test_hmget_should_cache_retrieved_values_for_hget(self):
+        obj = self.HMTestModel(foo='FOO', bar='BAR', baz='BAZ')
+        obj.hmget('foo', 'bar')
+        with self.assertNumCommands(0):
+            foo = obj.foo.hget()
+            self.assertEqual(foo, 'FOO')
+
     def test_hmget_result_is_not_cached_itself(self):
-        obj = self.HMTestModel()
-        obj.hmset(foo='FOO', bar='BAR')
+        obj = self.HMTestModel(foo='FOO', bar='BAR')
         obj.hmget()
+        obj.foo.hset('FOO2')
         with self.assertNumCommands(1):
-            obj.hmget()
+            data = obj.hmget()
+            self.assertEqual(data, ['FOO2', 'BAR', None])
 
     def test_hmset_should_accept_a_dict_or_kwargs(self):
         obj = self.HMTestModel()

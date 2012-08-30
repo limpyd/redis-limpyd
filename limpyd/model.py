@@ -393,13 +393,24 @@ class RedisModel(RedisProxyCommand):
             # object not cacheable, retrieve all fields
             to_retrieve = keys
 
+        retrieved_dict = {}
         if to_retrieve:
             # call redis if some keys are not cached (waits for a list)
             retrieved = self._traverse_command('hmget', to_retrieve)
+            retrieved_dict = dict(zip(to_retrieve, retrieved))
+
+            if self.cacheable:
+                for field_name, value in retrieved_dict.iteritems():
+                    # set cache for the field with new retrieved value
+                    field = getattr(self, field_name)
+                    if not field.has_cache():
+                        field.init_cache()
+                    cache = field.get_cache()
+                    haxh = make_cache_key('hget', field_name)
+                    cache[haxh] = retrieved_dict[field_name]
 
         if cached:
             # we have some fields cached, return the values in the right order
-            retrieved_dict = dict(zip(to_retrieve, retrieved))
             retrieved = []
             for field_name in keys:
                 if field_name in cached:
