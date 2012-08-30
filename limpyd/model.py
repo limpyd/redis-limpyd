@@ -117,6 +117,12 @@ class RedisModel(RedisProxyCommand):
     abstract = True
     DoesNotExist = DoesNotExist
 
+    _commands = {
+        'getters': ('hmget', ),
+        'full_modifiers': ('hmset', ),
+        'partial_modifiers': (),
+    }
+
     def __init__(self, *args, **kwargs):
         """
         Init or retrieve an object storage in Redis.
@@ -204,15 +210,17 @@ class RedisModel(RedisProxyCommand):
     def init_cache(self):
         """
         Call it to init or clear the command cache.
+        the "__self__" if used to store cache for the model, other keys are for
+        its fields.
         """
         if self.cacheable:
-            self._cache = {}
+            self._cache = {'__self__': {}}
 
     def get_cache(self):
         """
         Return the local cache dict.
         """
-        return self._cache[self.name]
+        return self._cache['__self__']
 
     def get_pk(self):
         """
@@ -378,7 +386,7 @@ class RedisModel(RedisProxyCommand):
 
         if to_retrieve:
             # call redis if some keys are not cached
-            retrieved = self.connection.hmget(self.key, to_retrieve)
+            retrieved = self._traverse_command('hmget', to_retrieve)
 
         if cached:
             # we have some fields cached, return the values in the right order
@@ -416,7 +424,7 @@ class RedisModel(RedisProxyCommand):
                     indexed.append((field, value))
 
             # Call redis (from kwargs to one dict arg)
-            result = self.connection.hmset(self.key, kwargs)
+            result = self._traverse_command('hmset', kwargs)
 
             # Clear the cache for each cacheable field
             if self.cacheable:
