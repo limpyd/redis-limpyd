@@ -436,14 +436,14 @@ class RedisModel(RedisProxyCommand):
                     field_cache.clear()
             return result
 
-        except Exception, e:
+        except:
             # We revert indexes previously set if we have an exception, then
             # really raise the error
             for field, new_value in indexed:
                 old_value = field.hget()
                 field.deindex_value(new_value)
                 field.hset(old_value)
-            raise e
+            raise
 
     def delete(self):
         """
