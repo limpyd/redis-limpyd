@@ -285,6 +285,7 @@ class ValuesListTest(CollectionBaseTest):
             Boat.collection().values_list('foo')
 
         class BoatWithSet(Boat):
+            namespace = Boat.namespace + 'values_list'
             passengers = fields.SetField()
 
         with self.assertRaises(ValueError):
@@ -297,6 +298,7 @@ class ValuesListTest(CollectionBaseTest):
         self.assertEqual(boats[0][0], self.boat1.get_pk())
 
         class BoatWithNewPk(Boat):
+            namespace = Boat.namespace + 'values_list'
             id = fields.AutoPKField()
         boat = BoatWithNewPk()
 
