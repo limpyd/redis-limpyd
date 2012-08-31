@@ -34,8 +34,17 @@ class MetaRedisProxy(type):
 
     def __new__(mcs, name, base, dct):
         it = super(MetaRedisProxy, mcs).__new__(mcs, name, base, dct)
-        it._commands['modifiers'] = it._commands['full_modifiers'] + it._commands['partial_modifiers']
-        it._commands['all'] = set(it._commands['getters'] + it._commands['modifiers'])
+
+        # make sure we have a set for each list of type of command
+        for command_type in ('getters', 'no_cache_getters', 'full_modifiers', 'partial_modifiers'):
+            it._commands[command_type] = set(it._commands.get(command_type, ()))
+
+        # add simplest set: getters, modidiers, all
+        it._commands['getters'].update(it._commands['no_cache_getters'])
+        it._commands['modifiers'] = it._commands['full_modifiers'].union(it._commands['partial_modifiers'])
+        it._commands['all'] = it._commands['getters'].union(it._commands['modifiers'])
+
+        # create a method for each command
         for command_name in [c for c in it._commands['all'] if not hasattr(it, c)]:
             setattr(it, command_name, it._make_command_method(command_name))
         return it
@@ -45,11 +54,16 @@ class RedisProxyCommand(object):
 
     __metaclass__ = MetaRedisProxy
 
-    _commands = {
-        'getters': (),
-        'full_modifiers': (),
-        'partial_modifiers': (),
-    }
+    # Commands allowed for an object, by type, each entry is a list/typle. If an
+    # entry is not defined, it is considered empty.
+    # Here the possible types:
+    #  - getters:  commands that get data from redis
+    #  - no_cache_getters: idem as getters but result will never be cached locally
+    #  - full_modifiers: commands that set data in redis, for which we know the
+    #                    final content of the field
+    #  - partial_modifiers: idem as full_modifiers, but we don't know the final
+    #                       content of the field without getting it after the call
+    _commands = {}
 
     @classmethod
     def _make_command_method(cls, command_name):
@@ -825,7 +839,6 @@ class PKField(RedisField):
     _commands = {
         'getters': ('get',),
         'full_modifiers': ('set',),
-        'partial_modifiers': (),
     }
 
     name = 'pk'  # Default name ok the pk, can be changed by declaring a new PKField

@@ -24,7 +24,25 @@ def unique_key(connection):
 
 
 def make_cache_key(*args, **kwargs):
-    return frozenset(args + tuple(kwargs.items()))
+    """
+    Make a cache key with args and kwargs, unique for the same set of values
+    in args and kwargs (), even if order (in list) is different
+    """
+    _args = []
+    for arg in args:
+        if isinstance(arg, (list, tuple)):
+            arg = make_cache_key(*arg)
+        elif isinstance(arg, dict):
+            arg = make_cache_key(**arg)
+        _args.append(arg)
+    _kwargs = {}
+    for key, value in kwargs.iteritems():
+        if isinstance(value, (list, tuple)):
+            value = make_cache_key(*value)
+        elif isinstance(value, dict):
+            value = make_cache_key(**value)
+        _kwargs[key] = value
+    return frozenset(tuple(_args) + tuple(_kwargs.items()))
 
 
 class memoize_command(object):
@@ -32,32 +50,35 @@ class memoize_command(object):
         @wraps(func)
         def wrapper(self, *args, **kwargs):
             # self here is a field instance
+            command_name = args[0]
 
-            if not self.cacheable or self.database.discard_cache:
+            if (not self.cacheable or self.database.discard_cache or
+                    command_name in self._commands['no_cache_getters']):
                 return func(self, *args, **kwargs)
 
             haxh = make_cache_key(*args, **kwargs)
+            # "name" for a field, or "_name" for a model
+            name = getattr(self, 'name', getattr(self, '_name', self))
 
-            # Cache per field name to be able to flush per field
+            # Cache per object name to be able to flush per object (instance or field)
             if not self.has_cache():
                 self.init_cache()
-            field_cache = self.get_cache()
+            cache = self.get_cache()
             # Warning: Some commands are both setter and modifiers (getset)
-            command_name = args[0]
             if command_name in self._commands['modifiers']:
                 # clear cache each time a modifier affects the field
-                log.debug("Clearing cache for %s" % self.name)
-                field_cache.clear()
-            if haxh not in field_cache:
+                log.debug("Clearing cache for %s" % name)
+                cache.clear()
+            if haxh not in cache:
                 # Run command and store result
                 # It will be run only first time for getters and every time for
                 # modifiers
                 result = func(self, *args, **kwargs)
                 if command_name in self._commands['getters']:
                     # Populate the cache if getter
-                    log.debug("Storing key %s for %s" % (haxh, self.name))
-                    field_cache[haxh] = result
+                    log.debug("Storing key %s for %s" % (haxh, name))
+                    cache[haxh] = result
             else:
-                result = field_cache[haxh]
+                result = cache[haxh]
             return result
         return wrapper

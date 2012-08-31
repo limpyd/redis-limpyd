@@ -779,9 +779,7 @@ class HMTest(LimpydBaseTest):
         self.assertEqual(set(self.HMTestModel.collection(bar='BAR')), set())
 
     def test_hmget_should_get_values_from_cache(self):
-        obj = self.HMTestModel()
-        # set some values
-        obj.hmset(foo='FOO', bar='BAR')
+        obj = self.HMTestModel(foo='FOO', bar='BAR')
         # fill the cache
         obj.foo.hget()
 
@@ -798,6 +796,44 @@ class HMTest(LimpydBaseTest):
         hits_after = self.connection.info()['keyspace_hits']
         # hmget should have hit redis to get bar
         self.assertEqual(hits_before + 1, hits_after)
+
+    def test_hmget_should_cache_retrieved_values_for_hget(self):
+        obj = self.HMTestModel(foo='FOO', bar='BAR', baz='BAZ')
+        obj.hmget('foo', 'bar')
+        with self.assertNumCommands(0):
+            foo = obj.foo.hget()
+            self.assertEqual(foo, 'FOO')
+
+    def test_hmget_result_is_not_cached_itself(self):
+        obj = self.HMTestModel(foo='FOO', bar='BAR')
+        obj.hmget()
+        obj.foo.hset('FOO2')
+        with self.assertNumCommands(1):
+            data = obj.hmget()
+            self.assertEqual(data, ['FOO2', 'BAR', None])
+
+    def test_hmset_should_accept_a_dict_or_kwargs(self):
+        obj = self.HMTestModel()
+        # test passing key|values as **kwargs
+        obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
+        self.assertEqual(obj.foo.hget(), 'FOO')
+        self.assertEqual(obj.bar.hget(), 'BAR')
+        self.assertEqual(obj.baz.hget(), 'BAZ')
+        # test passing key|values a dict
+        obj.hmset(dict(foo='FOOFOO', bar='BARBAR', baz='BAZBAZ'))
+        self.assertEqual(obj.foo.hget(), 'FOOFOO')
+        self.assertEqual(obj.bar.hget(), 'BARBAR')
+        self.assertEqual(obj.baz.hget(), 'BAZBAZ')
+
+    def test_hmget_should_accept_a_list_or_args(self):
+        obj = self.HMTestModel(foo='FOO', bar='BAR', baz='BAZ')
+        # test passing keys as *args
+        data = obj.hmget('foo', 'bar', 'baz')
+        self.assertEqual(data, ['FOO', 'BAR', 'BAZ'])
+        # test passing keys as a list
+        data2 = obj.hmget(['foo', 'bar', 'baz'])
+        self.assertEqual(data2, ['FOO', 'BAR', 'BAZ'])
+
 
 
 class ConnectionTest(LimpydBaseTest):
