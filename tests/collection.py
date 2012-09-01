@@ -64,6 +64,27 @@ class CollectionTest(CollectionBaseTest):
         hits_after = self.connection.info()['keyspace_hits']
         self.assertNotEqual(hits_before, hits_after)
 
+    def test_collection_should_work_with_only_a_pk(self):
+        hits_before = self.connection.info()['keyspace_hits']
+        collection = list(Boat.collection(pk=1))
+        hits_after = self.connection.info()['keyspace_hits']
+        self.assertEqual(collection, ['1'])
+        self.assertEqual(hits_before + 1, hits_after)  # only a sismembers
+
+        hits_before = self.connection.info()['keyspace_hits']
+        collection = list(Boat.collection(pk=5))
+        hits_after = self.connection.info()['keyspace_hits']
+        self.assertEqual(collection, [])
+        self.assertEqual(hits_before + 1, hits_after)  # only a sismembers
+
+    def test_collection_should_work_with_pk_and_other_fields(self):
+        collection = list(Boat.collection(pk=1, name="Pen Duick I"))
+        self.assertEqual(collection, ['1'])
+        collection = list(Boat.collection(pk=1, name="Pen Duick II"))
+        self.assertEqual(collection, [])
+        collection = list(Boat.collection(pk=5, name="Pen Duick I"))
+        self.assertEqual(collection, [])
+
 
 class SortTest(CollectionBaseTest):
     """
@@ -153,6 +174,16 @@ class SortTest(CollectionBaseTest):
             ['1', '2', '4', '3']
         )
 
+    def test_sort_should_work_with_a_single_pk_filter(self):
+        boats = list(Boat.collection(pk=1).sort())
+        self.assertEqual(len(boats), 1)
+        self.assertEqual(boats[0], '1')
+
+    def test_sort_should_work_with_pk_and_other_fields(self):
+        boats = list(Boat.collection(pk=1, name="Pen Duick I").sort())
+        self.assertEqual(len(boats), 1)
+        self.assertEqual(boats[0], '1')
+
 
 class InstancesTest(CollectionBaseTest):
     """
@@ -208,6 +239,22 @@ class InstancesTest(CollectionBaseTest):
         with self.assertNumCommands(1):
             # 1 command for the collection, none to test PKs
             list(Boat.collection().instances(skip_exist_test=True))
+
+    def test_instances_should_work_if_filtering_on_only_a_pk(self):
+        boats = Boat.collection(pk=1).instances()
+        self.assertEqual(len(boats), 1)
+        self.assertTrue(isinstance(boats[0], Boat))
+
+        boats = Boat.collection(pk=10).instances()
+        self.assertEqual(len(boats), 0)
+
+    def test_instances_should_work_if_filtering_on_pk_and_other_fields(self):
+        boats = Boat.collection(pk=1, name="Pen Duick I").instances()
+        self.assertEqual(len(boats), 1)
+        self.assertTrue(isinstance(boats[0], Boat))
+
+        boats = Boat.collection(pk=10, name="Pen Duick I").instances()
+        self.assertEqual(len(boats), 0)
 
 
 class ValuesTest(CollectionBaseTest):
