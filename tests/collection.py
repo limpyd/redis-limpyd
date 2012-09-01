@@ -85,6 +85,23 @@ class CollectionTest(CollectionBaseTest):
         collection = list(Boat.collection(pk=5, name="Pen Duick I"))
         self.assertEqual(collection, [])
 
+    def test_collection_should_accept_pk_field_name_and_pk(self):
+        class Person(TestRedisModel):
+            namespace = 'collection'
+            id = fields.AutoPKField()
+            name = fields.StringField(indexable=True)
+
+        Person(name='twidi')
+
+        collection = list(Person.collection(id=1))
+        self.assertEqual(collection, ['1'])
+
+        collection = list(Person.collection(id=1, pk=1))
+        self.assertEqual(collection, ['1'])
+
+        collection = list(Person.collection(id=1, pk=2))
+        self.assertEqual(collection, [])
+
 
 class SortTest(CollectionBaseTest):
     """

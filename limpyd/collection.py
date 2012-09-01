@@ -72,17 +72,36 @@ class CollectionManager(object):
             self._sort['num'] = 1  # one element
             return self._collection[0]
 
+    def _get_pk(self):
+        """
+        Return None if we don't have any filter on a pk, the pk if we have one,
+        or raise a ValueError if we have more than one.
+        For internal use only.
+        """
+        pk = None
+        if 'pks' in self._lazy_collection:
+            if len(self._lazy_collection['pks']) > 1:
+                raise ValueError('Too much pks !')
+            pk = list(self._lazy_collection['pks'])[0]
+        return pk
+
     @property
     def _collection(self):
         """
         Effectively retrieve data according to lazy_collection.
         """
         self._len = 0
-        pk = self._lazy_collection.get('pk', None)
+        pk = None
 
-        # Quick check if the pk exists. If not, the collection fails (empty)
-        if pk is not None and not self.cls._redis_attr_pk.exists(pk):
+        # The collection fails (empty) if more than one pk or if the only one
+        # doesn't exists
+        try:
+            pk = self._get_pk()
+        except ValueError:
             return []
+        else:
+            if pk is not None and not self.cls._redis_attr_pk.exists(pk):
+                return []
 
         conn = self.cls.get_connection()
         sets = self._lazy_collection.get('sets', None)
@@ -148,7 +167,7 @@ class CollectionManager(object):
         tmp_keys = []
 
         iter_sets = self._lazy_collection.get('sets', [])
-        pk = self._lazy_collection.get('pk', None)
+        pk = self._get_pk()
 
         def get_tmp_key():
             """
@@ -195,24 +214,11 @@ class CollectionManager(object):
 
     def __call__(self, **filters):
         """Define self._lazy_collection according to filters."""
-
-        query_fields = filters.copy()
-
-        # Some consistency check
-        pk_fields = [k for k in filters.keys() if self.cls._field_is_pk(k)]
-        if len(pk_fields) > 1:
-            raise ValueError("You must use only one pk field in filtering")
-
-        # --- There is a pk in the filters
-        if pk_fields:
-            pk_field = pk_fields[0]
-            pk = query_fields.pop(pk_field)
-            self._lazy_collection['pk'] = self.cls._redis_attr_pk.normalize(pk)
-
-        # --- Filters
-        if query_fields:
-            # Prepare a list of sets for each query parameter
-            for field_name, value in query_fields.iteritems():
+        for field_name, value in filters.iteritems():
+            if self.cls._field_is_pk(field_name):
+                pk = self.cls._redis_attr_pk.normalize(value)
+                self._lazy_collection.setdefault('pks', set()).add(pk)
+            else:
                 field = getattr(self.cls, "_redis_attr_%s" % field_name)
                 self._lazy_collection.setdefault('sets', []).append(field.index_key(value))
 
