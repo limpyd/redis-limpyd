@@ -2,7 +2,7 @@
 
 from limpyd.utils import unique_key
 from limpyd.exceptions import *
-from limpyd.fields import SetField, MultiValuesField
+from limpyd.fields import MultiValuesField
 
 
 class CollectionManager(object):
