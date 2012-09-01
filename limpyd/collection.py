@@ -216,6 +216,9 @@ class CollectionManager(object):
         return (final_set, delete_set_later)
 
     def __call__(self, **filters):
+        return self._add_filters(**filters)
+
+    def _add_filters(self, **filters):
         """Define self._lazy_collection according to filters."""
         for field_name, value in filters.iteritems():
             if self.cls._field_is_pk(field_name):
