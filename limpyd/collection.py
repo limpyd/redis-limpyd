@@ -29,8 +29,10 @@ class CollectionManager(object):
 
     def __init__(self, cls):
         self.cls = cls
-        self._lazy_collection = {}  # Store infos to make the requested
-                                    # collection.
+        self._lazy_collection = {  # Store infos to make the requested collection
+            'sets': set(),  # store sets to use (we'll intersect them)
+            'pks': set(),  # store special filter on pk
+        }
         self._instances = False  # True when instances are asked
                                  # instead of raw pks
         self._instances_skip_exist_test = False  # If True will return instances
@@ -79,7 +81,7 @@ class CollectionManager(object):
         For internal use only.
         """
         pk = None
-        if 'pks' in self._lazy_collection:
+        if self._lazy_collection['pks']:
             if len(self._lazy_collection['pks']) > 1:
                 raise ValueError('Too much pks !')
             pk = list(self._lazy_collection['pks'])[0]
@@ -90,11 +92,12 @@ class CollectionManager(object):
         """
         Effectively retrieve data according to lazy_collection.
         """
+        conn = self.cls.get_connection()
         self._len = 0
-        pk = None
 
         # The collection fails (empty) if more than one pk or if the only one
         # doesn't exists
+        pk = None
         try:
             pk = self._get_pk()
         except ValueError:
@@ -103,9 +106,9 @@ class CollectionManager(object):
             if pk is not None and not self.cls._redis_attr_pk.exists(pk):
                 return []
 
-        conn = self.cls.get_connection()
-        sets = self._lazy_collection.get('sets', None)
+        # All checks are done, create the collection based on the sets (and pk)
         collection = set()
+        sets = self._lazy_collection['sets']
 
         if self._values:
             # if we asked for values, we have to use the redis 'sort'
@@ -166,7 +169,7 @@ class CollectionManager(object):
         sets = []
         tmp_keys = []
 
-        iter_sets = self._lazy_collection.get('sets', [])
+        iter_sets = self._lazy_collection['sets']
         pk = self._get_pk()
 
         def get_tmp_key():
@@ -217,10 +220,10 @@ class CollectionManager(object):
         for field_name, value in filters.iteritems():
             if self.cls._field_is_pk(field_name):
                 pk = self.cls._redis_attr_pk.normalize(value)
-                self._lazy_collection.setdefault('pks', set()).add(pk)
+                self._lazy_collection['pks'].add(pk)
             else:
                 field = getattr(self.cls, "_redis_attr_%s" % field_name)
-                self._lazy_collection.setdefault('sets', []).append(field.index_key(value))
+                self._lazy_collection['sets'].add(field.index_key(value))
 
         return self
 
