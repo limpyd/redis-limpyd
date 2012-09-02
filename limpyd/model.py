@@ -15,6 +15,7 @@ __all__ = ['RedisModel', ]
 log = getLogger(__name__)
 threadlocal = threading.local()
 
+
 class MetaRedisModel(MetaRedisProxy):
     """
     We make invisible for user that fields were class properties
@@ -115,6 +116,7 @@ class RedisModel(RedisProxyCommand):
     cacheable = True
     lockable = True
     abstract = True
+    collection_manager = CollectionManager
     DoesNotExist = DoesNotExist
 
     _commands = {
@@ -262,8 +264,10 @@ class RedisModel(RedisProxyCommand):
         delattr(self, '_init_fields')
 
     @classmethod
-    def collection(cls, **filters):
-        collection = CollectionManager(cls)
+    def collection(cls, manager=None, **filters):
+        if not manager:
+            manager = cls.collection_manager
+        collection = manager(cls)
         return collection(**filters)
 
     @classmethod
@@ -531,4 +535,3 @@ class RedisModel(RedisProxyCommand):
     @classmethod
     def _is_field_locked(cls, field):
         return field.name in cls._thread_lock_storage()
-

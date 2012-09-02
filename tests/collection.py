@@ -3,6 +3,7 @@
 import unittest
 
 from limpyd import fields
+from limpyd.collection import CollectionManager
 from limpyd.exceptions import *
 from base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
 from model import Boat, Bike, TestRedisModel
@@ -101,6 +102,36 @@ class CollectionTest(CollectionBaseTest):
 
         collection = list(Person.collection(id=1, pk=2))
         self.assertEqual(collection, [])
+
+    def test_connection_class_could_be_changed(self):
+        class SailBoats(CollectionManager):
+            def __init__(self, cls):
+                super(SailBoats, self).__init__(cls)
+                self._add_filters(power='sail')
+
+        # all boats, using the default manager, attached to the model
+        self.assertEqual(len(Boat.collection()), 4)
+        # only sail powered boats, using an other manager
+        self.assertEqual(len(Boat.collection(manager=SailBoats)), 3)
+
+        class ActiveGroups(CollectionManager):
+            def __init__(self, cls):
+                super(ActiveGroups, self).__init__(cls)
+                self._add_filters(active=1)
+
+        class Group(TestRedisModel):
+            namespace = 'collection'
+            collection_manager = ActiveGroups
+            name = fields.HashableField()
+            active = fields.HashableField(indexable=True, default=1)
+
+        Group(name='limpyd core devs')
+        Group(name='limpyd fan boys', active=0)
+
+        # all active groups, using our filtered manager, attached to the model
+        self.assertEqual(len(Group.collection()), 1)
+        # all groups by using the default manager
+        self.assertEqual(len(Group.collection(manager=CollectionManager)), 2)
 
 
 class SortTest(CollectionBaseTest):
