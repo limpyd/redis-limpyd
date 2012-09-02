@@ -41,6 +41,13 @@ class ExtendedCollectionManager(CollectionManager):
                 sets.add(set_)
             elif isinstance(set_, SetField):
                 sets.add(set_.key)
+            elif isinstance(set_, MultiValuesField):
+                # list or sorted set: convert it to a simple redis set
+                members = set_.proxy_get()
+                tmp_key = self._unique_key()
+                conn.sadd(tmp_key, *members)
+                tmp_keys.add(tmp_key)
+                sets.add(tmp_key)
             elif isinstance(set_, tuple) and len(set_):
                 # if we got a list or set, create a redis set to hold its values
                 tmp_key = self._unique_key()
@@ -66,17 +73,22 @@ class ExtendedCollectionManager(CollectionManager):
         - a string: considered as a redis set's name
         - a list, set or tuple: values will be stored in a temporary set
         - a SetField: we will directly use it's content on redis
+        - a ListField or SortedSetField: values will be stored in a temporary
+            set (except if we want a sort or values and it's the only "set" to
+            use)
         """
         sets_ = set()
         for set_ in sets:
             if isinstance(set_, (list, set)):
                 set_ = tuple(set_)
-            elif isinstance(set_, SetField) and not getattr(set_, '_instance', None):
-                raise ValueError('SetField passed to "intersect" must be bound')
-            elif not isinstance(set_, (tuple, basestring, SetField)):
+            elif isinstance(set_, MultiValuesField) and not getattr(set_, '_instance', None):
+                raise ValueError('%s passed to "intersect" must be bound'
+                                 % set_.__class__.__name__)
+            elif not isinstance(set_, (tuple, basestring, MultiValuesField)):
                 raise ValueError('%s is not a valid type of argument that can '
                                  'be used as a set. Allowed are: string (key '
-                                 'of a redis set), limpyd SetField, or real '
+                                 'of a redis set), limpyd multi-values field ('
+                                 'SetField, ListField or SortedSetField), or '
                                  'real python set, list or tuple' % set_)
             sets_.add(set_)
         self._lazy_collection['intersects'].update(sets_)

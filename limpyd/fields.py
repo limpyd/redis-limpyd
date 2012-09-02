@@ -631,7 +631,7 @@ class SortedSetField(MultiValuesField):
             - in *args, with score followed by the value, 0+ times (to respect
               the redis order)
             - in **kwargs, with value as key and score as value
-        Example: zadd('my-key', 1.1, 'name1', 2.2, 'name2', name3=3.3, name4=4.4)
+        Example: zadd(1.1, 'my-key', 2.2, 'name1', 'name2', name3=3.3, name4=4.4)
         """
         keys = []
         if args:

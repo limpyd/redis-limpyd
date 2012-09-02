@@ -22,6 +22,8 @@ class Group(TestRedisModel):
 class GroupsContainer(TestRedisModel):
     namespace = 'contrib-collection'
     groups_set = fields.SetField()
+    groups_list = fields.ListField()
+    groups_sortedset = fields.SortedSetField()
 
 
 class BaseTest(LimpydBaseTest):
@@ -165,13 +167,39 @@ class IntersectTest(BaseTest):
         collection = set(Group.collection().intersect(container.groups_set))
         self.assertEqual(collection, set(['1', '2']))
 
+    def test_intersect_should_accept_listfield(self):
+        container = GroupsContainer()
+
+        container.groups_list.lpush(1, 2)
+        collection = set(Group.collection().intersect(container.groups_list))
+        self.assertEqual(collection, set(['1', '2']))
+
+        container.groups_list.lpush(10, 50)
+        collection = set(Group.collection().intersect(container.groups_list))
+        self.assertEqual(collection, set(['1', '2']))
+
+    def test_intersect_should_accept_sortedsetfield(self):
+        container = GroupsContainer()
+
+        container.groups_sortedset.zadd(1.0, 1, 2.0, 2)
+        collection = set(Group.collection().intersect(container.groups_sortedset))
+        self.assertEqual(collection, set(['1', '2']))
+
+        container.groups_sortedset.zadd(10.0, 10, 50.0, 50)
+        collection = set(Group.collection().intersect(container.groups_sortedset))
+        self.assertEqual(collection, set(['1', '2']))
+
     def test_intersect_should_raise_if_unsupported_type(self):
         # unsupported type
         with self.assertRaises(ValueError):
             Group.collection().intersect({})
-        # unbound SetField
+        # unbound MultiValuesField
         with self.assertRaises(ValueError):
             Group.collection().intersect(GroupsContainer._redis_attr_groups_set)
+        with self.assertRaises(ValueError):
+            Group.collection().intersect(GroupsContainer._redis_attr_groups_list)
+        with self.assertRaises(ValueError):
+            Group.collection().intersect(GroupsContainer._redis_attr_groups_sortedset)
 
     def test_intersect_can_be_called_many_times(self):
         collection = set(Group.collection().intersect([1, 2, 3, 10]).intersect([2, 3, 50]))
