@@ -1,11 +1,13 @@
 # -*- coding:utf-8 -*-
 
+import unittest
+
 from limpyd import fields
 from limpyd.contrib.collection import ExtendedCollectionManager
 from limpyd.utils import unique_key
 from limpyd.exceptions import *
 
-from ..base import LimpydBaseTest
+from ..base import LimpydBaseTest, test_database
 from ..model import TestRedisModel
 
 
@@ -167,7 +169,7 @@ class IntersectTest(BaseTest):
         collection = set(Group.collection().intersect(container.groups_set))
         self.assertEqual(collection, set(['1', '2']))
 
-    def test_intersect_should_accept_listfield(self):
+    def test_intersect_should_accept_listfield_without_scripting(self):
         container = GroupsContainer()
 
         container.groups_list.lpush(1, 2)
@@ -178,7 +180,33 @@ class IntersectTest(BaseTest):
         collection = set(Group.collection().intersect(container.groups_list))
         self.assertEqual(collection, set(['1', '2']))
 
-    def test_intersect_should_accept_sortedsetfield(self):
+    @unittest.skipUnless(test_database.has_scripting(), "Redis scripting not available")
+    def test_intersect_should_accept_listfield_via_scripting(self):
+        container = GroupsContainer()
+
+        container.groups_list.lpush(1, 2)
+        collection = set(Group.collection().intersect(container.groups_list))
+        self.assertEqual(collection, set(['1', '2']))
+
+        container.groups_list.lpush(10, 50)
+        collection = set(Group.collection().intersect(container.groups_list))
+        self.assertEqual(collection, set(['1', '2']))
+
+    def test_intersect_should_accept_sortedsetfield_without_scripting(self):
+        test_database._has_scripting = False  # set to False to test without
+                                              # scripting
+        container = GroupsContainer()
+
+        container.groups_sortedset.zadd(1.0, 1, 2.0, 2)
+        collection = set(Group.collection().intersect(container.groups_sortedset))
+        self.assertEqual(collection, set(['1', '2']))
+
+        container.groups_sortedset.zadd(10.0, 10, 50.0, 50)
+        collection = set(Group.collection().intersect(container.groups_sortedset))
+        self.assertEqual(collection, set(['1', '2']))
+
+    @unittest.skipUnless(test_database.has_scripting(), "Redis scripting not available")
+    def test_intersect_should_accept_sortedsetfield_via_scripting(self):
         container = GroupsContainer()
 
         container.groups_sortedset.zadd(1.0, 1, 2.0, 2)
