@@ -47,3 +47,19 @@ class RedisDatabase(object):
         if not self._connection:
             self._connection = redis_connect(self.connection_settings)
         return self._connection
+
+    def has_scripting(self):
+        """
+        Returns True if scripting is available. Checks are done in the client
+        library (redis-py) AND the redis server. Resut is cached, so done only
+        one time.
+        """
+        if not hasattr(self, '_has_scripting'):
+            try:
+                version = float('%s.%s' %
+                    tuple(self.connection.info().get('redis_version').split('.')[:2]))
+                self._has_scripting = version >= 2.5 \
+                    and hasattr(self.connection, 'register_script')
+            except:
+                self._has_scripting = False
+        return self._has_scripting

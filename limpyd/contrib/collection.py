@@ -1,10 +1,33 @@
 # -*- coding:utf-8 -*-
 
 from limpyd.collection import CollectionManager
-from limpyd.fields import SetField, MultiValuesField
+from limpyd.fields import SetField, ListField, MultiValuesField
 
 
 class ExtendedCollectionManager(CollectionManager):
+
+    scripts = {
+        'list_to_set': {
+            # add all members of the list in a new set
+            'lua': """
+                redis.call('del', KEYS[2])
+                for i, member in ipairs(redis.call('lrange', KEYS[1], 0, -1)) do
+                    redis.call('sadd', KEYS[2], member)
+                end
+                return 1
+            """,
+        },
+        'zset_to_set': {
+            # add all members of the zset in a new set
+            'lua': """
+                redis.call('del', KEYS[2])
+                for i, member in ipairs(redis.call('zrange', KEYS[1], 0, -1)) do
+                    redis.call('sadd', KEYS[2], member)
+                end
+                return 1
+            """,
+        },
+    }
 
     def __init__(self, cls):
         super(ExtendedCollectionManager, self).__init__(cls)
@@ -21,6 +44,22 @@ class ExtendedCollectionManager(CollectionManager):
             self._lazy_collection['sets'].add(self.cls._redis_attr_pk.collection_key)
 
         return super(ExtendedCollectionManager, self)._collection
+
+    def _call_script(self, script_name, keys=[], args=[]):
+        """
+        Call the given script. The first time we call a script, we register it
+        to speed up later calls. Registration is done on the class because it's
+        independant of the instance (self) (redis-py will handle the case of
+        different redis servers)
+        """
+        conn = self.cls.get_connection()
+        script = self.__class__.scripts[script_name]
+        if 'script_object' not in script:
+            script['script_object'] = conn.register_script(script['lua'])
+        return script['script_object'](
+                                       keys=keys,
+                                       args=args,
+                                       client=conn)
 
     def _prepare_sets(self):
         """
@@ -43,9 +82,21 @@ class ExtendedCollectionManager(CollectionManager):
                 sets.add(set_.key)
             elif isinstance(set_, MultiValuesField):
                 # list or sorted set: convert it to a simple redis set
-                members = set_.proxy_get()
                 tmp_key = self._unique_key()
-                conn.sadd(tmp_key, *members)
+                if self.cls.database.has_scripting():
+                    # if we have scripting enabled (both redis.py and server)
+                    # use eval to create the set atomically without retrieving
+                    # all content on our side
+                    if isinstance(set_, ListField):
+                        script_name = 'list_to_set'
+                    else:
+                        script_name = 'zset_to_set'
+                    self._call_script(script_name, keys=[set_.key, tmp_key])
+                else:
+                    # no scripting, we have to fetch all values in the list/zset
+                    # and then ut them back in a redis set.
+                    members = set_.proxy_get()
+                    conn.sadd(tmp_key, *members)
                 tmp_keys.add(tmp_key)
                 sets.add(tmp_key)
             elif isinstance(set_, tuple) and len(set_):
