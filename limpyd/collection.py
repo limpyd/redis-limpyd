@@ -38,6 +38,7 @@ class CollectionManager(object):
         self._instances_skip_exist_test = False  # If True will return instances
                                                  # without testing if pk exist
         self._sort = None  # Will store sorting parameters
+        self._slice = None  # Will store slice parameters (start and num)
         self._len = None  # Store the result of the final collection, to avoid
                           # having to compute the whole thing twice when doing
                           # `list(Model.collection)` (a `list` will call
@@ -48,30 +49,26 @@ class CollectionManager(object):
         return self._collection.__iter__()
 
     def __getitem__(self, arg):
-        if self._sort is None:
-            # Force a sort
-            # Redis need it, and getting items from their index whitout
-            # sorting does not make sense
-            self._sort = {}
+        self._slice = {}
         if isinstance(arg, slice):
             # A slice has been requested
-            # so add it to the sort parameters
+            # so add it to the sort parameters (via slice)
             # and return the collection (a scliced collection is no more
             # chainable, so we do not return `self`)
             start = arg.start or 0
             stop = arg.stop  # FIXME: what to do if no stop given?
-            self._sort['start'] = start
+            self._slice['start'] = start
             # Redis expects a number of elements
             # not a python style stop value
-            self._sort['num'] = stop - start
+            self._slice['num'] = stop - start
             return self._collection
         else:
             # A single item has been requested
             # Nevertheless, use the redis pagination, to minimize
             # data transfert and use the fast redis offset system
             start = arg
-            self._sort['start'] = start
-            self._sort['num'] = 1  # one element
+            self._slice['start'] = start
+            self._slice['num'] = 1  # one element
             return self._collection[0]
 
     def _get_pk(self):
@@ -86,6 +83,24 @@ class CollectionManager(object):
                 raise ValueError('Too much pks !')
             pk = list(self._lazy_collection['pks'])[0]
         return pk
+
+    def _prepare_sort_options(self):
+        """
+        Prepare "sort" options to use when calling the collection, depending
+        on "_sort", "_slice" and "_values" attributes
+        """
+        sort_options = {}
+        if self._sort is not None:
+            sort_options.update(self._sort)
+        if self._slice is not None:
+            sort_options.update(self._slice)
+        if self._values:
+            # if we asked for values, we have to use the redis 'sort'
+            # command, which is able to return other fields.
+            sort_options['get'] = self._values['fields']['keys']
+        if not sort_options and self._sort is None:
+            sort_options = None
+        return sort_options
 
     @property
     def _collection(self):
@@ -110,14 +125,9 @@ class CollectionManager(object):
         collection = set()
         sets = self._lazy_collection['sets']
 
-        if self._values:
-            # if we asked for values, we have to use the redis 'sort'
-            # command, which is able to return other fields.
-            if self._sort is None:
-                self._sort = {}
-            self._sort['get'] = self._values['fields']['keys']
+        sort_options = self._prepare_sort_options()
 
-        if pk is not None and not sets and (self._sort is None or self._values is None):
+        if pk is not None and not sets and sort_options is None:
             # we have a pk without other sets, and no needs to get values
             # so we can simply return the pk
             collection = set([pk])
@@ -125,9 +135,9 @@ class CollectionManager(object):
         else:
             set_, delete_key = self._get_final_set()
 
-            if self._sort is not None:
+            if sort_options is not None:
                 # a sort, or values, call the SORT command on the set
-                collection = conn.sort(set_, **self._sort)
+                collection = conn.sort(set_, **sort_options)
             else:
                 # no sort, nor values, simply return the full set
                 collection = conn.smembers(set_)
@@ -355,7 +365,7 @@ class CollectionManager(object):
         """
         Parameters:
         `by`: pass either a field name or a wildcard string to sort on
-              use `-` to make a desc sort.
+              prefix with `-` to make a desc sort.
         `alpha`: set it to True to sort lexicographilcally instead of numerically.
         """
         parameters = self._coerce_by_parameter(parameters)
