@@ -56,11 +56,15 @@ class CollectionManager(object):
             # and return the collection (a scliced collection is no more
             # chainable, so we do not return `self`)
             start = arg.start or 0
-            stop = arg.stop  # FIXME: what to do if no stop given?
+            stop = arg.stop
             self._slice['start'] = start
             # Redis expects a number of elements
             # not a python style stop value
-            self._slice['num'] = stop - start
+            if stop is None:
+                # negative value for the count return all
+                self._slice['num'] = -1
+            else:
+                self._slice['num'] = stop - start
             return self._collection
         else:
             # A single item has been requested
