@@ -374,6 +374,9 @@ class MultiValuesRelatedFieldMixin(RelatedFieldMixin):
         group1.members()
 
     """
+
+    collection_manager = ExtendedCollectionManager
+
     def __call__(self, **filters):
         """
         When calling a MultiValuesRelatedField, we return a collection,
@@ -381,7 +384,7 @@ class MultiValuesRelatedFieldMixin(RelatedFieldMixin):
         members of the current field.
         """
         model = self.database._models[self.related_to]
-        manager = ExtendedCollectionManager(model)
+        manager = self.collection_manager(model)
         collection = manager(**filters)
         collection.intersect(self)
         return collection
