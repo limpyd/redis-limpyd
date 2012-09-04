@@ -6,6 +6,7 @@ from redis.exceptions import RedisError
 
 from limpyd import model, fields
 from limpyd.exceptions import *
+from limpyd.contrib.collection import ExtendedCollectionManager
 
 # used to validate a related_name
 re_identifier = re.compile(r"\W")
@@ -345,14 +346,55 @@ class FKHashableField(RelatedFieldMixin, fields.HashableField):
     _commands_with_single_value_from_python = ['hset', 'hsetnx', ]
 
 
-class M2MSetField(RelatedFieldMixin, fields.SetField):
+class MultiValuesRelatedFieldMixin(RelatedFieldMixin):
+    """
+    Mixin for all related fields based on MultiValuesField.
+    Add a __call__ method creating a collection to use the field the same way
+    we can use the RelatedCollection on the other side.
+    Example showing both sides:
+
+        class Person(RelatedModel):
+            name = PKField()
+
+        class Group(RelatedModel):
+            name = PKField()
+            members = M2MSetField(Person, related_name='membership')
+
+        person1 = Person(name='person1')
+        person2 = Person(name='person2')
+        group1 = Group(name='group1')
+        group2 = Group(name='group2')
+
+        group1.members.sadd(person1, person2)
+        group2.members.sadd(person1, person2)
+
+        # A RelatedColleciton that return a collection with set(['person1', 'person2'])
+        person1.membership()
+        # A M2MSetField call, that return a collection with set(['group1', 'group2'])
+        group1.members()
+
+    """
+    def __call__(self, **filters):
+        """
+        When calling a MultiValuesRelatedField, we return a collection,
+        filtered with given arguments, the result beeing "intersected" with the
+        members of the current field.
+        """
+        model = self.database._models[self.related_to]
+        manager = ExtendedCollectionManager(model)
+        collection = manager(**filters)
+        collection.intersect(self)
+        return collection
+
+
+class M2MSetField(MultiValuesRelatedFieldMixin, fields.SetField):
     """ Related field based on a SetField, acting as a M2M """
     _commands_with_single_value_from_python = ['sismember', ]
     _commands_with_many_values_from_python = ['sadd', 'srem', ]
     _related_remover = 'srem'
 
 
-class M2MListField(RelatedFieldMixin, fields.ListField):
+class M2MListField(MultiValuesRelatedFieldMixin, fields.ListField):
     """ Related field based on a ListField, acting as a sorted M2M """
     _commands_with_single_value_from_python = ['lpushx', 'rpushx', ]
     _commands_with_many_values_from_python = ['lpush', 'rpush', ]
@@ -371,7 +413,7 @@ class M2MListField(RelatedFieldMixin, fields.ListField):
         return super(M2MListField, self).lset(index, value)
 
 
-class M2MSortedSetField(RelatedFieldMixin, fields.SortedSetField):
+class M2MSortedSetField(MultiValuesRelatedFieldMixin, fields.SortedSetField):
     """ Related field based on a SortesSetField, acting as a M2M with scores """
     _commands_with_single_value_from_python = ['zscore', 'zrank', 'zrevrank']
     _commands_with_many_values_from_python = ['zrem']
