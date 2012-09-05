@@ -160,9 +160,16 @@ class SliceTest(CollectionBaseTest):
         self.assertEqual(collection[5:10], [])
 
     def test_slicing_is_reset_on_next_call(self):
+        # test whole content
         collection = Boat.collection()
         self.assertEqual(set(collection[1:]), set(['2', '3', '4']))
         self.assertEqual(set(collection), set(['1', '2',  '3', '4']))
+
+        # test __iter__
+        collection = Boat.collection()
+        self.assertEqual(set(collection[1:]), set(['2', '3', '4']))
+        all_pks = set([pk for pk in collection])
+        self.assertEqual(all_pks, set(['1', '2',  '3', '4']))
 
 
 class SortTest(CollectionBaseTest):

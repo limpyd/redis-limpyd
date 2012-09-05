@@ -119,66 +119,73 @@ class CollectionManager(object):
         """
         Effectively retrieve data according to lazy_collection.
         """
-        conn = self.cls.get_connection()
-        self._len = 0
+        try:  # try block to always reset the _slice in the "finally" part
 
-        # The collection fails (empty) if more than one pk or if the only one
-        # doesn't exists
-        pk = None
-        try:
-            pk = self._get_pk()
-        except ValueError:
-            return []
-        else:
-            if pk is not None and not self.cls._redis_attr_pk.exists(pk):
+            conn = self.cls.get_connection()
+            self._len = 0
+
+            # The collection fails (empty) if more than one pk or if the only one
+            # doesn't exists
+            pk = None
+            try:
+                pk = self._get_pk()
+            except ValueError:
                 return []
-
-        # All checks are done, create the collection based on the sets (and pk)
-        collection = set()
-        sets = self._lazy_collection['sets']
-
-        sort_options = self._prepare_sort_options()
-
-        if pk is not None and not sets and sort_options is None:
-            # we have a pk without other sets, and no needs to get values
-            # so we can simply return the pk
-            collection = set([pk])
-
-        else:
-            set_, delete_key = self._get_final_set()
-
-            if sort_options is not None:
-                # a sort, or values, call the SORT command on the set
-                collection = conn.sort(set_, **sort_options)
             else:
-                # no sort, nor values, simply return the full set
-                collection = conn.smembers(set_)
+                if pk is not None and not self.cls._redis_attr_pk.exists(pk):
+                    return []
 
-            if delete_key:
-                # we were asked to delete the set's key, a temporary one
-                conn.delete(set_)
+            # All checks are done, create the collection based on the sets (and pk)
+            collection = set()
+            sets = self._lazy_collection['sets']
 
-        if self._instances:
-            # we want instances, so create an object for each pk, without
-            # checking for pk existence if asked
-            result = [self.cls(pk, _skip_exist_test=self._instances_skip_exist_test)
-                                                                for pk in collection]
-        elif self._values and self._values['mode'] != 'flat':
-            # Regroup values in tuples or dicts for each "instance".
-            # Exemple: Given this result from redis: ['id1', 'name1', 'id2', 'name2']
-            # tuples: [('id1', 'name1'), ('id2', 'name2')]
-            # dicts:  [{'id': 'id1', 'name': 'name1'}, {'id': 'id2', 'name': 'name2'}]
-            result = zip(*([iter(collection)] * len(self._values['fields']['names'])))
-            if self._values['mode'] == 'dicts':
-                result = [dict(zip(self._values['fields']['names'], a_result))
-                                                    for a_result in result]
-        else:
-            # nothing particular to do with the result, simply return it as a list
-            result = list(collection)
+            sort_options = self._prepare_sort_options()
 
-        # cache the len for future use
-        self._len = len(result)
-        return result
+            if pk is not None and not sets and sort_options is None:
+                # we have a pk without other sets, and no needs to get values
+                # so we can simply return the pk
+                collection = set([pk])
+
+            else:
+                set_, delete_key = self._get_final_set()
+
+                if sort_options is not None:
+                    # a sort, or values, call the SORT command on the set
+                    collection = conn.sort(set_, **sort_options)
+                else:
+                    # no sort, nor values, simply return the full set
+                    collection = conn.smembers(set_)
+
+                if delete_key:
+                    # we were asked to delete the set's key, a temporary one
+                    conn.delete(set_)
+
+            if self._instances:
+                # we want instances, so create an object for each pk, without
+                # checking for pk existence if asked
+                result = [self.cls(pk, _skip_exist_test=self._instances_skip_exist_test)
+                                                                    for pk in collection]
+            elif self._values and self._values['mode'] != 'flat':
+                # Regroup values in tuples or dicts for each "instance".
+                # Exemple: Given this result from redis: ['id1', 'name1', 'id2', 'name2']
+                # tuples: [('id1', 'name1'), ('id2', 'name2')]
+                # dicts:  [{'id': 'id1', 'name': 'name1'}, {'id': 'id2', 'name': 'name2'}]
+                result = zip(*([iter(collection)] * len(self._values['fields']['names'])))
+                if self._values['mode'] == 'dicts':
+                    result = [dict(zip(self._values['fields']['names'], a_result))
+                                                        for a_result in result]
+            else:
+                # nothing particular to do with the result, simply return it as a list
+                result = list(collection)
+
+            # cache the len for future use
+            self._len = len(result)
+            return result
+
+        except:  # raise original exception
+            raise
+        finally:  # always reset the slice, having an exception or not
+            self._slice = {}
 
     def _prepare_sets(self):
         """
