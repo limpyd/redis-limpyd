@@ -126,7 +126,6 @@ class CollectionManager(object):
 
             # The collection fails (empty) if more than one pk or if the only one
             # doesn't exists
-            pk = None
             try:
                 pk = self._get_pk()
             except ValueError:
@@ -135,57 +134,73 @@ class CollectionManager(object):
                 if pk is not None and not self.cls._redis_attr_pk.exists(pk):
                     return []
 
-            # All checks are done, create the collection based on the sets (and pk)
-            collection = set()
-            sets = self._lazy_collection['sets']
-
+            # Create the collection based on the sets, pk and sort options
             sort_options = self._prepare_sort_options()
 
-            if pk is not None and not sets and sort_options is None:
+            if pk is not None and not self._lazy_collection['sets'] and not self._values:
                 # we have a pk without other sets, and no needs to get values
                 # so we can simply return the pk
                 collection = set([pk])
-
             else:
-                set_, delete_key = self._get_final_set()
-
-                if sort_options is not None:
-                    # a sort, or values, call the SORT command on the set
-                    collection = conn.sort(set_, **sort_options)
-                else:
-                    # no sort, nor values, simply return the full set
-                    collection = conn.smembers(set_)
-
+                # compute the sets and call redis te retrieve wanted values
+                final_set, delete_key = self._get_final_set()
+                collection = self._final_redis_call(final_set, sort_options)
                 if delete_key:
-                    # we were asked to delete the set's key, a temporary one
-                    conn.delete(set_)
+                    conn.delete(final_set)
 
+            # Format return values if needed
             if self._instances:
-                # we want instances, so create an object for each pk, without
-                # checking for pk existence if asked
-                result = [self.cls(pk, _skip_exist_test=self._instances_skip_exist_test)
-                                                                    for pk in collection]
+                result = self._to_instances(collection)
             elif self._values and self._values['mode'] != 'flat':
-                # Regroup values in tuples or dicts for each "instance".
-                # Exemple: Given this result from redis: ['id1', 'name1', 'id2', 'name2']
-                # tuples: [('id1', 'name1'), ('id2', 'name2')]
-                # dicts:  [{'id': 'id1', 'name': 'name1'}, {'id': 'id2', 'name': 'name2'}]
-                result = zip(*([iter(collection)] * len(self._values['fields']['names'])))
-                if self._values['mode'] == 'dicts':
-                    result = [dict(zip(self._values['fields']['names'], a_result))
-                                                        for a_result in result]
+                result = self._to_values(collection)
             else:
-                # nothing particular to do with the result, simply return it as a list
                 result = list(collection)
 
             # cache the len for future use
             self._len = len(result)
+
             return result
 
         except:  # raise original exception
             raise
         finally:  # always reset the slice, having an exception or not
             self._slice = {}
+
+    def _final_redis_call(self, final_set, sort_options):
+        """
+        The final redis call to obtain the values to return from the "final_set"
+        with some sort options.
+        """
+        conn = self.cls.get_connection()
+        if sort_options is not None:
+            # a sort, or values, call the SORT command on the set
+            return conn.sort(final_set, **sort_options)
+        else:
+            # no sort, nor values, simply return the full set
+            return conn.smembers(final_set)
+
+    def _to_instances(self, pks):
+        """
+        Returns a list of instances for each given pk, respecting the condition
+        about checking or not if a pk exists.
+        """
+        # we want instances, so create an object for each pk, without
+        # checking for pk existence if asked
+        return [self.cls(pk, _skip_exist_test=self._instances_skip_exist_test)
+                                                           for pk in pks]
+
+    def _to_values(self, collection):
+        """
+        Regroup values in tuples or dicts for each "instance".
+        Exemple: Given this result from redis: ['id1', 'name1', 'id2', 'name2']
+         tuples: [('id1', 'name1'), ('id2', 'name2')]
+         dicts:  [{'id': 'id1', 'name': 'name1'}, {'id': 'id2', 'name': 'name2'}]
+        """
+        result = zip(*([iter(collection)] * len(self._values['fields']['names'])))
+        if self._values['mode'] == 'dicts':
+            result = [dict(zip(self._values['fields']['names'], a_result))
+                                                for a_result in result]
+        return result
 
     def _prepare_sets(self):
         """
@@ -238,14 +253,21 @@ class CollectionManager(object):
             # more than one set, do an intersection on all of them in a new key
             # that will must be deleted once the collection is called.
             delete_set_later = True
-            final_set = self._unique_key()
-            conn.sinterstore(final_set, list(sets))
+            final_set = self._combine_sets(sets, self._unique_key())
 
         if tmp_keys:
             conn.delete(*tmp_keys)
 
         # return the final set to work on, and a flag if we later need to delete it
         return (final_set, delete_set_later)
+
+    def _combine_sets(self, sets, final_set):
+        """
+        Given a list of set, combine them to create the final set that will be
+        used to make the final redis call.
+        """
+        self.cls.get_connection().sinterstore(final_set, list(sets))
+        return final_set
 
     def __call__(self, **filters):
         return self._add_filters(**filters)
