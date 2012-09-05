@@ -134,6 +134,37 @@ class CollectionTest(CollectionBaseTest):
         self.assertEqual(len(Group.collection(manager=CollectionManager)), 2)
 
 
+class SliceTest(CollectionBaseTest):
+    """
+    Test slicing of a collection
+    """
+    def test_get_one_item(self):
+        collection = Boat.collection()
+        self.assertEqual(collection[0], '1')
+
+    def test_get_a_parts_of_the_collection(self):
+        collection = Boat.collection()
+        self.assertEqual(collection[1:3], ['2', '3'])
+
+    def test_get_the_end_of_the_collection(self):
+        collection = Boat.collection()
+        self.assertEqual(collection[1:], ['2', '3', '4'])
+
+    def test_using_netagive_index_should_work(self):
+        collection = Boat.collection().sort()
+        self.assertEqual(collection[-1], '4')
+        self.assertEqual(collection[-2:4], ['3', '4'])
+
+    def test_inexisting_slice_should_return_empty_collection(self):
+        collection = Boat.collection()
+        self.assertEqual(collection[5:10], [])
+
+    def test_slicing_is_reset_on_next_call(self):
+        collection = Boat.collection()
+        self.assertEqual(set(collection[1:]), set(['2', '3', '4']))
+        self.assertEqual(set(collection), set(['1', '2',  '3', '4']))
+
+
 class SortTest(CollectionBaseTest):
     """
     Test the sort() method.
