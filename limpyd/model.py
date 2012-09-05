@@ -325,7 +325,7 @@ class RedisModel(RedisProxyCommand):
                 elif len(result) > 1:
                     raise ValueError(u"More than one object matching filter: %s" % kwargs)
                 else:
-                    pk = result.pop()
+                    pk = result[0]
         else:
             raise ValueError("Invalid `get` usage with args %s and kwargs %s" % (args, kwargs))
         return cls(pk)

@@ -56,8 +56,12 @@ class CollectionManager(object):
             # and return the collection (a scliced collection is no more
             # chainable, so we do not return `self`)
             start = arg.start or 0
-            stop = arg.stop
+            if start < 0:
+                # in case of a negative start, we can't use redis sort so
+                # we fetch all the collection before returning the wanted slice
+                return self._collection[arg]
             self._slice['start'] = start
+            stop = arg.stop
             # Redis expects a number of elements
             # not a python style stop value
             if stop is None:
@@ -71,9 +75,13 @@ class CollectionManager(object):
             # Nevertheless, use the redis pagination, to minimize
             # data transfert and use the fast redis offset system
             start = arg
-            self._slice['start'] = start
-            self._slice['num'] = 1  # one element
-            return self._collection[0]
+            if start > 0:
+                self._slice['start'] = start
+                self._slice['num'] = 1  # one element
+                return self._collection[0]
+            else:
+                # negative index, we have to fetch the whole collection first
+                return self._collection[start]
 
     def _get_pk(self):
         """
@@ -254,9 +262,6 @@ class CollectionManager(object):
 
     def __repr__(self):
         return self._collection.__repr__()
-
-    def pop(self):
-        return self._collection.pop()
 
     def instances(self, skip_exist_test=False):
         """
