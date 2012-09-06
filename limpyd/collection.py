@@ -134,16 +134,19 @@ class CollectionManager(object):
                 if pk is not None and not self.cls._redis_attr_pk.exists(pk):
                     return []
 
-            # Create the collection based on the sets, pk and sort options
+            # Prepare options and final set to get/sort
             sort_options = self._prepare_sort_options()
+            final_set, delete_key = self._get_final_set(
+                                        self._lazy_collection['sets'],
+                                        pk, sort_options)
 
-            if pk is not None and not self._lazy_collection['sets'] and not self._values:
-                # we have a pk without other sets, and no needs to get values
-                # so we can simply return the pk
+            # fill the collection
+            if final_set is None:
+                # final_set is None if we have a pk without other sets, and no
+                # needs to get values so we can simply return the pk
                 collection = set([pk])
             else:
                 # compute the sets and call redis te retrieve wanted values
-                final_set, delete_key = self._get_final_set()
                 collection = self._final_redis_call(final_set, sort_options)
                 if delete_key:
                     conn.delete(final_set)
@@ -202,16 +205,16 @@ class CollectionManager(object):
                                                 for a_result in result]
         return result
 
-    def _prepare_sets(self):
+    def _prepare_sets(self, sets):
         """
         Return all sets in self._lazy_collection['sets'] to be ready to be used
         to intersect them. Called by _get_final_set, to use in subclasses.
         Must return a tuple with a set of redis set keys, and another with
         new temporary keys to drop at the end of _get_final_set
         """
-        return (self._lazy_collection['sets'], set())
+        return (sets, set())
 
-    def _get_final_set(self):
+    def _get_final_set(self, sets, pk, sort_options):
         """
         Called by _collection to get the final set to work on. Return the name
         of the set to use, and a flag if we have to delete it once the
@@ -219,41 +222,45 @@ class CollectionManager(object):
         ones)
         """
         conn = self.cls.get_connection()
-        sets = set()
+        all_sets = set()
         tmp_keys = set()
 
-        iter_sets = self._lazy_collection['sets']
-        pk = self._get_pk()
+        if pk is not None and not sets and not (sort_options and sort_options.get('get')):
+            # no final set if only a pk without values to retrieve
+            return (None, False)
 
-        if iter_sets or pk:
-            if iter_sets:
-                new_sets, new_tmp_keys = self._prepare_sets()
-                sets.update(new_sets)
+        elif sets or pk:
+            if sets:
+                new_sets, new_tmp_keys = self._prepare_sets(sets)
+                all_sets.update(new_sets)
                 tmp_keys.update(new_tmp_keys)
             if pk is not None:
                 # create a set with the pk to do intersection (and to pass it to
                 # the store command to retrieve values if needed)
                 tmp_key = self._unique_key()
                 conn.sadd(tmp_key, pk)
-                sets.add(tmp_key)
+                all_sets.add(tmp_key)
                 tmp_keys.add(tmp_key)
 
         else:
             # no sets or pk, use the whole collection instead
-            sets.add(self.cls._redis_attr_pk.collection_key)
+            all_sets.add(self.cls._redis_attr_pk.collection_key)
 
-        if len(sets) == 1:
+        if len(all_sets) == 1:
             # if we have only one set, we  delete the set after calling
             # collection only if it's a temporary one, and we do not delete
             # it right now
-            delete_set_later = bool(tmp_keys)
-            final_set = sets.pop()
-            tmp_keys = []
+            final_set = all_sets.pop()
+            if final_set in tmp_keys:
+                delete_set_later = True
+                tmp_keys.remove(final_set)
+            else:
+                delete_set_later = False
         else:
             # more than one set, do an intersection on all of them in a new key
             # that will must be deleted once the collection is called.
             delete_set_later = True
-            final_set = self._combine_sets(sets, self._unique_key())
+            final_set = self._combine_sets(all_sets, self._unique_key())
 
         if tmp_keys:
             conn.delete(*tmp_keys)
