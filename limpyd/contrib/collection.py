@@ -1,7 +1,7 @@
 # -*- coding:utf-8 -*-
 
 from limpyd.collection import CollectionManager
-from limpyd.fields import SetField, ListField, MultiValuesField
+from limpyd.fields import SetField, ListField, SortedSetField, MultiValuesField
 
 
 class ExtendedCollectionManager(CollectionManager):
@@ -32,18 +32,25 @@ class ExtendedCollectionManager(CollectionManager):
     def __init__(self, cls):
         super(ExtendedCollectionManager, self).__init__(cls)
         self._lazy_collection['intersects'] = set()
+        self._has_sortedsets = False
 
-    @property
-    def _collection(self):
+    def _get_final_set(self, sets, pk, sort_options):
+        """
+        Add intersects fo sets and call parent's _get_final_set
+        """
         if self._lazy_collection['intersects']:
             # if the intersect method was called, we had new sets to intersect
-            # to the global set of sets, and we had the set of the whole
+            # to the global set of sets.
+            # And it there is no real filters, we had the set of the whole
             # collection because we cannot be sure that entries in "intersects"
-            # are real primary keys
-            self._lazy_collection['sets'].update(self._lazy_collection['intersects'])
-            self._lazy_collection['sets'].add(self.cls._redis_attr_pk.collection_key)
+            # are all real primary keys
+            sets = sets.copy()
+            sets.update(self._lazy_collection['intersects'])
+            if not self._lazy_collection['sets']:
+                sets.add(self.cls._redis_attr_pk.collection_key)
 
-        return super(ExtendedCollectionManager, self)._collection
+        return super(ExtendedCollectionManager, self)._get_final_set(sets, pk,
+                                                                sort_options)
 
     def _call_script(self, script_name, keys=[], args=[]):
         """
@@ -56,12 +63,9 @@ class ExtendedCollectionManager(CollectionManager):
         script = self.__class__.scripts[script_name]
         if 'script_object' not in script:
             script['script_object'] = conn.register_script(script['lua'])
-        return script['script_object'](
-                                       keys=keys,
-                                       args=args,
-                                       client=conn)
+        return script['script_object'](keys=keys, args=args, client=conn)
 
-    def _prepare_sets(self):
+    def _prepare_sets(self, sets):
         """
         The original "_prepare_sets" method simple return the list of sets in
         _lazy_collection, know to be all keys of redis sets.
@@ -70,43 +74,43 @@ class ExtendedCollectionManager(CollectionManager):
         """
         conn = self.cls.get_connection()
 
-        sets = set()
+        all_sets = set()
         tmp_keys = set()
 
-        iter_sets = self._lazy_collection['sets']
-
-        for set_ in iter_sets:
+        for set_ in sets:
             if isinstance(set_, basestring):
-                sets.add(set_)
+                all_sets.add(set_)
             elif isinstance(set_, SetField):
-                sets.add(set_.key)
-            elif isinstance(set_, MultiValuesField):
-                # list or sorted set: convert it to a simple redis set
+                # Use the set key. If we need to intersect, we'll use
+                # sunionstore, and if not, store accepts set
+                all_sets.add(set_.key)
+            elif isinstance(set_, SortedSetField):
+                # Use the sorted set key. If we need to intersect, we'll use
+                # zinterstore, and if not, store accepts zset
+                all_sets.add(set_.key)
+            elif isinstance(set_, ListField):
+                # convert the list to a simple redis set
                 tmp_key = self._unique_key()
                 if self.cls.database.has_scripting():
                     # if we have scripting enabled (both redis.py and server)
                     # use eval to create the set atomically without retrieving
                     # all content on our side
-                    if isinstance(set_, ListField):
-                        script_name = 'list_to_set'
-                    else:
-                        script_name = 'zset_to_set'
-                    self._call_script(script_name, keys=[set_.key, tmp_key])
+                    self._call_script('list_to_set', keys=[set_.key, tmp_key])
                 else:
                     # no scripting, we have to fetch all values in the list/zset
                     # and then ut them back in a redis set.
                     members = set_.proxy_get()
                     conn.sadd(tmp_key, *members)
                 tmp_keys.add(tmp_key)
-                sets.add(tmp_key)
+                all_sets.add(tmp_key)
             elif isinstance(set_, tuple) and len(set_):
                 # if we got a list or set, create a redis set to hold its values
                 tmp_key = self._unique_key()
                 conn.sadd(tmp_key, *set_)
                 tmp_keys.add(tmp_key)
-                sets.add(tmp_key)
+                all_sets.add(tmp_key)
 
-        return sets, tmp_keys
+        return all_sets, tmp_keys
 
     def filter(self, **filters):
         """
@@ -141,6 +145,34 @@ class ExtendedCollectionManager(CollectionManager):
                                  'of a redis set), limpyd multi-values field ('
                                  'SetField, ListField or SortedSetField), or '
                                  'real python set, list or tuple' % set_)
+            if isinstance(set_, SortedSetField):
+                self._has_sortedsets = True
             sets_.add(set_)
+
         self._lazy_collection['intersects'].update(sets_)
         return self
+
+    def _combine_sets(self, sets, final_set):
+        """
+        Given a list of set, combine them to create the final set that will be
+        used to make the final redis call.
+        If we have a least a sorted set, use zinterstore insted of sunionstore
+        """
+        if self._has_sortedsets:
+            self.cls.get_connection().zinterstore(final_set, list(sets))
+        else:
+            final_set = super(ExtendedCollectionManager, self)._combine_sets(sets, final_set)
+        return final_set
+
+    def _final_redis_call(self, final_set, sort_options):
+        """
+        The final redis call to obtain the values to return from the "final_set"
+        with some sort options.
+        IIf we have at leaset a sorted set and if we don't have any sort
+        options, call zrange on the final set wich is the result of a call to
+        zinterstore.
+        """
+        if self._has_sortedsets and sort_options is None:
+            return self.cls.get_connection().zrange(final_set, 0, -1)
+        return super(ExtendedCollectionManager, self)._final_redis_call(
+                                                        final_set, sort_options)

@@ -126,10 +126,58 @@ class FilterTest(BaseTest):
 
 class IntersectTest(BaseTest):
 
+    redis_zinterstore = None
+    redis_sinterstore = None
+
+    @staticmethod
+    def zinterstore(*args, **kwargs):
+        """
+        Store arguments and call the real zinterstore command
+        """
+        IntersectTest.last_interstore_call = {
+            'command': 'zinterstore',
+            'sets': args[1]
+        }
+        return IntersectTest.redis_zinterstore(*args, **kwargs)
+
+    @staticmethod
+    def sinterstore(*args, **kwargs):
+        """
+        Store arguments and call the real sinterstore command
+        """
+        IntersectTest.last_interstore_call = {
+            'command': 'sinterstore',
+            'sets': args[1]
+        }
+        return IntersectTest.redis_sinterstore(*args, **kwargs)
+
+    def setUp(self):
+        """
+        Update the redis zinterstore and sinterstore commands to be able to
+        store locally arguments for testing them just after the commands are
+        called. Store the original command to call it after logging, and to
+        restore it in tearDown.
+        """
+        super(IntersectTest, self).setUp()
+        IntersectTest.last_interstore_call = {'command': None, 'sets': [], }
+        IntersectTest.redis_zinterstore = self.connection.zinterstore
+        self.connection.zinterstore = IntersectTest.zinterstore
+        IntersectTest.redis_sinterstore = self.connection.sinterstore
+        self.connection.sinterstore = IntersectTest.sinterstore
+
+    def tearDown(self):
+        """
+        Restore the zinterstore and sinterstore previously updated in setUp.
+        """
+        self.connection.zinterstore = IntersectTest.redis_zinterstore
+        self.connection.sinterstore = IntersectTest.redis_sinterstore
+        super(IntersectTest, self).tearDown()
+
     def test_intersect_should_accept_string(self):
         set_key = unique_key(self.connection)
         self.connection.sadd(set_key, 1, 2)
         collection = set(Group.collection().intersect(set_key))
+        self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
         self.assertEqual(collection, set(['1', '2']))
 
         set_key = unique_key(self.connection)
@@ -139,6 +187,7 @@ class IntersectTest(BaseTest):
 
     def test_intersect_should_accept_set(self):
         collection = set(Group.collection().intersect(set([1, 2])))
+        self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
         self.assertEqual(collection, set(['1', '2']))
 
         collection = set(Group.collection().intersect(set([1, 2, 10, 50])))
@@ -146,6 +195,7 @@ class IntersectTest(BaseTest):
 
     def test_intersect_should_accept_list(self):
         collection = set(Group.collection().intersect([1, 2]))
+        self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
         self.assertEqual(collection, set(['1', '2']))
 
         collection = set(Group.collection().intersect([1, 2, 10, 50]))
@@ -153,6 +203,7 @@ class IntersectTest(BaseTest):
 
     def test_intersect_should_accept_tuple(self):
         collection = set(Group.collection().intersect((1, 2)))
+        self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
         self.assertEqual(collection, set(['1', '2']))
 
         collection = set(Group.collection().intersect((1, 2, 10, 50)))
@@ -163,6 +214,7 @@ class IntersectTest(BaseTest):
 
         container.groups_set.sadd(1, 2)
         collection = set(Group.collection().intersect(container.groups_set))
+        self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
         self.assertEqual(collection, set(['1', '2']))
 
         container.groups_set.sadd(10, 50)
@@ -174,6 +226,7 @@ class IntersectTest(BaseTest):
 
         container.groups_list.lpush(1, 2)
         collection = set(Group.collection().intersect(container.groups_list))
+        self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
         self.assertEqual(collection, set(['1', '2']))
 
         container.groups_list.lpush(10, 50)
@@ -186,15 +239,14 @@ class IntersectTest(BaseTest):
 
         container.groups_list.lpush(1, 2)
         collection = set(Group.collection().intersect(container.groups_list))
+        self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
         self.assertEqual(collection, set(['1', '2']))
 
         container.groups_list.lpush(10, 50)
         collection = set(Group.collection().intersect(container.groups_list))
         self.assertEqual(collection, set(['1', '2']))
 
-    def test_intersect_should_accept_sortedsetfield_without_scripting(self):
-        test_database._has_scripting = False  # set to False to test without
-                                              # scripting
+    def test_intersect_should_accept_sortedsetfield(self):
         container = GroupsContainer()
 
         container.groups_sortedset.zadd(1.0, 1, 2.0, 2)
@@ -205,17 +257,32 @@ class IntersectTest(BaseTest):
         collection = set(Group.collection().intersect(container.groups_sortedset))
         self.assertEqual(collection, set(['1', '2']))
 
-    @unittest.skipUnless(test_database.has_scripting(), "Redis scripting not available")
-    def test_intersect_should_accept_sortedsetfield_via_scripting(self):
+    def test_passing_sortedset_in_intersect_use_zinterstore(self):
         container = GroupsContainer()
-
         container.groups_sortedset.zadd(1.0, 1, 2.0, 2)
-        collection = set(Group.collection().intersect(container.groups_sortedset))
-        self.assertEqual(collection, set(['1', '2']))
+        collection = Group.collection().intersect(container.groups_sortedset)
 
-        container.groups_sortedset.zadd(10.0, 10, 50.0, 50)
-        collection = set(Group.collection().intersect(container.groups_sortedset))
-        self.assertEqual(collection, set(['1', '2']))
+        # execute the collection
+        result = list(collection)
+        # check that we called an interstore
+        self.assertEqual(self.last_interstore_call['command'], 'zinterstore')
+        # check the intersection is done with the sorted set AND the whole
+        # collection, because we have no filters
+        self.assertIn(Group._redis_attr_pk.collection_key,
+                      self.last_interstore_call['sets'])
+        self.assertEqual(result, ['1', '2'])
+
+        # add a filter to the collection
+        collection.filter(public=1)
+        # execute the collection
+        result = list(collection)
+        # check that we called an interstore
+        self.assertEqual(self.last_interstore_call['command'], 'zinterstore')
+        # check the intersection is not done with the whole collection, but
+        # only the sorted set and the set from the filter
+        self.assertNotIn(Group._redis_attr_pk.collection_key,
+                         self.last_interstore_call['sets'])
+        self.assertEqual(result, ['1', ])
 
     def test_intersect_should_raise_if_unsupported_type(self):
         # unsupported type
@@ -236,6 +303,7 @@ class IntersectTest(BaseTest):
     def test_intersect_can_be_called_with_filter(self):
         collection = Group.collection(active=1).filter(public=1).intersect([1, 2, 3, 10])
         self.assertEqual(set(collection), set(['1']))
+        self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
         collection = collection.intersect([2, 3, 50])
         self.assertEqual(set(collection), set())
 
