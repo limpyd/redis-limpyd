@@ -28,7 +28,7 @@ class MetaRedisProxy(type):
     """
     This metaclass create the class normally, then takes a list of redis
     commands found in the "_commands" class attribute, and for each one
-    create the corresponding method if it not exists yet. Created methos simply
+    create the corresponding method if it not exists yet. Created methods simply
     call _call_command.
     """
 
@@ -45,8 +45,10 @@ class MetaRedisProxy(type):
         it._commands['all'] = it._commands['getters'].union(it._commands['modifiers'])
 
         # create a method for each command
-        for command_name in [c for c in it._commands['all'] if not hasattr(it, c)]:
-            setattr(it, command_name, it._make_command_method(command_name))
+        for command_name in it._commands['all']:
+            if not hasattr(it, command_name):
+                setattr(it, command_name, it._make_command_method(command_name))
+
         return it
 
 
@@ -164,7 +166,7 @@ class RedisField(RedisProxyCommand):
     Base class for all fields using redis data structures.
     """
     # The "_commands_to_proxy" dict take redis commands as keys, and proxy
-    # method names as values. There proxy_methods must take the real command
+    # method names as values. These proxy_methods must take the real command
     # name in first parameter, and a *args+**kwargs to pass needed values.
     # Their goal is to simplify management of values to index/deindex for simple
     # redis commands.
