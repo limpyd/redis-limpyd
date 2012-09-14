@@ -136,9 +136,9 @@ class CollectionManager(object):
 
             # Prepare options and final set to get/sort
             sort_options = self._prepare_sort_options()
-            final_set, delete_key = self._get_final_set(
-                                        self._lazy_collection['sets'],
-                                        pk, sort_options)
+            final_set, keys_to_delete = self._get_final_set(
+                                                self._lazy_collection['sets'],
+                                                pk, sort_options)
 
             # fill the collection
             if final_set is None:
@@ -148,10 +148,12 @@ class CollectionManager(object):
             else:
                 # compute the sets and call redis te retrieve wanted values
                 collection = self._final_redis_call(final_set, sort_options)
-                if delete_key:
-                    conn.delete(final_set)
+                if keys_to_delete:
+                    conn.delete(*keys_to_delete)
 
             # Format return values if needed
+            collection = self._prepare_results(collection)
+
             if self._instances:
                 result = self._to_instances(collection)
             elif self._values and self._values['mode'] != 'flat':
@@ -205,6 +207,13 @@ class CollectionManager(object):
                                                 for a_result in result]
         return result
 
+    def _prepare_results(self, results):
+        """
+        Called in _collection to prepare results from redis before returning
+        them. Does nothing here, but can be useful in subclasses.
+        """
+        return results
+
     def _prepare_sets(self, sets):
         """
         Return all sets in self._lazy_collection['sets'] to be ready to be used
@@ -217,9 +226,8 @@ class CollectionManager(object):
     def _get_final_set(self, sets, pk, sort_options):
         """
         Called by _collection to get the final set to work on. Return the name
-        of the set to use, and a flag if we have to delete it once the
-        collection really called (in case of a computed set based on multiple
-        ones)
+        of the set to use, and a list of keys to delete once the collection is
+        really called (in case of a computed set based on multiple ones)
         """
         conn = self.cls.get_connection()
         all_sets = set()
@@ -266,7 +274,7 @@ class CollectionManager(object):
             conn.delete(*tmp_keys)
 
         # return the final set to work on, and a flag if we later need to delete it
-        return (final_set, delete_set_later)
+        return (final_set, [final_set] if delete_set_later else None)
 
     def _combine_sets(self, sets, final_set):
         """

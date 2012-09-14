@@ -1,7 +1,10 @@
 # -*- coding:utf-8 -*-
 
+from itertools import islice, chain
+
 from limpyd.collection import CollectionManager
 from limpyd.fields import SetField, ListField, SortedSetField, MultiValuesField
+from limpyd.contrib.database import PipelineDatabase
 
 
 class ExtendedCollectionManager(CollectionManager):
@@ -33,24 +36,7 @@ class ExtendedCollectionManager(CollectionManager):
         super(ExtendedCollectionManager, self).__init__(cls)
         self._lazy_collection['intersects'] = set()
         self._has_sortedsets = False
-
-    def _get_final_set(self, sets, pk, sort_options):
-        """
-        Add intersects fo sets and call parent's _get_final_set
-        """
-        if self._lazy_collection['intersects']:
-            # if the intersect method was called, we had new sets to intersect
-            # to the global set of sets.
-            # And it there is no real filters, we had the set of the whole
-            # collection because we cannot be sure that entries in "intersects"
-            # are all real primary keys
-            sets = sets.copy()
-            sets.update(self._lazy_collection['intersects'])
-            if not self._lazy_collection['sets']:
-                sets.add(self.cls._redis_attr_pk.collection_key)
-
-        return super(ExtendedCollectionManager, self)._get_final_set(sets, pk,
-                                                                sort_options)
+        self._sort_by_sortedset = None
 
     def _call_script(self, script_name, keys=[], args=[]):
         """
@@ -64,6 +50,28 @@ class ExtendedCollectionManager(CollectionManager):
         if 'script_object' not in script:
             script['script_object'] = conn.register_script(script['lua'])
         return script['script_object'](keys=keys, args=args, client=conn)
+
+    def _list_to_set(self, list_field, set_key):
+        """
+        Store all content of the given ListField in a redis set.
+        Use scripting if available to avoid retrieving all values locally from
+        the list before sending them back to the set
+        """
+        if self.cls.database.has_scripting():
+            self._call_script('list_to_set', keys=[list_field.key, set_key])
+        else:
+            self.cls.get_connection().sadd(set_key, *list_field.lmembers())
+
+    def _sortedset_to_set(self, sortedset_field, set_key):
+        """
+        Store all content of the given SortedSetField in a redis set.
+        Use scripting if available to avoid retrieving all values locally from
+        the sorted set before sending them back to the set
+        """
+        if self.cls.database.has_scripting():
+            self._call_script('zset_to_set', keys=[sortedset_field.key, set_key])
+        else:
+            self.cls.get_connection().sadd(set_key, *sortedset_field.zmembers())
 
     def _prepare_sets(self, sets):
         """
@@ -91,16 +99,7 @@ class ExtendedCollectionManager(CollectionManager):
             elif isinstance(set_, ListField):
                 # convert the list to a simple redis set
                 tmp_key = self._unique_key()
-                if self.cls.database.has_scripting():
-                    # if we have scripting enabled (both redis.py and server)
-                    # use eval to create the set atomically without retrieving
-                    # all content on our side
-                    self._call_script('list_to_set', keys=[set_.key, tmp_key])
-                else:
-                    # no scripting, we have to fetch all values in the list/zset
-                    # and then ut them back in a redis set.
-                    members = set_.proxy_get()
-                    conn.sadd(tmp_key, *members)
+                self._list_to_set(set_, tmp_key)
                 tmp_keys.add(tmp_key)
                 all_sets.add(tmp_key)
             elif isinstance(set_, tuple) and len(set_):
@@ -176,3 +175,175 @@ class ExtendedCollectionManager(CollectionManager):
             return self.cls.get_connection().zrange(final_set, 0, -1)
         return super(ExtendedCollectionManager, self)._final_redis_call(
                                                         final_set, sort_options)
+
+    def sort(self, **parameters):
+        """
+        Enhance the default sort method to accept a new parameter "by_score", to
+        use instead of "by" if you want to sort by the score of a sorted set.
+        You must pass to "by_sort" the key of a redis sorted set (or a
+        sortedSetField attached to an instance)
+        """
+        self._sort_by_sortedset = None
+        is_sortedset = False
+        if parameters.get('by_score'):
+            if parameters.get('by'):
+                raise ValueError("You can't use `by` and `by_score` in the same "
+                                 "call to `sort`.")
+            by = parameters.get('by_score', None)
+            if isinstance(by, SortedSetField) and getattr(by, '_instance', None):
+                by = by.key
+            elif not isinstance(by, basestring):
+                by = None
+
+            if by is None:
+                raise ValueError('To sort by sorted set, you must pass a '
+                                 'SortedSetFied (attached to a model) or a '
+                                 'string representing the key of a redis zset '
+                                 'to the `by_score` named argument')
+            is_sortedset = True
+            parameters['by'] = by
+
+        super(ExtendedCollectionManager, self).sort(**parameters)
+
+        if is_sortedset:
+            self._sort_by_sortedset = self._sort
+            self._sort = None
+
+        return self
+
+    def _zset_to_keys(self, key, values=None, alpha=False):
+        """
+        Convert a redis sorted set to a list of keys, to be used by sort.
+        Each key is on the following format, for each value in the sorted set:
+            ramdom_string:value-in-the-sorted-set => score-of-the-value
+        The random string is the same for all keys.
+        If values is not None, only these values from the sorted set are saved
+        as keys.
+        If a value in values is not on the sorted set, it's still saved as a key
+        but with a default value ('' is alpha is True, else '-inf')
+        """
+        conn = self.cls.get_connection()
+        default = '' if alpha else '-inf'
+        if values is None:
+            # no values given, we get scores from the whole sorted set
+            result = conn.zrange(key, start=0, end=-1, withscores=True)
+            values = list(islice(chain.from_iterable(result), 0, None, 2))
+        else:
+            # we have values, we'll get only their scores
+
+            if isinstance(self.cls.database, PipelineDatabase):
+                # if available, use the pipeline of our database to get all
+                # scores in one redis call
+                with self.cls.database.pipeline(transaction=False) as pipe:
+                    for value in values:
+                        pipe.zscore(key, value)
+                    scores = pipe.execute()
+            else:
+                # no pipeline, we have to do a call for each value
+                scores = []
+                for value in values:
+                    scores.append(conn.zscore(key, value))
+
+            # combine values and scores in one list
+            result = []
+            for index, value in enumerate(values):
+                score = scores[index]
+                if score is None:
+                    score = default
+                result.append((value, score))
+
+        # create a temporary key for each (value,score) tuple
+        base_tmp_key = self._unique_key()
+        conn.set(base_tmp_key, 'working...')  # only to "reserve" the main tmp key
+        tmp_keys = []
+        # use a mapping dict (tmp_key_with_value=>score) to use in mset
+        mapping = {}
+        for value, score in result:
+            tmp_key = '%s:%s' % (base_tmp_key, value)
+            tmp_keys.append(tmp_key)
+            mapping[tmp_key] = score
+        # set all keys in one call
+        conn.mset(mapping)
+
+        return base_tmp_key, tmp_keys
+
+    def _prepare_sort_by_score(self, values, sort_options):
+        """
+        Create the key to sort on the sorted set references in
+        self._sort_by_sortedset and adapte sort options
+        """
+        # create the keys
+        base_tmp_key, tmp_keys = self._zset_to_keys(
+                                    key=self._sort_by_sortedset['by'],
+                                    values=values,
+                                    )
+        # ask to sort on our new keys
+        sort_options['by'] = '%s:*' % base_tmp_key
+        # retrieve original sort parameters
+        for key in ('desc', 'alpha'):
+            if key in self._sort_by_sortedset:
+                sort_options[key] = self._sort_by_sortedset[key]
+
+        return base_tmp_key, tmp_keys
+
+    def _prepare_results(self, results):
+        """
+        Sort results by score if not done before (faster, if we have no values to
+        retrieve, or slice)
+        """
+        # if we want a result sorted by a score, and if we have a full result
+        # (no slice or values), we can do it know, by creating keys for each 
+        # values with the sorted set score, and sort on them
+        if self._sort_by_sortedset and not (self._slice or self._values) and len(results) > 1:
+            conn = self.cls.get_connection()
+
+            sort_params = {}
+            base_tmp_key, tmp_keys = self._prepare_sort_by_score(results, sort_params)
+
+            # compose the set to sort
+            final_set = '%s_final_set' % base_tmp_key
+            conn.sadd(final_set, *results)
+
+            # apply the sort
+            results = conn.sort(final_set, **sort_params)
+
+            # finally delete all temporary keys
+            conn.delete(*(tmp_keys + [final_set, base_tmp_key]))
+
+        return results
+
+    def _get_final_set(self, sets, pk, sort_options):
+        """
+        Add intersects fo sets and call parent's _get_final_set.
+        If we have to sort by sorted score, and we have a slice or want values,
+        we have to convert the whole sorted set to keys now.
+        """
+        if self._lazy_collection['intersects']:
+            # if the intersect method was called, we had new sets to intersect
+            # to the global set of sets.
+            # And it there is no real filters, we had the set of the whole
+            # collection because we cannot be sure that entries in "intersects"
+            # are all real primary keys
+            sets = sets.copy()
+            sets.update(self._lazy_collection['intersects'])
+            if not self._lazy_collection['sets']:
+                sets.add(self.cls._redis_attr_pk.collection_key)
+
+        final_set, keys_to_delete_later = super(ExtendedCollectionManager,
+                                    self)._get_final_set(sets, pk, sort_options)
+
+        # if we have a slice and we want to sort by the score of a sorted set,
+        # as redis sort command doesn't handle this, we have to create keys for
+        # each value of the sorted set and sort on them
+        # @antirez, y u don't allow this !!??!!
+        if self._sort_by_sortedset and (self._slice or self._values):
+            # TODO: if we have filters, maybe apply _zet_to_keys to only
+            #       intersected values
+            base_tmp_key, tmp_keys = self._prepare_sort_by_score(None, sort_options)
+            # new keys have to be deleted once the final sort is done
+            if not keys_to_delete_later:
+                keys_to_delete_later = []
+            keys_to_delete_later.append(base_tmp_key)
+            keys_to_delete_later += tmp_keys
+
+        return final_set, keys_to_delete_later
