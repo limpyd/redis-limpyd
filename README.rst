@@ -754,6 +754,50 @@ If you want to retrieve already instanciated objects, instead of only primary ke
     >>> Person.collection(firstname='John').sort(by='lastname', alpha=True).instances()[0]
     [<[2] John Doe (1965)>
 
+Note that for each primary key got from redis, a real instance is created, with a check for pk existence. As it can lead to a lot of redis calls (one for each instance), if you are sure that all primary keys really exists (it must be the case if nothing special was done), you can skip these tests by passing the `skip_exist_test` named argument to True when calling `instances`::
+
+    >>> Person.collection().instances(skip_exist_test=True)
+
+Note that when you'll update an instance got with `skip_exist_test` set to True, the existence of the primary key will be done before the update, raising an exception if not found.
+
+
+Retrieving values
+=================
+
+If you don't want only primary keys, but instances are too much, or too slow, you can ask the collection to return values with two methods: `values` and `values_list` (inspired by django)
+
+It can be really useful to quickly iterate on all results when you, for example, only need to display simple values.
+
+**values**
+
+When calling `values` on a collection, the result of the collection is not a list of primary keys, but a list of dictionaries, one for each matching entry, with each field passed as argument. If no field is passed, all fields are retrieved. Note that only simple fields (PKField_, StringField_ and HashableField_) are concerned.
+
+Example::
+
+    >>> Person.collection(firstname='John').values()
+    [{'pk': '1', 'firstname': 'John', 'lastname': 'Smith', 'birth_year': '1960'}, {'pk': '2', 'firstname': 'John', 'lastname': 'Doe', 'birth_year': '1965'}]
+    >>> Person.collection(firstname='John').values('pk', 'lastname')
+    [{'pk': '1', 'lastname': 'Smith'}, {'pk': '2', 'lastname': 'Doe'}]
+
+
+**values_list**
+
+The `values_list` method works the same as `values` but instead of having the collection return a list of dictionaries, it will return a list of tuples with values for asked fields, in the same order as they are passed as arguments. If no field is passed, all fields are retrieved in the same order as they are defined in the model.
+
+Example::
+
+    >>> Person.collection(firstname='John').values_list()
+    [('1', 'John', 'Smith', '1960'), (2', 'John', 'Doe', '1965')]
+    >>> Person.collection(firstname='John').values_list('pk', 'lastname')
+    [('1', 'Smith'), ('2', 'Doe')]
+
+If you want to retrieve a single field, you can ask to get a flat list as a final result, by passing the `flat` named argument to True::
+
+    >>> Person.collection(firstname='John').values_list('pk', 'lastname')  # without flat
+    [('Smith', ), ('Doe', )]
+    >>> Person.collection(firstname='John').values_list('lastname', flat=True)  # with flat
+    ['Smith', 'Doe']
+
 
 Lazyness
 ========
