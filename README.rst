@@ -70,6 +70,7 @@ In the following documentation you'll find these topics:
 - Contrib_
     - `Related fields`_
     - Pipelines_
+    - `Extended collection`_
     
 
 
@@ -835,6 +836,29 @@ But if you do something like::
 nothing will be done while results is not printed, iterated...
 
 
+Subclassing
+===========
+
+The collection stuff is managed by a class named `CollectionManager`, available in `limpyd.collection`.
+
+If you want to use another class (you own subclass or one provided in contrib, see `Extended collection`_), you can do it simple by declaring the `collection_manager` attribute of the model::
+
+    class MyOwnCollectionManager(CollectionManager):
+        pass
+
+    class Person(model.RedisModel):
+        database = main_database
+        collection_manager = MyOwnCollectionManager
+
+        firstname = fields.HashableField(indexable=True)
+        lastname = fields.HashableField(indexable=True)
+        birth_year = fields.HashableField(indexable=True)
+
+You can also do it on each call to the `collection` method, by passing the class to the `manager` argument (useful if you want to keep the default manager in the model)::
+
+    >>> Person.collection(firstname='John', manager=MyOwnCollectionManager)
+
+
 
 *****
 Cache
@@ -901,6 +925,7 @@ To keep the core of `limpyd`, say, "limpid", we limited what it contains. But we
 
 - `Related fields`_
 - Pipelines_
+- `Extended collection`_
 
 
 Related fields
@@ -1271,3 +1296,95 @@ The `transaction` method returns the value returned by the execution of its inte
 
 Note that as for the `pipeline` method, you cannot update indexables fields in the transaction because read commands are used to update them.
 
+
+.. _ExtendedCollectionManager:
+
+Extended collection
+===================
+
+Although the standard collection may be sufficient in most cases, we added an ExtendedCollectionManager_ in contrib, which enhance the base one with some useful stuff:
+
+- ability to chain filters
+- ability to intersect the final result with a list of primary keys
+- ability to sort by the score of a sorted set
+
+To use this ExtendedCollectionManager_, declare it as seen in Subclassing_.
+
+All of these new capabilities are described below:
+
+
+Chaining filters
+----------------
+
+With the standard collection, you can chain method class but you cannot add more filters than the ones defined in the `collecion` method. The only way was to create a dictionary, populate it, then pass it as named arguments::
+
+    >>> filters = {'firstname': 'John'}
+    >>> if want_to_filter_by_city:
+    >>>     filters['city'] = 'New York'
+    >>> collection = Person.collection(**filters)
+
+With the ExtendedCollectionManager_ available in `contrib.collection`, you can add filters after the initial call::
+
+    >>> collection = Person.collection(firstname='John')
+    >>> if want_to_filter_by_city:
+    >>>     collection.filter(city='New York')
+
+`filter` return the collection object itself, so it can be chained.
+
+Note that all filters are ANDed, so if you pass two filters on the same field, you may have an empty result.
+
+
+Intersections
+-------------
+
+Say you already have a list of primary keys, maybe got from a previous filter, and you want to get a collection with some filters but matching this list. With ExtendedCollectionManager_, you can easily do this with the `intersect` method.
+
+This `intersect` method takes a list of primary keys and will intersect, if possible at the Redis_ level, the result with this list.
+
+`intersect` return the collection itself, so it can be chained, as all methods of a collection. You may call this method many times to intersect many lists, but you can also pass many lists in one `intersect` call.
+
+Here is an example::
+
+    >>> my_friends = [1, 2, 3]
+    >>> john_people = list(Person.collection(firstname='John'))
+    >>> my_john_friends_in_newyork = Person.collection(city='New York').intersect(john_people, my_friends)
+
+`intersect` is powerful as it can handle a lot of data types:
+
+- a python list
+- a python set
+- a python tuple
+- a string, which must be the key of a Redis_ set (cannot be a list of sorted set for now)
+- a `limpyd` SetField_, attached to a model
+- a `limpyd` ListField_, attached to a model
+- a `limpyd` SortedSetField_, attached to a model
+
+Imagine you have a list of friends in a SetField_, you can directly use it to intersect::
+
+    >>> # current_user is an instance of a model, and friends a SetField_
+    >>> Person.collection(city='New York').intersect(current_user.friends)
+
+
+Sort by score
+-------------
+
+Sorted sets in Redis_ are a powerful feature, as it can store a list of data sorted by a score. Unfortunately, we can't use this score to sort via the Redis_ `sort` command, which is used in `limpyd` to sort collections.
+
+With ExtendedCollectionManager_, you can do this using the `sort` method, but with the new `by_score` named argument, instead of the `by` one used in simple sort.
+
+The `by_score` argument accepts a string which must be the key of a Redis_ sorted set, or a SortedSetField_ (attached to an instance)
+
+Say you have a list of friends in a sorted set, with the date you met them as a score. And you want to find ones that are in you city, but keep them sorted by the date you met them, ie the score of the sorted set. You can do this this way::
+
+    # current_user is an instance of a model, with city a field holding a city name
+    # and friends, a sorted_set with Person's primary keys as value, and the date 
+    # the current_user met them as score.
+    
+    >>> # start by filtering by city
+    >>> collection = Person.collection(city=current_user.city.get())
+    >>> # then intersect with friends
+    >>> collection.intersect(current_user.friends)
+    >>> # finally keep sorting by friends meet date
+    >>> collection.sort(by_score=current_user.friends)
+
+With the sort by score, as you have to use the `sort` method, you can still use the `alpha` and `desc` arguments (see Sorting_)
