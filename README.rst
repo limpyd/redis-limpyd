@@ -1307,6 +1307,7 @@ Although the standard collection may be sufficient in most cases, we added an Ex
 - ability to chain filters
 - ability to intersect the final result with a list of primary keys
 - ability to sort by the score of a sorted set
+- ability to pass fields on some methods
 
 To use this ExtendedCollectionManager_, declare it as seen in Subclassing_.
 
@@ -1388,3 +1389,16 @@ Say you have a list of friends in a sorted set, with the date you met them as a 
     >>> collection.sort(by_score=current_user.friends)
 
 With the sort by score, as you have to use the `sort` method, you can still use the `alpha` and `desc` arguments (see Sorting_)
+
+
+Passing fields
+--------------
+
+In the standard collection, you must never pass fields, only names and values, depending on the methods.
+In the `contrib` module, we already allow passing fields in some place, as to set FK and M2M in `Related fields`_.
+
+Now you can do this also in collection (if you use ExtendedCollectionManager_):
+
+- the `by` argument of the `sort` method can be a field, and not only a field name
+- the `by_score` arguement of the `sort` method can be a SortedSetField_ (attached to an instance), not only the key of a Redis_ sorted set
+- arguments of the `intersect` method can be python list(etc...) but also multi-values RedisField_

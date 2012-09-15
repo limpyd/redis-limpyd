@@ -3,7 +3,7 @@
 from itertools import islice, chain
 
 from limpyd.collection import CollectionManager
-from limpyd.fields import SetField, ListField, SortedSetField, MultiValuesField
+from limpyd.fields import SetField, ListField, SortedSetField, MultiValuesField, RedisField
 from limpyd.contrib.database import PipelineDatabase
 
 
@@ -202,6 +202,12 @@ class ExtendedCollectionManager(CollectionManager):
                                  'to the `by_score` named argument')
             is_sortedset = True
             parameters['by'] = by
+
+        else:
+            # allow passing a field, not only a field name
+            by = parameters.get('by')
+            if by and isinstance(by, RedisField):
+                parameters['by'] = by.name
 
         super(ExtendedCollectionManager, self).sort(**parameters)
 

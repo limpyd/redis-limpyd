@@ -80,6 +80,18 @@ class CompatibilityTest(BaseTest):
         self.assertEqual(active_names, ['bar', 'foo'])
 
 
+class EnhancementTest(BaseTest):
+
+    def test_sort_should_accept_field_or_fieldname(self):
+        # test with field name
+        groups = list(Group.collection().sort(by='name', alpha=True).values_list('name', flat=True))
+        self.assertEqual(groups, ['bar', 'baz', 'foo', 'qux'])
+        # test with field
+        name_field = self.groups[0].name
+        groups = list(Group.collection().sort(by=name_field, alpha=True).values_list('name', flat=True))
+        self.assertEqual(groups, ['bar', 'baz', 'foo', 'qux'])
+
+
 class FilterTest(BaseTest):
 
     def test_filter_method_should_add_filter(self):
