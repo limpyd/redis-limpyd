@@ -1401,4 +1401,5 @@ Now you can do this also in collection (if you use ExtendedCollectionManager_):
 
 - the `by` argument of the `sort` method can be a field, and not only a field name
 - the `by_score` arguement of the `sort` method can be a SortedSetField_ (attached to an instance), not only the key of a Redis_ sorted set
-- arguments of the `intersect` method can be python list(etc...) but also multi-values RedisField_
+- arguments of the `intersect` method can be python list(etc...) but also multi-values `RedisField`
+- the right part of filters (passed when calling `collection` or `filter`) can also be a `RedisField`, not only a value. If a `RedisField` (specifically a `SingleValueField`), its value will be fetched from Redis_ only when the collection will be really called

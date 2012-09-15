@@ -3,7 +3,8 @@
 from itertools import islice, chain
 
 from limpyd.collection import CollectionManager
-from limpyd.fields import SetField, ListField, SortedSetField, MultiValuesField, RedisField
+from limpyd.fields import (SetField, ListField, SortedSetField, MultiValuesField,
+                           RedisField, SingleValueField, PKField)
 from limpyd.contrib.database import PipelineDatabase
 
 
@@ -88,6 +89,12 @@ class ExtendedCollectionManager(CollectionManager):
         for set_ in sets:
             if isinstance(set_, basestring):
                 all_sets.add(set_)
+            elif isinstance(set_, SingleValueField):
+                # If a simple field, we retrieve the actual value to get the
+                # set to use
+                value = set_.proxy_get()
+                key = set_.index_key(value)
+                all_sets.add(key)
             elif isinstance(set_, SetField):
                 # Use the set key. If we need to intersect, we'll use
                 # sunionstore, and if not, store accepts set
@@ -298,7 +305,7 @@ class ExtendedCollectionManager(CollectionManager):
         retrieve, or slice)
         """
         # if we want a result sorted by a score, and if we have a full result
-        # (no slice or values), we can do it know, by creating keys for each 
+        # (no slice or values), we can do it know, by creating keys for each
         # values with the sorted set score, and sort on them
         if self._sort_by_sortedset and not (self._slice or self._values) and len(results) > 1:
             conn = self.cls.get_connection()
@@ -353,3 +360,37 @@ class ExtendedCollectionManager(CollectionManager):
             keys_to_delete_later += tmp_keys
 
         return final_set, keys_to_delete_later
+
+    def _add_filters(self, **filters):
+        """
+        In addition to the normal _add_filters, this one accept RedisField objects
+        on the right part of a filter. The value will be fetched from redis when
+        calling the collection.
+        """
+        string_filters = filters.copy()
+
+        for field_name, value in filters.iteritems():
+            if isinstance(value, RedisField):
+                if not isinstance(value, SingleValueField) or getattr(value, '_instance', None) is None:
+                    raise ValueError('The right part of a filter must be a '
+                                     'a value, or a simple value field attached '
+                                     'to an instance')
+                if isinstance(value, PKField):
+                    self._lazy_collection['pks'].add(value)
+                else:
+                    self._lazy_collection['sets'].add(value)
+                string_filters.pop(field_name)
+
+        super(ExtendedCollectionManager, self)._add_filters(**string_filters)
+
+        return self
+
+    def _get_pk(self):
+        """
+        Override the default _get_pk method to retrieve the real pk value if we
+        have a PKField instead of a pk value
+        """
+        pk = super(ExtendedCollectionManager, self)._get_pk()
+        if pk is not None and isinstance(pk, PKField):
+            pk = pk.get()
+        return pk

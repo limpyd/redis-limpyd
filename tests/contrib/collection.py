@@ -80,7 +80,7 @@ class CompatibilityTest(BaseTest):
         self.assertEqual(active_names, ['bar', 'foo'])
 
 
-class EnhancementTest(BaseTest):
+class FieldOrValueTest(BaseTest):
 
     def test_sort_should_accept_field_or_fieldname(self):
         # test with field name
@@ -90,6 +90,19 @@ class EnhancementTest(BaseTest):
         name_field = self.groups[0].name
         groups = list(Group.collection().sort(by=name_field, alpha=True).values_list('name', flat=True))
         self.assertEqual(groups, ['bar', 'baz', 'foo', 'qux'])
+
+    def test_filter_should_accept_field_or_value(self):
+        group = Group(name='aaa')
+        collection = Group.collection(name=group.name)  # pass the name, but value will be get when calling the collection
+        group.name.hset('foo')
+        attended = set(['1', group.pk.get()])
+        self.assertEqual(set(collection), attended)
+
+    def test_filter_should_accept_pkfield_or_pkvalue(self):
+        group = Group()
+        collection = Group.collection(pk=group.pk)  # pass the pk, but value will be get when calling the collection
+        group.name.hset('aaa')  # create a pk for the object
+        self.assertEqual(list(collection), [group.pk.get()])
 
 
 class FilterTest(BaseTest):
