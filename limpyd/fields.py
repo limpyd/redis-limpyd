@@ -513,7 +513,14 @@ class RedisField(RedisProxyCommand):
         )
 
 
-class StringField(RedisField):
+class SingleValueField(RedisField):
+    """
+    A simple parent class for StringField, HashableField and PKField, all field
+    types handling a single value.
+    """
+    pass
+
+class StringField(SingleValueField):
 
     proxy_getter = "get"
     proxy_setter = "set"
@@ -760,7 +767,7 @@ class ListField(MultiValuesField):
         return self._call_command('lset', index, value, _to_index=[value], _to_deindex=to_deindex)
 
 
-class HashableField(RedisField):
+class HashableField(SingleValueField):
     """Field stored in the parent object hash."""
 
     proxy_getter = "hget"
@@ -825,7 +832,7 @@ class HashableField(RedisField):
         return (args, kwargs, {'_to_index': [value], '_to_deindex': None})
 
 
-class PKField(RedisField):
+class PKField(SingleValueField):
     """
     This type of field is used as a primary key.
     There must be one, and only one instance of this field (or a subclass) on a
