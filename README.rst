@@ -70,6 +70,7 @@ In the following documentation you'll find these topics:
 - Contrib_
     - `Related fields`_
     - Pipelines_
+    - `Extended collection`_
     
 
 
@@ -416,6 +417,17 @@ It's up to you to associate names and values, but you can find an example below:
     >>> example.hmget_dict('foo', 'bar')
     {'bar': 'BAR', 'foo': 'FOO'}
 
+You can pass arguments to `hmget` in two ways:
+
+- as a list (as the `hmget` call in `redis-py`_)::
+
+    >>> example.hmget(['foo', 'bar'])
+
+- as simple arguments (as calls of other methods in `redis-py`_)::
+
+    >>> example.hmget('foo', 'bar')
+
+
 hmset
 """""
 
@@ -429,6 +441,17 @@ Example (with same model as for hmget_)::
     True
     >>> example.hmget('foo', 'bar')
     ['FOO', 'BAR']
+
+You can pass arguments to `hmset` in two ways:
+
+- as a dictionary (as the `hmset` call in `redis-py`_)::
+
+    >>> example.hmset({'foo': 'FOO', 'bar': 'BAR'})
+
+- as named arguments (as calls of other methods in `redis-py`_)::
+
+    >>> example.hmset(foo='FOO', bar='BAR')
+
 
 
 SetField
@@ -754,6 +777,50 @@ If you want to retrieve already instanciated objects, instead of only primary ke
     >>> Person.collection(firstname='John').sort(by='lastname', alpha=True).instances()[0]
     [<[2] John Doe (1965)>
 
+Note that for each primary key got from redis, a real instance is created, with a check for pk existence. As it can lead to a lot of redis calls (one for each instance), if you are sure that all primary keys really exists (it must be the case if nothing special was done), you can skip these tests by passing the `skip_exist_test` named argument to True when calling `instances`::
+
+    >>> Person.collection().instances(skip_exist_test=True)
+
+Note that when you'll update an instance got with `skip_exist_test` set to True, the existence of the primary key will be done before the update, raising an exception if not found.
+
+
+Retrieving values
+=================
+
+If you don't want only primary keys, but instances are too much, or too slow, you can ask the collection to return values with two methods: `values` and `values_list` (inspired by django)
+
+It can be really useful to quickly iterate on all results when you, for example, only need to display simple values.
+
+**values**
+
+When calling `values` on a collection, the result of the collection is not a list of primary keys, but a list of dictionaries, one for each matching entry, with each field passed as argument. If no field is passed, all fields are retrieved. Note that only simple fields (PKField_, StringField_ and HashableField_) are concerned.
+
+Example::
+
+    >>> Person.collection(firstname='John').values()
+    [{'pk': '1', 'firstname': 'John', 'lastname': 'Smith', 'birth_year': '1960'}, {'pk': '2', 'firstname': 'John', 'lastname': 'Doe', 'birth_year': '1965'}]
+    >>> Person.collection(firstname='John').values('pk', 'lastname')
+    [{'pk': '1', 'lastname': 'Smith'}, {'pk': '2', 'lastname': 'Doe'}]
+
+
+**values_list**
+
+The `values_list` method works the same as `values` but instead of having the collection return a list of dictionaries, it will return a list of tuples with values for asked fields, in the same order as they are passed as arguments. If no field is passed, all fields are retrieved in the same order as they are defined in the model.
+
+Example::
+
+    >>> Person.collection(firstname='John').values_list()
+    [('1', 'John', 'Smith', '1960'), (2', 'John', 'Doe', '1965')]
+    >>> Person.collection(firstname='John').values_list('pk', 'lastname')
+    [('1', 'Smith'), ('2', 'Doe')]
+
+If you want to retrieve a single field, you can ask to get a flat list as a final result, by passing the `flat` named argument to True::
+
+    >>> Person.collection(firstname='John').values_list('pk', 'lastname')  # without flat
+    [('Smith', ), ('Doe', )]
+    >>> Person.collection(firstname='John').values_list('lastname', flat=True)  # with flat
+    ['Smith', 'Doe']
+
 
 Lazyness
 ========
@@ -767,6 +834,29 @@ But if you do something like::
     >>> results = Person.collection(firstname='John').instances())
 
 nothing will be done while results is not printed, iterated...
+
+
+Subclassing
+===========
+
+The collection stuff is managed by a class named `CollectionManager`, available in `limpyd.collection`.
+
+If you want to use another class (you own subclass or one provided in contrib, see `Extended collection`_), you can do it simple by declaring the `collection_manager` attribute of the model::
+
+    class MyOwnCollectionManager(CollectionManager):
+        pass
+
+    class Person(model.RedisModel):
+        database = main_database
+        collection_manager = MyOwnCollectionManager
+
+        firstname = fields.HashableField(indexable=True)
+        lastname = fields.HashableField(indexable=True)
+        birth_year = fields.HashableField(indexable=True)
+
+You can also do it on each call to the `collection` method, by passing the class to the `manager` argument (useful if you want to keep the default manager in the model)::
+
+    >>> Person.collection(firstname='John', manager=MyOwnCollectionManager)
 
 
 
@@ -835,6 +925,7 @@ To keep the core of `limpyd`, say, "limpid", we limited what it contains. But we
 
 - `Related fields`_
 - Pipelines_
+- `Extended collection`_
 
 
 Related fields
@@ -1205,3 +1296,110 @@ The `transaction` method returns the value returned by the execution of its inte
 
 Note that as for the `pipeline` method, you cannot update indexables fields in the transaction because read commands are used to update them.
 
+
+.. _ExtendedCollectionManager:
+
+Extended collection
+===================
+
+Although the standard collection may be sufficient in most cases, we added an ExtendedCollectionManager_ in contrib, which enhance the base one with some useful stuff:
+
+- ability to chain filters
+- ability to intersect the final result with a list of primary keys
+- ability to sort by the score of a sorted set
+- ability to pass fields on some methods
+
+To use this ExtendedCollectionManager_, declare it as seen in Subclassing_.
+
+All of these new capabilities are described below:
+
+
+Chaining filters
+----------------
+
+With the standard collection, you can chain method class but you cannot add more filters than the ones defined in the `collecion` method. The only way was to create a dictionary, populate it, then pass it as named arguments::
+
+    >>> filters = {'firstname': 'John'}
+    >>> if want_to_filter_by_city:
+    >>>     filters['city'] = 'New York'
+    >>> collection = Person.collection(**filters)
+
+With the ExtendedCollectionManager_ available in `contrib.collection`, you can add filters after the initial call::
+
+    >>> collection = Person.collection(firstname='John')
+    >>> if want_to_filter_by_city:
+    >>>     collection.filter(city='New York')
+
+`filter` return the collection object itself, so it can be chained.
+
+Note that all filters are ANDed, so if you pass two filters on the same field, you may have an empty result.
+
+
+Intersections
+-------------
+
+Say you already have a list of primary keys, maybe got from a previous filter, and you want to get a collection with some filters but matching this list. With ExtendedCollectionManager_, you can easily do this with the `intersect` method.
+
+This `intersect` method takes a list of primary keys and will intersect, if possible at the Redis_ level, the result with this list.
+
+`intersect` return the collection itself, so it can be chained, as all methods of a collection. You may call this method many times to intersect many lists, but you can also pass many lists in one `intersect` call.
+
+Here is an example::
+
+    >>> my_friends = [1, 2, 3]
+    >>> john_people = list(Person.collection(firstname='John'))
+    >>> my_john_friends_in_newyork = Person.collection(city='New York').intersect(john_people, my_friends)
+
+`intersect` is powerful as it can handle a lot of data types:
+
+- a python list
+- a python set
+- a python tuple
+- a string, which must be the key of a Redis_ set (cannot be a list of sorted set for now)
+- a `limpyd` SetField_, attached to a model
+- a `limpyd` ListField_, attached to a model
+- a `limpyd` SortedSetField_, attached to a model
+
+Imagine you have a list of friends in a SetField_, you can directly use it to intersect::
+
+    >>> # current_user is an instance of a model, and friends a SetField_
+    >>> Person.collection(city='New York').intersect(current_user.friends)
+
+
+Sort by score
+-------------
+
+Sorted sets in Redis_ are a powerful feature, as it can store a list of data sorted by a score. Unfortunately, we can't use this score to sort via the Redis_ `sort` command, which is used in `limpyd` to sort collections.
+
+With ExtendedCollectionManager_, you can do this using the `sort` method, but with the new `by_score` named argument, instead of the `by` one used in simple sort.
+
+The `by_score` argument accepts a string which must be the key of a Redis_ sorted set, or a SortedSetField_ (attached to an instance)
+
+Say you have a list of friends in a sorted set, with the date you met them as a score. And you want to find ones that are in you city, but keep them sorted by the date you met them, ie the score of the sorted set. You can do this this way::
+
+    # current_user is an instance of a model, with city a field holding a city name
+    # and friends, a sorted_set with Person's primary keys as value, and the date 
+    # the current_user met them as score.
+    
+    >>> # start by filtering by city
+    >>> collection = Person.collection(city=current_user.city.get())
+    >>> # then intersect with friends
+    >>> collection.intersect(current_user.friends)
+    >>> # finally keep sorting by friends meet date
+    >>> collection.sort(by_score=current_user.friends)
+
+With the sort by score, as you have to use the `sort` method, you can still use the `alpha` and `desc` arguments (see Sorting_)
+
+
+Passing fields
+--------------
+
+In the standard collection, you must never pass fields, only names and values, depending on the methods.
+In the `contrib` module, we already allow passing fields in some place, as to set FK and M2M in `Related fields`_.
+
+Now you can do this also in collection (if you use ExtendedCollectionManager_):
+
+- the `by` argument of the `sort` method can be a field, and not only a field name
+- the `by_score` arguement of the `sort` method can be a SortedSetField_ (attached to an instance), not only the key of a Redis_ sorted set
+- arguments of the `intersect` method can be python list(etc...) but also multi-values `RedisField`
+- the right part of filters (passed when calling `collection` or `filter`) can also be a `RedisField`, not only a value. If a `RedisField` (specifically a `SingleValueField`), its value will be fetched from Redis_ only when the collection will be really called
