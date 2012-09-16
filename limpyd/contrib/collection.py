@@ -7,6 +7,8 @@ from limpyd.fields import (SetField, ListField, SortedSetField, MultiValuesField
                            RedisField, SingleValueField, PKField)
 from limpyd.contrib.database import PipelineDatabase
 
+SORTED_SCORE = 'sorted_score'
+
 
 class ExtendedCollectionManager(CollectionManager):
 
@@ -292,10 +294,20 @@ class ExtendedCollectionManager(CollectionManager):
                                     )
         # ask to sort on our new keys
         sort_options['by'] = '%s:*' % base_tmp_key
+
         # retrieve original sort parameters
         for key in ('desc', 'alpha', 'get'):
             if key in self._sort_by_sortedset:
                 sort_options[key] = self._sort_by_sortedset[key]
+
+        # if we want to get the score with values/values_list
+        if sort_options.get('get'):
+            try:
+                pos = sort_options['get'].index(SORTED_SCORE)
+            except:
+                pass
+            else:
+                sort_options['get'][pos] = '%s:*' % base_tmp_key
 
         return base_tmp_key, tmp_keys
 
@@ -307,7 +319,7 @@ class ExtendedCollectionManager(CollectionManager):
         # if we want a result sorted by a score, and if we have a full result
         # (no slice), we can do it know, by creating keys for each values with
         # the sorted set score, and sort on them
-        if self._sort_by_sortedset_after and len(results) > 1:
+        if self._sort_by_sortedset_after and (len(results) > 1 or self._values):
             conn = self.cls.get_connection()
 
             sort_params = {}
@@ -331,7 +343,7 @@ class ExtendedCollectionManager(CollectionManager):
         Return True if we have to sort by set and do the stuff *before* asking
         redis for the sort
         """
-        return self._sort_by_sortedset and self._slice and not self._lazy_collection['pks']
+        return self._sort_by_sortedset and self._slice and (not self._lazy_collection['pks'] or self._want_score_value)
 
     @property
     def _sort_by_sortedset_after(self):
@@ -339,7 +351,15 @@ class ExtendedCollectionManager(CollectionManager):
         Return True if we have to sort by set and do the stuff *after* asking
         redis for the sort
         """
-        return self._sort_by_sortedset and not self._slice and not self._lazy_collection['pks']
+        return self._sort_by_sortedset and not self._slice and (not self._lazy_collection['pks'] or self._want_score_value)
+
+    @property
+    def _want_score_value(self):
+        """
+        Return True if we want the score of the sorted set used to sort in the
+        results from values/values_list
+        """
+        return self._values and SORTED_SCORE in self._values['fields']['names']
 
     def _prepare_sort_options(self, has_pk):
         """
@@ -350,8 +370,8 @@ class ExtendedCollectionManager(CollectionManager):
         sort_options = super(ExtendedCollectionManager, self)._prepare_sort_options(has_pk)
         if self._sort_by_sortedset_after:
             if 'get' in self._sort_by_sortedset:
-                del self._sort_by_sortedset
-            if not has_pk and sort_options and 'get' in sort_options:
+                del self._sort_by_sortedset['get']
+            if sort_options and 'get' in sort_options and (not has_pk or self._want_score_value):
                 self._sort_by_sortedset['get'] = sort_options.pop('get')
             if not sort_options:
                 sort_options = None
@@ -426,3 +446,27 @@ class ExtendedCollectionManager(CollectionManager):
         if pk is not None and isinstance(pk, PKField):
             pk = pk.get()
         return pk
+
+    def _coerce_fields_parameters(self, fields):
+        """
+        When sorting by score, we allow to retrieve the score in values/values_list.
+        For this, just pass SORTED_SCORE (importable from contrib.collection) as
+        a name to retrieve.
+        If finally the result is not sorted by score, the value for this part
+        will be None
+        """
+        try:
+            sorted_score_pos = fields.index(SORTED_SCORE)
+        except:
+            sorted_score_pos = None
+        else:
+            fields = list(fields)
+            fields.pop(sorted_score_pos)
+
+        fields = super(ExtendedCollectionManager, self)._coerce_fields_parameters(fields)
+
+        if sorted_score_pos is not None:
+            fields['names'].insert(sorted_score_pos, SORTED_SCORE)
+            fields['keys'].insert(sorted_score_pos, SORTED_SCORE)
+
+        return fields

@@ -1390,6 +1390,13 @@ Say you have a list of friends in a sorted set, with the date you met them as a 
 
 With the sort by score, as you have to use the `sort` method, you can still use the `alpha` and `desc` arguments (see Sorting_)
 
+When using `values` or `values_list` (see `Retrieving values`_), you may want to retrieve the score between other fields. To do so, simply use the SORTED_SCORE constant (defined in `contrib.collection`) as a field name to pass to `values` or `values_list`::
+
+    >>> from limpyd.contrib.collection import SORTED_SCORE
+    >>> # (following previous example)
+    >>> collection.sort(by_score=current_user.friends).values('name', SORTED_SCORE)
+    [{'name': 'John Smith', 'sorted_score': '1985.0'}]  # here 1985.0 is the score
+
 
 Passing fields
 --------------
