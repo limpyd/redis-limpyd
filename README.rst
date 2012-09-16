@@ -1297,7 +1297,7 @@ The `transaction` method returns the value returned by the execution of its inte
 Note that as for the `pipeline` method, you cannot update indexables fields in the transaction because read commands are used to update them.
 
 
-.. _ExtendedCollectionManager:
+.. _ExtendedCollectionManager: `Extended collection`_
 
 Extended collection
 ===================
