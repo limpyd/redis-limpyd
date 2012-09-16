@@ -96,13 +96,13 @@ class CollectionManager(object):
             pk = list(self._lazy_collection['pks'])[0]
         return pk
 
-    def _prepare_sort_options(self):
+    def _prepare_sort_options(self, has_pk):
         """
         Prepare "sort" options to use when calling the collection, depending
         on "_sort", "_slice" and "_values" attributes
         """
         sort_options = {}
-        if self._sort is not None:
+        if self._sort is not None and not has_pk:
             sort_options.update(self._sort)
         if self._slice is not None:
             sort_options.update(self._slice)
@@ -135,7 +135,8 @@ class CollectionManager(object):
                     return []
 
             # Prepare options and final set to get/sort
-            sort_options = self._prepare_sort_options()
+            sort_options = self._prepare_sort_options(bool(pk))
+
             final_set, keys_to_delete = self._get_final_set(
                                                 self._lazy_collection['sets'],
                                                 pk, sort_options)

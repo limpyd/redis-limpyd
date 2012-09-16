@@ -341,17 +341,17 @@ class ExtendedCollectionManager(CollectionManager):
         """
         return self._sort_by_sortedset and not self._slice
 
-    def _prepare_sort_options(self):
+    def _prepare_sort_options(self, has_pk):
         """
         If we manager sort by score after getting the result, we do not want to
         get values from the first sort call, but only from the last one, after
         converting results in zset into keys
         """
-        sort_options = super(ExtendedCollectionManager, self)._prepare_sort_options()
+        sort_options = super(ExtendedCollectionManager, self)._prepare_sort_options(has_pk)
         if self._sort_by_sortedset_after:
             if 'get' in self._sort_by_sortedset:
                 del self._sort_by_sortedset
-            if sort_options and 'get' in sort_options:
+            if not has_pk and sort_options and 'get' in sort_options:
                 self._sort_by_sortedset['get'] = sort_options.pop('get')
             if not sort_options:
                 sort_options = None
