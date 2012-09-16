@@ -172,6 +172,8 @@ class RelatedFieldMixin(fields.RedisField):
     _commands_with_single_value_from_python = []
     _commands_with_many_values_from_python = []
 
+    collection_manager = ExtendedCollectionManager
+
     def __init__(self, to, *args, **kwargs):
         """
         Force the field to be indexable and save related arguments.
@@ -375,8 +377,6 @@ class MultiValuesRelatedFieldMixin(RelatedFieldMixin):
 
     """
 
-    collection_manager = ExtendedCollectionManager
-
     def __call__(self, **filters):
         """
         When calling a MultiValuesRelatedField, we return a collection,
@@ -384,10 +384,8 @@ class MultiValuesRelatedFieldMixin(RelatedFieldMixin):
         members of the current field.
         """
         model = self.database._models[self.related_to]
-        manager = self.collection_manager(model)
-        collection = manager(**filters)
-        collection.intersect(self)
-        return collection
+        collection = self.collection_manager(model)
+        return collection(**filters).intersect(self)
 
 
 class M2MSetField(MultiValuesRelatedFieldMixin, fields.SetField):
