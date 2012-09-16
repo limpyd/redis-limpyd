@@ -331,7 +331,7 @@ class ExtendedCollectionManager(CollectionManager):
         Return True if we have to sort by set and do the stuff *before* asking
         redis for the sort
         """
-        return self._sort_by_sortedset and self._slice
+        return self._sort_by_sortedset and self._slice and not self._lazy_collection['pks']
 
     @property
     def _sort_by_sortedset_after(self):
@@ -339,7 +339,7 @@ class ExtendedCollectionManager(CollectionManager):
         Return True if we have to sort by set and do the stuff *after* asking
         redis for the sort
         """
-        return self._sort_by_sortedset and not self._slice
+        return self._sort_by_sortedset and not self._slice and not self._lazy_collection['pks']
 
     def _prepare_sort_options(self, has_pk):
         """
