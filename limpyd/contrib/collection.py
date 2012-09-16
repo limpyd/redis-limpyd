@@ -307,7 +307,7 @@ class ExtendedCollectionManager(CollectionManager):
         # if we want a result sorted by a score, and if we have a full result
         # (no slice or values), we can do it know, by creating keys for each
         # values with the sorted set score, and sort on them
-        if self._sort_by_sortedset and not (self._slice or self._values) and len(results) > 1:
+        if self._sort_by_sortedset_after and len(results) > 1:
             conn = self.cls.get_connection()
 
             sort_params = {}
@@ -324,6 +324,22 @@ class ExtendedCollectionManager(CollectionManager):
             conn.delete(*(tmp_keys + [final_set, base_tmp_key]))
 
         return results
+
+    @property
+    def _sort_by_sortedset_before(self):
+        """
+        Return True if we have to sort by set and do the stuff *before* asking
+        redis for the sort
+        """
+        return self._sort_by_sortedset and (self._slice or self._values)
+
+    @property
+    def _sort_by_sortedset_after(self):
+        """
+        Return True if we have to sort by set and do the stuff *after* asking
+        redis for the sort
+        """
+        return self._sort_by_sortedset and not (self._slice or self._values)
 
     def _get_final_set(self, sets, pk, sort_options):
         """
@@ -349,7 +365,7 @@ class ExtendedCollectionManager(CollectionManager):
         # as redis sort command doesn't handle this, we have to create keys for
         # each value of the sorted set and sort on them
         # @antirez, y u don't allow this !!??!!
-        if self._sort_by_sortedset and (self._slice or self._values):
+        if self._sort_by_sortedset_before:
             # TODO: if we have filters, maybe apply _zet_to_keys to only
             #       intersected values
             base_tmp_key, tmp_keys = self._prepare_sort_by_score(None, sort_options)
