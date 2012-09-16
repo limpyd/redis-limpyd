@@ -424,7 +424,43 @@ class SortByScoreTest(BaseTest):
 
         sorted_by_score_tuples = list(collection.values_list('name', 'active', 'public').sort(by_score=self.container.groups_sortedset))
         self.assertEqual(len(sorted_by_score_tuples), len(self.active_sorted_pks))
-        self.assertEqual(sorted_by_score_tuples[0], ('bar', '1','0'))
+        self.assertEqual(sorted_by_score_tuples[0], ('bar', '1', '0'))
 
         sorted_by_score_names = list(collection.values_list('name', flat=True).sort(by_score=self.container.groups_sortedset))
         self.assertEqual(sorted_by_score_names, ['bar', 'foo'])
+
+    def test_sort_by_sortedset_should_work_without_filter(self):
+        collection = Group.collection().sort(by_score=self.container.groups_sortedset)
+        self.assertEqual(list(collection), self.sorted_pks)
+        sorted_by_score_names = list(collection.values_list('name', flat=True))
+        self.assertEqual(sorted_by_score_names, ['qux', 'bar', 'foo', 'baz'])
+
+        collection = Group.collection().sort(by_score=self.container.groups_sortedset)
+        self.assertEqual(collection[0:2], self.sorted_pks[0:2])
+        sorted_by_score_names = collection.values_list('name', flat=True)[0:2]
+        self.assertEqual(sorted_by_score_names, ['qux', 'bar'])
+
+    def test_sort_by_sortedset_should_work_with_pk(self):
+        # only pk
+        collection = Group.collection(pk=1).sort(by_score=self.container.groups_sortedset)
+        self.assertEqual(list(collection), ['1'])
+        sorted_by_score_names = list(collection.values_list('name', flat=True))
+        self.assertEqual(sorted_by_score_names, ['foo'])
+
+        # pk and matching filter
+        collection = Group.collection(pk=1, active=1).sort(by_score=self.container.groups_sortedset)
+        self.assertEqual(list(collection), ['1'])
+        sorted_by_score_names = list(collection.values_list('name', flat=True))
+        self.assertEqual(sorted_by_score_names, ['foo'])
+
+        # pk and not matching filter
+        collection = Group.collection(pk=1, active=0).sort(by_score=self.container.groups_sortedset)
+        self.assertEqual(list(collection), [])
+        sorted_by_score_names = list(collection.values_list('name', flat=True))
+        self.assertEqual(sorted_by_score_names, [])
+
+        # pk and slice
+        collection = Group.collection(pk=1).sort(by_score=self.container.groups_sortedset)
+        self.assertEqual(collection[0:2], ['1'])
+        sorted_by_score_names = collection.values_list('name', flat=True)[0:2]
+        self.assertEqual(sorted_by_score_names, ['foo'])
