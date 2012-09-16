@@ -87,7 +87,7 @@ You can found these branches here: https://github.com/twidi/redis-limpyd/branche
 
 If you want to help, please fork (`master` or a feature branch, not `develop`) and work on a branch with a comprehensive name, write tests (seriously, everything is severely tested in `limpyd`) and make a pull request.
 
-.. _RedisDatabase:
+.. _RedisDatabase: Database_
 
 ********
 Database
@@ -125,7 +125,7 @@ It's not a good idea to declare many RedisDatabase_ objects on the same Redis_ d
 
 
 
-.. _RedisModel:
+.. _RedisModel: Models_
 
 ******
 Models
@@ -890,7 +890,7 @@ With this we can do stuff like this::
     ['limpyd core devs']
 
 
-.. _RelatedModel:
+.. _RelatedModel: `Related model`_
 
 Related model
 -------------
