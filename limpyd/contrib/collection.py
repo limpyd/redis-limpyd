@@ -293,7 +293,7 @@ class ExtendedCollectionManager(CollectionManager):
         # ask to sort on our new keys
         sort_options['by'] = '%s:*' % base_tmp_key
         # retrieve original sort parameters
-        for key in ('desc', 'alpha'):
+        for key in ('desc', 'alpha', 'get'):
             if key in self._sort_by_sortedset:
                 sort_options[key] = self._sort_by_sortedset[key]
 
@@ -305,8 +305,8 @@ class ExtendedCollectionManager(CollectionManager):
         retrieve, or slice)
         """
         # if we want a result sorted by a score, and if we have a full result
-        # (no slice or values), we can do it know, by creating keys for each
-        # values with the sorted set score, and sort on them
+        # (no slice), we can do it know, by creating keys for each values with
+        # the sorted set score, and sort on them
         if self._sort_by_sortedset_after and len(results) > 1:
             conn = self.cls.get_connection()
 
@@ -331,7 +331,7 @@ class ExtendedCollectionManager(CollectionManager):
         Return True if we have to sort by set and do the stuff *before* asking
         redis for the sort
         """
-        return self._sort_by_sortedset and (self._slice or self._values)
+        return self._sort_by_sortedset and self._slice
 
     @property
     def _sort_by_sortedset_after(self):
@@ -339,13 +339,29 @@ class ExtendedCollectionManager(CollectionManager):
         Return True if we have to sort by set and do the stuff *after* asking
         redis for the sort
         """
-        return self._sort_by_sortedset and not (self._slice or self._values)
+        return self._sort_by_sortedset and not self._slice
+
+    def _prepare_sort_options(self):
+        """
+        If we manager sort by score after getting the result, we do not want to
+        get values from the first sort call, but only from the last one, after
+        converting results in zset into keys
+        """
+        sort_options = super(ExtendedCollectionManager, self)._prepare_sort_options()
+        if self._sort_by_sortedset_after:
+            if 'get' in self._sort_by_sortedset:
+                del self._sort_by_sortedset
+            if sort_options and 'get' in sort_options:
+                self._sort_by_sortedset['get'] = sort_options.pop('get')
+            if not sort_options:
+                sort_options = None
+        return sort_options
 
     def _get_final_set(self, sets, pk, sort_options):
         """
         Add intersects fo sets and call parent's _get_final_set.
-        If we have to sort by sorted score, and we have a slice or want values,
-        we have to convert the whole sorted set to keys now.
+        If we have to sort by sorted score, and we have a slice, we have to
+        convert the whole sorted set to keys now.
         """
         if self._lazy_collection['intersects']:
             # if the intersect method was called, we had new sets to intersect
