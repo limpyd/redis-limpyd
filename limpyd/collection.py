@@ -153,18 +153,7 @@ class CollectionManager(object):
                     conn.delete(*keys_to_delete)
 
             # Format return values if needed
-
-            if self._instances:
-                result = self._to_instances(collection)
-            elif self._values and self._values['mode'] != 'flat':
-                result = self._to_values(collection)
-            else:
-                result = list(collection)
-
-            # cache the len for future use
-            self._len = len(result)
-
-            return result
+            return self._prepare_results(collection)
 
         except:  # raise original exception
             raise
@@ -210,8 +199,18 @@ class CollectionManager(object):
     def _prepare_results(self, results):
         """
         Called in _collection to prepare results from redis before returning
-        them. Does nothing here, but can be useful in subclasses.
+        them.
         """
+        if self._instances:
+            results = self._to_instances(results)
+        elif self._values and self._values['mode'] != 'flat':
+            results = self._to_values(results)
+        else:
+            results = list(results)
+
+        # cache the len for future use
+        self._len = len(results)
+
         return results
 
     def _prepare_sets(self, sets):
