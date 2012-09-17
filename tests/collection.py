@@ -342,6 +342,10 @@ class InstancesTest(CollectionBaseTest):
         boats = Boat.collection(pk=10, name="Pen Duick I").instances()
         self.assertEqual(len(boats), 0)
 
+    def test_call_to_primary_keys_should_cancel_instances(self):
+        boats = set(Boat.collection().instances().primary_keys())
+        self.assertEqual(boats, set(['1', '2', '3', '4']))
+
 
 class ValuesTest(CollectionBaseTest):
     def test_values_should_return_a_list_of_dicts(self):
@@ -388,6 +392,10 @@ class ValuesTest(CollectionBaseTest):
         boats = list(BoatWithNewPk.collection(pk=boat.get_pk()).values('id'))
         self.assertFalse('pk' in boats[0])
         self.assertEqual(boats[0]['id'], boat.get_pk())
+
+    def test_call_to_primary_keys_should_cancel_values(self):
+        boats = set(Boat.collection().values('pk', 'name', 'launched').primary_keys())
+        self.assertEqual(boats, set(['1', '2', '3', '4']))
 
 
 class ValuesListTest(CollectionBaseTest):
@@ -453,6 +461,12 @@ class ValuesListTest(CollectionBaseTest):
 
         with self.assertRaises(ValueError):
             Boat.collection().values_list(flat=True)
+
+    def test_call_to_primary_keys_should_cancel_values_list(self):
+        boats = set(Boat.collection().values_list('pk', 'name', 'launched').primary_keys())
+        self.assertEqual(boats, set(['1', '2', '3', '4']))
+        boats = set(Boat.collection().values_list('name', flat=True).primary_keys())
+        self.assertEqual(boats, set(['1', '2', '3', '4']))
 
 if __name__ == '__main__':
     unittest.main()

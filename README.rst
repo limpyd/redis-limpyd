@@ -783,6 +783,10 @@ Note that for each primary key got from redis, a real instance is created, with 
 
 Note that when you'll update an instance got with `skip_exist_test` set to True, the existence of the primary key will be done before the update, raising an exception if not found.
 
+To cancel retrieving instances and get the default return format, call the `primary_keys` method::
+
+    >>> Person.collection(firstname='John').instances().primary_keys()
+    >>> ['1', '2']
 
 Retrieving values
 =================
@@ -820,6 +824,12 @@ If you want to retrieve a single field, you can ask to get a flat list as a fina
     [('Smith', ), ('Doe', )]
     >>> Person.collection(firstname='John').values_list('lastname', flat=True)  # with flat
     ['Smith', 'Doe']
+
+
+To cancel retrieving values and get the default return format, call the `primary_keys` method::
+
+    >>> Person.collection(firstname='John').values().primary_keys()  # works with values_list too
+    >>> ['1', '2']
 
 
 Lazyness

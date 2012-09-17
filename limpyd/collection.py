@@ -153,7 +153,6 @@ class CollectionManager(object):
                     conn.delete(*keys_to_delete)
 
             # Format return values if needed
-            collection = self._prepare_results(collection)
 
             if self._instances:
                 result = self._to_instances(collection)
@@ -310,6 +309,7 @@ class CollectionManager(object):
 
     def instances(self, skip_exist_test=False):
         """
+        Ask the collection to return a list of instances.
         If skip_exist_test is set to True, the instances returned by the
         collection won't have their primary key checked for existence.
         """
@@ -397,6 +397,16 @@ class CollectionManager(object):
                     final_fields['names'].append(field_name)
                     final_fields['keys'].append(field.sort_wildcard)
         return final_fields
+
+    def primary_keys(self):
+        """
+        Ask the collection to return a list of primary keys. It's the default
+        but if `instances`, `values` or `values_list` was previously called,
+        a call to `primary_keys` restore this default behaviour.
+        """
+        self._instances = False
+        self._values = None
+        return self
 
     def _coerce_by_parameter(self, parameters):
         if "by" in parameters:
