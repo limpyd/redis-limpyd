@@ -534,7 +534,7 @@ class StoreTest(BaseTest):
             list(stored_collection)
 
     def test_stored_call_should_be_faster(self):
-        collection = Group.collection(active=1, public=1).sort(by='-name', alpha=True)
+        collection = Group.collection(active=1, public=1).intersect([1, 2, 3, 5, 7, 8, 10]).sort(by='-name', alpha=True)
 
         commands_before = self.count_commands()
         time_before = time.time()
@@ -593,3 +593,8 @@ class StoreTest(BaseTest):
         stored_collection = collection.store()
         sorted_groups = list(stored_collection.sort(by='name', alpha=True))
         self.assertEqual(sorted_groups, ['2', '1'])
+
+    def test_stored_collection_could_be_empty(self):
+        collection = Group.collection(active=1, name='foobar')
+        stored_collection = collection.store()
+        self.assertEqual(list(stored_collection), [])

@@ -45,6 +45,7 @@ class ExtendedCollectionManager(CollectionManager):
         self._sort_by_sortedset = None
         self._store = False
         self.stored_key = False
+        self._stored_len = None
 
     def _call_script(self, script_name, keys=[], args=[]):
         """
@@ -80,6 +81,17 @@ class ExtendedCollectionManager(CollectionManager):
             self._call_script('zset_to_set', keys=[sortedset_field.key, set_key])
         else:
             self.cls.get_connection().sadd(set_key, *sortedset_field.zmembers())
+
+    @property
+    def _collection(self):
+        """
+        Effectively retrieve data according to lazy_collection.
+        If we have a stored collection, without any result, return an empty list
+        """
+        if self.stored_key and not self._stored_len:
+            self._slice = {}
+            return []
+        return super(ExtendedCollectionManager, self)._collection
 
     def _prepare_sets(self, sets):
         """
@@ -550,12 +562,13 @@ class ExtendedCollectionManager(CollectionManager):
         self._sort = sort_options
         self._values = values
 
-        if ttl:
-            self.cls.get_connection().expire(store_key, ttl)
-
         # create the new collection
         stored_collection = self.__class__(self.cls)
         stored_collection.from_stored(store_key)
+
+        # apply ttl if needed
+        if ttl is not None:
+            self.cls.get_connection().expire(store_key, ttl)
 
         # set choices about instances/values from the current to the new collection
         for attr in ('_instances', '_instances_skip_exist_test', '_values'):
@@ -569,11 +582,19 @@ class ExtendedCollectionManager(CollectionManager):
         Set the current collection as based on a stored one. The key argument
         is the key off the stored collection.
         """
+        # only one stored key allowed
         if self.stored_key:
             raise ValueError('This collection is already based on a stored one')
+
+        # prepare the collection
         self.stored_key = key
         self.intersect(_StoredCollection(key))
         self.sort(by='nosort')
+
+        # count the number of results to manage empty result (to not behave like
+        # expired key)
+        self._stored_len = self.cls.get_connection().llen(key)
+
         return self
 
     def stored_key_exists(self):
