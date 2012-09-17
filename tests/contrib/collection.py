@@ -466,17 +466,17 @@ class SortByScoreTest(BaseTest):
         self.assertEqual(sorted_by_score_names, ['foo'])
 
     def test_score_should_be_retrieved_in_values(self):
-        # # test values
-        # collection = Group.collection(active=1).values('name', SORTED_SCORE).sort(by_score=self.container.groups_sortedset)
-        # self.assertEqual(list(collection), [{'name': 'bar', SORTED_SCORE: '200.0'}, {'name': 'foo', SORTED_SCORE: '1000.0'}])
+        # test values
+        collection = Group.collection(active=1).values('name', SORTED_SCORE).sort(by_score=self.container.groups_sortedset)
+        self.assertEqual(list(collection), [{'name': 'bar', SORTED_SCORE: '200.0'}, {'name': 'foo', SORTED_SCORE: '1000.0'}])
 
-        # # tests values_list
-        # collection = Group.collection(active=1).values_list('name', SORTED_SCORE).sort(by_score=self.container.groups_sortedset)
-        # self.assertEqual(list(collection), [('bar', '200.0'), ('foo', '1000.0')])
+        # tests values_list
+        collection = Group.collection(active=1).values_list('name', SORTED_SCORE).sort(by_score=self.container.groups_sortedset)
+        self.assertEqual(list(collection), [('bar', '200.0'), ('foo', '1000.0')])
 
-        # # test without sorting by score
-        # collection = Group.collection(active=1).values_list('name', SORTED_SCORE)
-        # self.assertEqual(set(collection), set([('bar', None), ('foo', None)]))
+        # test without sorting by score
+        collection = Group.collection(active=1).values_list('name', SORTED_SCORE)
+        self.assertEqual(set(collection), set([('bar', None), ('foo', None)]))
 
         # test with pk
         collection = Group.collection(pk=1).values('name', SORTED_SCORE).sort(by_score=self.container.groups_sortedset)
