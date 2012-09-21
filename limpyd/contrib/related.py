@@ -2,7 +2,6 @@
 
 import re
 from copy import copy
-from redis.exceptions import RedisError
 
 from limpyd import model, fields
 from limpyd.exceptions import *
@@ -427,23 +426,9 @@ class M2MSortedSetField(MultiValuesRelatedFieldMixin, fields.SortedSetField):
         We pass the parsed args/kwargs as args in the super call, to avoid
         doing the same calculation on kwargs one more time.
         """
-        pieces = []
-        if args:
-            if len(args) % 2 != 0:
-                raise RedisError("ZADD requires an equal number of "
-                                 "values and scores")
-            pieces.extend(args)
-        for pair in kwargs.iteritems():
-            pieces.append(pair[1])
-            pieces.append(pair[0])
-
-        values = self.from_python(pieces[1::2])
-        scores = pieces[0::2]
-
-        pieces = []
-        for z in zip(scores, values):
-            pieces.extend(z)
-
+        if 'values_callback' not in kwargs:
+            kwargs['values_callback'] = self.from_python
+        pieces = fields.SortedSetField.coerce_zadd_args(*args, **kwargs)
         return super(M2MSortedSetField, self).zadd(*pieces)
 
     def zincrby(self, value, amount=1):

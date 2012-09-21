@@ -2,6 +2,7 @@
 
 from logging import getLogger
 from copy import copy
+from itertools import izip
 from redis.exceptions import RedisError
 from redis.client import Lock
 
@@ -658,6 +659,40 @@ class SortedSetField(MultiValuesField):
         of the sorted set, so we index it.
         """
         return self._call_command('zincrby', value, amount, _to_index=[value], _to_deindex=[])
+
+    @staticmethod
+    def coerce_zadd_args(*args, **kwargs):
+        """
+        Take arguments attended by a zadd call, named or not, and return a flat list
+        that can be used.
+        A callback can be called with all "values" if defined as the
+        `values_callback` named argument. Real values will then be the result of
+        this callback.
+        """
+        values_callback = kwargs.pop('values_callback', None)
+
+        pieces = []
+        if args:
+            if len(args) % 2 != 0:
+                raise RedisError("ZADD requires an equal number of "
+                                 "values and scores")
+            pieces.extend(args)
+
+        for pair in kwargs.iteritems():
+            pieces.append(pair[1])
+            pieces.append(pair[0])
+
+        values = pieces[1::2]
+        if values_callback:
+            values = values_callback(values)
+
+        scores = pieces[0::2]
+
+        pieces = []
+        for z in izip(scores, values):
+            pieces.extend(z)
+
+        return pieces
 
 
 class SetField(MultiValuesField):
