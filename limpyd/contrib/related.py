@@ -116,7 +116,7 @@ class RelatedModel(model.RedisModel):
             related_field = getattr(related_model, '_redis_attr_%s' % field_name)
 
             # add the collection
-            collection = RelatedCollection(self, related_field)
+            collection = related_field.related_collection_class(self, related_field)
             setattr(self, related_field.related_name, collection)
             self.related_collections.append(related_field.related_name)
 
@@ -172,6 +172,7 @@ class RelatedFieldMixin(fields.RedisField):
     _commands_with_many_values_from_python = []
 
     collection_manager = ExtendedCollectionManager
+    related_collection_class = RelatedCollection
 
     def __init__(self, to, *args, **kwargs):
         """
