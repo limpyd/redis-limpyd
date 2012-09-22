@@ -783,6 +783,10 @@ Note that for each primary key got from redis, a real instance is created, with 
 
 Note that when you'll update an instance got with `skip_exist_test` set to True, the existence of the primary key will be done before the update, raising an exception if not found.
 
+To cancel retrieving instances and get the default return format, call the `primary_keys` method::
+
+    >>> Person.collection(firstname='John').instances().primary_keys()
+    >>> ['1', '2']
 
 Retrieving values
 =================
@@ -820,6 +824,12 @@ If you want to retrieve a single field, you can ask to get a flat list as a fina
     [('Smith', ), ('Doe', )]
     >>> Person.collection(firstname='John').values_list('lastname', flat=True)  # with flat
     ['Smith', 'Doe']
+
+
+To cancel retrieving values and get the default return format, call the `primary_keys` method::
+
+    >>> Person.collection(firstname='John').values().primary_keys()  # works with values_list too
+    >>> ['1', '2']
 
 
 Lazyness
@@ -1346,7 +1356,7 @@ The `transaction` method returns the value returned by the execution of its inte
 Note that as for the `pipeline` method, you cannot update indexables fields in the transaction because read commands are used to update them.
 
 
-.. _ExtendedCollectionManager:
+.. _ExtendedCollectionManager: `Extended collection`_
 
 Extended collection
 ===================
@@ -1357,6 +1367,7 @@ Although the standard collection may be sufficient in most cases, we added an Ex
 - ability to intersect the final result with a list of primary keys
 - ability to sort by the score of a sorted set
 - ability to pass fields on some methods
+- ability to store results
 
 To use this ExtendedCollectionManager_, declare it as seen in Subclassing_.
 
@@ -1439,6 +1450,13 @@ Say you have a list of friends in a sorted set, with the date you met them as a 
 
 With the sort by score, as you have to use the `sort` method, you can still use the `alpha` and `desc` arguments (see Sorting_)
 
+When using `values` or `values_list` (see `Retrieving values`_), you may want to retrieve the score between other fields. To do so, simply use the SORTED_SCORE constant (defined in `contrib.collection`) as a field name to pass to `values` or `values_list`::
+
+    >>> from limpyd.contrib.collection import SORTED_SCORE
+    >>> # (following previous example)
+    >>> collection.sort(by_score=current_user.friends).values('name', SORTED_SCORE)
+    [{'name': 'John Smith', 'sorted_score': '1985.0'}]  # here 1985.0 is the score
+
 
 Passing fields
 --------------
@@ -1452,3 +1470,50 @@ Now you can do this also in collection (if you use ExtendedCollectionManager_):
 - the `by_score` arguement of the `sort` method can be a SortedSetField_ (attached to an instance), not only the key of a Redis_ sorted set
 - arguments of the `intersect` method can be python list(etc...) but also multi-values `RedisField`
 - the right part of filters (passed when calling `collection` or `filter`) can also be a `RedisField`, not only a value. If a `RedisField` (specifically a `SingleValueField`), its value will be fetched from Redis_ only when the collection will be really called
+
+
+Storing
+-------
+
+For collections with heavy computations, like multiple filters, intersecting with list, sorting by sorted set, it can be useful to store the results.
+
+It's possible with ExtendedCollectionManager_, simply by calling the `store` method, which take two optional arguments:
+
+- `key`, which is the Redis_ key where the result will be stored, default to a randomly generated one
+- `ttl`, the duration, in seconds, for which we want to keep the stored result in Redis_, default to `DEFAULT_STORE_TTL` (60 seconds, defined in `contrib.collection`). You can pass None if you don't want the key to expire in Redis_.
+
+When calling `store`, the collection is executed and you got a new ExtendedCollectionManager_ object, pre-filled with the result of the original collection.
+
+Note that only primary keys are stored, even if you called `instances`, `values` or `values_list`. But arguments for these methods are set in the new collection so if you call it, you'll get what you want (instances, dictionaries or tuples). You can call `primary_keys` to reset this.
+
+If you need the key where the data are stored, you can get it by calling the `stored_key` method on the new collection. With it, you can later create a collection based on this key.
+
+One important thing to note: the new collection is based on a Redis_ list. As you can add filters, or intersections, like any collection, remember that by doing this, the list will be converted into a set, which can take time. It's preferable to do this on the original collection before sorting (but it's possible and you can always store the new filtered collection into an other one.)
+
+A last word: if the key is already expired when you execute the new collection, a `DoesNotExist` exception will be raised.
+
+An example to show all of this, based on the previous example (see `Sort by score`_)::
+
+    >>> # Start by making a collection with heavy calculation
+    >>> collection = Person.collection(city=current_user.city.get())
+    >>> collection.intersect(current_user.friends)
+    >>> collection.sort(by_score=current_user.friends)
+
+    >>> # then store the result
+    >>> stored_collection = collection.store(ttl=3600)  # keep the result for one hour
+    >>> # get, say, pk and names
+    >>> page_1 = stored_collection.values('pk', 'name')[0:10]
+
+    >>> # get the stored key
+    >>> stored_key = stored_collection.stored_key
+
+    >>> # later (less than an hour), in another process (passing the stored_key between the processes is let as an exercise for the reader)
+    >>> stored_collection = Person.collection().from_stored(stored_key)
+    >>> page_2 = stored_collection.values('pk', 'name')[10:20]
+
+    >>> # want to extend the expire time of the key ?
+    >>> my_database.connection.expire(store_key, 36000)  # 10 hours
+    >>> # or remove this expire time ?
+    >>> my_database.connection.persist(store_key)
+
+

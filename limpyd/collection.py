@@ -44,11 +44,17 @@ class CollectionManager(object):
                           # `list(Model.collection)` (a `list` will call
                           # __iter__ AND __len__)
         self._values = None  # Will store parameters used to retrieve values
+        self._len_mode = True   # Set to True if the __len__ method is directly
+                                # called (to avoid some useless computations)
+                                # True by default to manage the __iter__ + __len__
+                                # case, specifically set to False in other cases
 
     def __iter__(self):
+        self._len_mode = False
         return self._collection.__iter__()
 
     def __getitem__(self, arg):
+        self._len_mode = False
         self._slice = {}
         if isinstance(arg, slice):
             # A slice has been requested
@@ -96,13 +102,13 @@ class CollectionManager(object):
             pk = list(self._lazy_collection['pks'])[0]
         return pk
 
-    def _prepare_sort_options(self):
+    def _prepare_sort_options(self, has_pk):
         """
         Prepare "sort" options to use when calling the collection, depending
         on "_sort", "_slice" and "_values" attributes
         """
         sort_options = {}
-        if self._sort is not None:
+        if self._sort is not None and not has_pk:
             sort_options.update(self._sort)
         if self._slice is not None:
             sort_options.update(self._slice)
@@ -135,41 +141,42 @@ class CollectionManager(object):
                     return []
 
             # Prepare options and final set to get/sort
-            sort_options = self._prepare_sort_options()
+            sort_options = self._prepare_sort_options(bool(pk))
+
             final_set, keys_to_delete = self._get_final_set(
                                                 self._lazy_collection['sets'],
                                                 pk, sort_options)
 
-            # fill the collection
-            if final_set is None:
-                # final_set is None if we have a pk without other sets, and no
-                # needs to get values so we can simply return the pk
-                collection = set([pk])
+            if self._len_mode:
+                if final_set is None:
+                    # final_set is None if we have a only pk
+                    self._len = 1
+                else:
+                    self._len = self._collection_length(final_set)
+                # return nothing
+                return
+
             else:
-                # compute the sets and call redis te retrieve wanted values
-                collection = self._final_redis_call(final_set, sort_options)
-                if keys_to_delete:
-                    conn.delete(*keys_to_delete)
 
-            # Format return values if needed
-            collection = self._prepare_results(collection)
+                # fill the collection
+                if final_set is None:
+                    # final_set is None if we have a pk without other sets, and no
+                    # needs to get values so we can simply return the pk
+                    collection = set([pk])
+                else:
+                    # compute the sets and call redis te retrieve wanted values
+                    collection = self._final_redis_call(final_set, sort_options)
+                    if keys_to_delete:
+                        conn.delete(*keys_to_delete)
 
-            if self._instances:
-                result = self._to_instances(collection)
-            elif self._values and self._values['mode'] != 'flat':
-                result = self._to_values(collection)
-            else:
-                result = list(collection)
-
-            # cache the len for future use
-            self._len = len(result)
-
-            return result
+                # Format return values if needed
+                return self._prepare_results(collection)
 
         except:  # raise original exception
             raise
         finally:  # always reset the slice, having an exception or not
             self._slice = {}
+            self._len_mode = True
 
     def _final_redis_call(self, final_set, sort_options):
         """
@@ -183,6 +190,13 @@ class CollectionManager(object):
         else:
             # no sort, nor values, simply return the full set
             return conn.smembers(final_set)
+
+    def _collection_length(self, final_set):
+        """
+        Return the length of the final collection, directly asking redis for the
+        count without calling sort
+        """
+        return self.cls.get_connection().scard(final_set)
 
     def _to_instances(self, pks):
         """
@@ -210,8 +224,18 @@ class CollectionManager(object):
     def _prepare_results(self, results):
         """
         Called in _collection to prepare results from redis before returning
-        them. Does nothing here, but can be useful in subclasses.
+        them.
         """
+        if self._instances:
+            results = self._to_instances(results)
+        elif self._values and self._values['mode'] != 'flat':
+            results = self._to_values(results)
+        else:
+            results = list(results)
+
+        # cache the len for future use
+        self._len = len(results)
+
         return results
 
     def _prepare_sets(self, sets):
@@ -301,14 +325,19 @@ class CollectionManager(object):
 
     def __len__(self):
         if self._len is None:
-            self._len = self._collection.__len__()
+            if not self._len_mode:
+                self._len = self._collection.__len__()
+            else:
+                self._collection
         return self._len
 
     def __repr__(self):
+        self._len_mode = False
         return self._collection.__repr__()
 
     def instances(self, skip_exist_test=False):
         """
+        Ask the collection to return a list of instances.
         If skip_exist_test is set to True, the instances returned by the
         collection won't have their primary key checked for existence.
         """
@@ -396,6 +425,16 @@ class CollectionManager(object):
                     final_fields['names'].append(field_name)
                     final_fields['keys'].append(field.sort_wildcard)
         return final_fields
+
+    def primary_keys(self):
+        """
+        Ask the collection to return a list of primary keys. It's the default
+        but if `instances`, `values` or `values_list` was previously called,
+        a call to `primary_keys` restore this default behaviour.
+        """
+        self._instances = False
+        self._values = None
+        return self
 
     def _coerce_by_parameter(self, parameters):
         if "by" in parameters:

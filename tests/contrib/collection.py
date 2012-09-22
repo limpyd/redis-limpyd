@@ -1,9 +1,10 @@
 # -*- coding:utf-8 -*-
 
 import unittest
+import time
 
 from limpyd import fields
-from limpyd.contrib.collection import ExtendedCollectionManager
+from limpyd.contrib.collection import ExtendedCollectionManager, SORTED_SCORE, DEFAULT_STORE_TTL
 from limpyd.utils import unique_key
 from limpyd.exceptions import *
 
@@ -424,7 +425,190 @@ class SortByScoreTest(BaseTest):
 
         sorted_by_score_tuples = list(collection.values_list('name', 'active', 'public').sort(by_score=self.container.groups_sortedset))
         self.assertEqual(len(sorted_by_score_tuples), len(self.active_sorted_pks))
-        self.assertEqual(sorted_by_score_tuples[0], ('bar', '1','0'))
+        self.assertEqual(sorted_by_score_tuples[0], ('bar', '1', '0'))
 
         sorted_by_score_names = list(collection.values_list('name', flat=True).sort(by_score=self.container.groups_sortedset))
         self.assertEqual(sorted_by_score_names, ['bar', 'foo'])
+
+    def test_sort_by_sortedset_should_work_without_filter(self):
+        collection = Group.collection().sort(by_score=self.container.groups_sortedset)
+        self.assertEqual(list(collection), self.sorted_pks)
+        sorted_by_score_names = list(collection.values_list('name', flat=True))
+        self.assertEqual(sorted_by_score_names, ['qux', 'bar', 'foo', 'baz'])
+
+        collection = Group.collection().sort(by_score=self.container.groups_sortedset)
+        self.assertEqual(collection[0:2], self.sorted_pks[0:2])
+        sorted_by_score_names = collection.values_list('name', flat=True)[0:2]
+        self.assertEqual(sorted_by_score_names, ['qux', 'bar'])
+
+    def test_sort_by_sortedset_should_work_with_pk(self):
+        # only pk
+        collection = Group.collection(pk=1).sort(by_score=self.container.groups_sortedset)
+        self.assertEqual(list(collection), ['1'])
+        sorted_by_score_names = list(collection.values_list('name', flat=True))
+        self.assertEqual(sorted_by_score_names, ['foo'])
+
+        # pk and matching filter
+        collection = Group.collection(pk=1, active=1).sort(by_score=self.container.groups_sortedset)
+        self.assertEqual(list(collection), ['1'])
+        sorted_by_score_names = list(collection.values_list('name', flat=True))
+        self.assertEqual(sorted_by_score_names, ['foo'])
+
+        # pk and not matching filter
+        collection = Group.collection(pk=1, active=0).sort(by_score=self.container.groups_sortedset)
+        self.assertEqual(list(collection), [])
+        sorted_by_score_names = list(collection.values_list('name', flat=True))
+        self.assertEqual(sorted_by_score_names, [])
+
+        # pk and slice
+        collection = Group.collection(pk=1).sort(by_score=self.container.groups_sortedset)
+        self.assertEqual(collection[0:2], ['1'])
+        sorted_by_score_names = collection.values_list('name', flat=True)[0:2]
+        self.assertEqual(sorted_by_score_names, ['foo'])
+
+    def test_score_should_be_retrieved_in_values(self):
+        # test values
+        collection = Group.collection(active=1).values('name', SORTED_SCORE).sort(by_score=self.container.groups_sortedset)
+        self.assertEqual(list(collection), [{'name': 'bar', SORTED_SCORE: '200.0'}, {'name': 'foo', SORTED_SCORE: '1000.0'}])
+
+        # tests values_list
+        collection = Group.collection(active=1).values_list('name', SORTED_SCORE).sort(by_score=self.container.groups_sortedset)
+        self.assertEqual(list(collection), [('bar', '200.0'), ('foo', '1000.0')])
+
+        # test without sorting by score
+        collection = Group.collection(active=1).values_list('name', SORTED_SCORE)
+        self.assertEqual(set(collection), set([('bar', None), ('foo', None)]))
+
+        # test with pk
+        collection = Group.collection(pk=1).values('name', SORTED_SCORE).sort(by_score=self.container.groups_sortedset)
+        self.assertEqual(list(collection), [{'name': 'foo', SORTED_SCORE: '1000.0'}])
+
+
+class StoreTest(BaseTest):
+
+    def test_calling_store_should_return_a_new_collection(self):
+        collection = Group.collection(active=1).sort(by='-name', alpha=True)
+        stored_collection = collection.store()
+        self.assertNotEqual(collection, stored_collection)
+        self.assertEqual(list(collection), list(stored_collection))
+
+    def test_ttl_of_stored_collection_should_be_set(self):
+        collection = Group.collection(active=1).sort(by='-name', alpha=True)
+
+        # default ttl
+        stored_collection = collection.store()
+        self.assertTrue(0 <= self.connection.ttl(stored_collection.stored_key) <= DEFAULT_STORE_TTL)
+        self.assertTrue(self.connection.exists(stored_collection.stored_key))
+
+        # no ttl
+        stored_collection = collection.store(ttl=None)
+        self.assertEqual(self.connection.ttl(stored_collection.stored_key), -1)
+        self.assertTrue(self.connection.exists(stored_collection.stored_key))
+
+        # test expire
+        stored_collection = collection.store(ttl=1)
+        self.assertTrue(0 <= self.connection.ttl(stored_collection.stored_key) <= 1)
+        time.sleep(1)
+        self.assertFalse(self.connection.exists(stored_collection.stored_key))
+
+    def test_stored_key_should_be_the_given_one_if_set(self):
+        collection = Group.collection(active=1).sort(by='-name', alpha=True)
+        stored_collection = collection.store(key='mycollection')
+        self.assertEqual(stored_collection.stored_key, 'mycollection')
+        self.assertTrue(0 <= self.connection.ttl('mycollection') <= DEFAULT_STORE_TTL)
+        self.assertTrue(self.connection.exists('mycollection'))
+
+    def test_stored_collection_should_raise_if_key_expired(self):
+        collection = Group.collection(active=1).sort(by='-name', alpha=True)
+
+        # try with short ttl
+        stored_collection = collection.store(ttl=1)
+        time.sleep(1)
+        with self.assertRaises(DoesNotExist):
+            list(stored_collection)
+
+        # try by deleting the key
+        stored_collection = collection.store()
+        self.connection.delete(stored_collection.stored_key)
+        with self.assertRaises(DoesNotExist):
+            list(stored_collection)
+
+    def test_stored_call_should_be_faster(self):
+        collection = Group.collection(active=1, public=1).intersect([1, 2, 3, 5, 7, 8, 10]).sort(by='-name', alpha=True)
+
+        commands_before = self.count_commands()
+        time_before = time.time()
+        list(collection)
+        default_duration = time.time() - time_before
+        default_commands = self.count_commands() - commands_before
+
+        stored_collection = collection.store()
+
+        commands_before = self.count_commands()
+        time_before = time.time()
+        list(stored_collection)
+        stored_duration = time.time() - time_before
+        stored_commands = self.count_commands() - commands_before
+
+        self.assertTrue(default_duration > stored_duration)
+        self.assertTrue(default_commands > stored_commands)
+
+        with self.assertNumCommands(2):
+            # 2 commands: one to check key existence, one for the lrange
+            list(stored_collection)
+
+    def test_stored_collection_could_be_filtered(self):
+        # but it's not recommanded as we have to convert the list into a set
+        collection = Group.collection(active=1)
+        stored_collection = collection.store()
+        public_groups = list(stored_collection.filter(public=1))
+        self.assertEqual(public_groups, ['1'])
+
+    def test_stored_collection_should_accept_values_or_instances(self):
+        collection = Group.collection(active=1)
+        stored_collection = collection.store()
+
+        instances = list(stored_collection.instances())
+        self.assertEqual(len(instances), 2)
+        self.assertEqual(instances[0].get_pk(), '1')
+
+        dicts = list(stored_collection.values('pk', 'name'))
+        self.assertEqual(len(dicts), 2)
+        self.assertEqual(dicts[0], {'pk': '1', 'name': 'foo'})
+
+        tuples = list(stored_collection.values_list('pk', 'name'))
+        self.assertEqual(len(tuples), 2)
+        self.assertEqual(tuples[0], ('1', 'foo'))
+
+    def test_stored_collection_could_be_stored(self):
+        collection = Group.collection(active=1)
+        stored_collection = collection.store()
+        stored_collection.filter(public=1)
+        final_collection = stored_collection.store()
+        result = self.connection.lrange(final_collection.stored_key, 0, -1)
+        self.assertEqual(result, ['1'])
+
+    def test_stored_collection_could_be_sorted(self):
+        collection = Group.collection(active=1)
+        stored_collection = collection.store()
+        sorted_groups = list(stored_collection.sort(by='name', alpha=True))
+        self.assertEqual(sorted_groups, ['2', '1'])
+
+    def test_stored_collection_could_be_empty(self):
+        collection = Group.collection(active=1, name='foobar')
+        stored_collection = collection.store()
+        self.assertEqual(list(stored_collection), [])
+
+
+class LenTest(BaseTest):
+    def test_len_should_work_with_sortedsets(self):
+        container = GroupsContainer()
+        container.groups_sortedset.zadd(1.0, 1, 2.0, 2)
+        collection = Group.collection().intersect(container.groups_sortedset)
+        collection.sort(by='name')  # to fail if sort called, becase alpha not set
+        self.assertEqual(len(collection), 2)
+
+    def test_len_should_work_with_stored_collection(self):
+        collection = Group.collection(active=1)
+        stored_collection = collection.store().sort(by='name')
+        self.assertEqual(len(stored_collection), 2)

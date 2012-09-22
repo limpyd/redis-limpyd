@@ -1,11 +1,16 @@
 # -*- coding:utf-8 -*-
 
 from itertools import islice, chain
+from copy import deepcopy
 
 from limpyd.collection import CollectionManager
 from limpyd.fields import (SetField, ListField, SortedSetField, MultiValuesField,
                            RedisField, SingleValueField, PKField)
+from limpyd.exceptions import DoesNotExist
 from limpyd.contrib.database import PipelineDatabase
+
+SORTED_SCORE = 'sorted_score'
+DEFAULT_STORE_TTL = 60
 
 
 class ExtendedCollectionManager(CollectionManager):
@@ -38,6 +43,9 @@ class ExtendedCollectionManager(CollectionManager):
         self._lazy_collection['intersects'] = set()
         self._has_sortedsets = False
         self._sort_by_sortedset = None
+        self._store = False
+        self.stored_key = False
+        self._stored_len = None
 
     def _call_script(self, script_name, keys=[], args=[]):
         """
@@ -74,6 +82,20 @@ class ExtendedCollectionManager(CollectionManager):
         else:
             self.cls.get_connection().sadd(set_key, *sortedset_field.zmembers())
 
+    @property
+    def _collection(self):
+        """
+        Effectively retrieve data according to lazy_collection.
+        If we have a stored collection, without any result, return an empty list
+        """
+        if self.stored_key and not self._stored_len:
+            if self._len_mode:
+                self._len = 0
+                self._len_mode = False
+            self._slice = {}
+            return []
+        return super(ExtendedCollectionManager, self)._collection
+
     def _prepare_sets(self, sets):
         """
         The original "_prepare_sets" method simple return the list of sets in
@@ -85,6 +107,11 @@ class ExtendedCollectionManager(CollectionManager):
 
         all_sets = set()
         tmp_keys = set()
+        only_one_set = len(sets) == 1
+
+        if self.stored_key and not self.stored_key_exists():
+            raise DoesNotExist('This collection is based on a previous one, '
+                               'stored at a key that does not exist anymore.')
 
         for set_ in sets:
             if isinstance(set_, basestring):
@@ -103,12 +130,16 @@ class ExtendedCollectionManager(CollectionManager):
                 # Use the sorted set key. If we need to intersect, we'll use
                 # zinterstore, and if not, store accepts zset
                 all_sets.add(set_.key)
-            elif isinstance(set_, ListField):
-                # convert the list to a simple redis set
-                tmp_key = self._unique_key()
-                self._list_to_set(set_, tmp_key)
-                tmp_keys.add(tmp_key)
-                all_sets.add(tmp_key)
+            elif isinstance(set_, (ListField, _StoredCollection)):
+                if only_one_set:
+                    # we only have this list, use it directly
+                    all_sets.add(set_.key)
+                else:
+                    # many sets, convert the list to a simple redis set
+                    tmp_key = self._unique_key()
+                    self._list_to_set(set_, tmp_key)
+                    tmp_keys.add(tmp_key)
+                    all_sets.add(tmp_key)
             elif isinstance(set_, tuple) and len(set_):
                 # if we got a list or set, create a redis set to hold its values
                 tmp_key = self._unique_key()
@@ -145,7 +176,7 @@ class ExtendedCollectionManager(CollectionManager):
             elif isinstance(set_, MultiValuesField) and not getattr(set_, '_instance', None):
                 raise ValueError('%s passed to "intersect" must be bound'
                                  % set_.__class__.__name__)
-            elif not isinstance(set_, (tuple, basestring, MultiValuesField)):
+            elif not isinstance(set_, (tuple, basestring, MultiValuesField, _StoredCollection)):
                 raise ValueError('%s is not a valid type of argument that can '
                                  'be used as a set. Allowed are: string (key '
                                  'of a redis set), limpyd multi-values field ('
@@ -178,10 +209,45 @@ class ExtendedCollectionManager(CollectionManager):
         options, call zrange on the final set wich is the result of a call to
         zinterstore.
         """
+        conn = self.cls.get_connection()
+
+        # we have a sorted set without need to sort, use zrange
         if self._has_sortedsets and sort_options is None:
-            return self.cls.get_connection().zrange(final_set, 0, -1)
+            # TODO: we may handle slicing here
+            return conn.zrange(final_set, 0, -1)
+
+        # we have a stored collection, without other filter, and no need to
+        # sort, use lrange
+        elif self.stored_key and not self._lazy_collection['sets']\
+                and len(self._lazy_collection['intersects']) == 1\
+                and (sort_options is None or sort_options == {'by': 'nosort'}):
+
+            # TODO: we may handle slicing here
+            return conn.lrange(final_set, 0, -1)
+
+        # normal call
         return super(ExtendedCollectionManager, self)._final_redis_call(
                                                         final_set, sort_options)
+
+    def _collection_length(self, final_set):
+        """
+        Return the length of the final collection, directly asking redis for the
+        count without calling sort
+        """
+        conn = self.cls.get_connection()
+
+        # we have a sorted set without need to sort, use zcard
+        if self._has_sortedsets:
+            return conn.zcard(final_set)
+
+        # we have a stored collection, without other filter, use llen
+        elif self.stored_key and not self._lazy_collection['sets']\
+                and len(self._lazy_collection['intersects']) == 1:
+
+            return conn.llen(final_set)
+
+        # normal call
+        return super(ExtendedCollectionManager, self)._collection_length(final_set)
 
     def sort(self, **parameters):
         """
@@ -209,6 +275,7 @@ class ExtendedCollectionManager(CollectionManager):
                                  'to the `by_score` named argument')
             is_sortedset = True
             parameters['by'] = by
+            del parameters['by_score']
 
         else:
             # allow passing a field, not only a field name
@@ -292,10 +359,20 @@ class ExtendedCollectionManager(CollectionManager):
                                     )
         # ask to sort on our new keys
         sort_options['by'] = '%s:*' % base_tmp_key
+
         # retrieve original sort parameters
-        for key in ('desc', 'alpha'):
+        for key in ('desc', 'alpha', 'get', 'store'):
             if key in self._sort_by_sortedset:
                 sort_options[key] = self._sort_by_sortedset[key]
+
+        # if we want to get the score with values/values_list
+        if sort_options.get('get'):
+            try:
+                pos = sort_options['get'].index(SORTED_SCORE)
+            except:
+                pass
+            else:
+                sort_options['get'][pos] = '%s:*' % base_tmp_key
 
         return base_tmp_key, tmp_keys
 
@@ -305,9 +382,9 @@ class ExtendedCollectionManager(CollectionManager):
         retrieve, or slice)
         """
         # if we want a result sorted by a score, and if we have a full result
-        # (no slice or values), we can do it know, by creating keys for each
-        # values with the sorted set score, and sort on them
-        if self._sort_by_sortedset and not (self._slice or self._values) and len(results) > 1:
+        # (no slice), we can do it know, by creating keys for each values with
+        # the sorted set score, and sort on them
+        if self._sort_by_sortedset_after and (len(results) > 1 or self._values):
             conn = self.cls.get_connection()
 
             sort_params = {}
@@ -323,13 +400,60 @@ class ExtendedCollectionManager(CollectionManager):
             # finally delete all temporary keys
             conn.delete(*(tmp_keys + [final_set, base_tmp_key]))
 
-        return results
+        if self._store:
+            # if store, redis doesn't return result, so don't return anything here
+            return
+        else:
+            return super(ExtendedCollectionManager, self)._prepare_results(results)
+
+    @property
+    def _sort_by_sortedset_before(self):
+        """
+        Return True if we have to sort by set and do the stuff *before* asking
+        redis for the sort
+        """
+        return self._sort_by_sortedset and self._slice and (not self._lazy_collection['pks'] or self._want_score_value)
+
+    @property
+    def _sort_by_sortedset_after(self):
+        """
+        Return True if we have to sort by set and do the stuff *after* asking
+        redis for the sort
+        """
+        return self._sort_by_sortedset and not self._slice and (not self._lazy_collection['pks'] or self._want_score_value)
+
+    @property
+    def _want_score_value(self):
+        """
+        Return True if we want the score of the sorted set used to sort in the
+        results from values/values_list
+        """
+        return self._values and SORTED_SCORE in self._values['fields']['names']
+
+    def _prepare_sort_options(self, has_pk):
+        """
+        If we manager sort by score after getting the result, we do not want to
+        get values from the first sort call, but only from the last one, after
+        converting results in zset into keys
+        """
+        sort_options = super(ExtendedCollectionManager, self)._prepare_sort_options(has_pk)
+        if self._sort_by_sortedset_after:
+            for key in ('get', 'store'):
+                if key in self._sort_by_sortedset:
+                    del self._sort_by_sortedset[key]
+            if sort_options and (not has_pk or self._want_score_value):
+                for key in ('get', 'store'):
+                    if key in sort_options:
+                        self._sort_by_sortedset[key] = sort_options.pop(key)
+            if not sort_options:
+                sort_options = None
+        return sort_options
 
     def _get_final_set(self, sets, pk, sort_options):
         """
         Add intersects fo sets and call parent's _get_final_set.
-        If we have to sort by sorted score, and we have a slice or want values,
-        we have to convert the whole sorted set to keys now.
+        If we have to sort by sorted score, and we have a slice, we have to
+        convert the whole sorted set to keys now.
         """
         if self._lazy_collection['intersects']:
             # if the intersect method was called, we had new sets to intersect
@@ -339,7 +463,7 @@ class ExtendedCollectionManager(CollectionManager):
             # are all real primary keys
             sets = sets.copy()
             sets.update(self._lazy_collection['intersects'])
-            if not self._lazy_collection['sets']:
+            if not self._lazy_collection['sets'] and not self.stored_key:
                 sets.add(self.cls._redis_attr_pk.collection_key)
 
         final_set, keys_to_delete_later = super(ExtendedCollectionManager,
@@ -349,7 +473,7 @@ class ExtendedCollectionManager(CollectionManager):
         # as redis sort command doesn't handle this, we have to create keys for
         # each value of the sorted set and sort on them
         # @antirez, y u don't allow this !!??!!
-        if self._sort_by_sortedset and (self._slice or self._values):
+        if self._sort_by_sortedset_before:
             # TODO: if we have filters, maybe apply _zet_to_keys to only
             #       intersected values
             base_tmp_key, tmp_keys = self._prepare_sort_by_score(None, sort_options)
@@ -394,3 +518,123 @@ class ExtendedCollectionManager(CollectionManager):
         if pk is not None and isinstance(pk, PKField):
             pk = pk.get()
         return pk
+
+    def _coerce_fields_parameters(self, fields):
+        """
+        When sorting by score, we allow to retrieve the score in values/values_list.
+        For this, just pass SORTED_SCORE (importable from contrib.collection) as
+        a name to retrieve.
+        If finally the result is not sorted by score, the value for this part
+        will be None
+        """
+        try:
+            sorted_score_pos = fields.index(SORTED_SCORE)
+        except:
+            sorted_score_pos = None
+        else:
+            fields = list(fields)
+            fields.pop(sorted_score_pos)
+
+        fields = super(ExtendedCollectionManager, self)._coerce_fields_parameters(fields)
+
+        if sorted_score_pos is not None:
+            fields['names'].insert(sorted_score_pos, SORTED_SCORE)
+            fields['keys'].insert(sorted_score_pos, SORTED_SCORE)
+
+        return fields
+
+    def store(self, key=None, ttl=DEFAULT_STORE_TTL):
+        """
+        Will call the collection and store the result in Redis, and return a new
+        collection based on this stored result. Note that only primary keys are
+        stored, ie calls to values/values_list are ignored when storing result.
+        But choices about instances/values_list are transmited to the new
+        collection.
+        If no key is given, a new one will be generated.
+        The ttl is the time redis will keep the new key. By default its
+        DEFAULT_STORE_TTL, which is 60 secondes. You can pass None if you don't
+        want expiration.
+        """
+        self._store = True
+
+        # save sort and values options
+        sort_options = None
+        if self._sort is not None:
+            sort_options = self._sort.copy()
+        values = None
+        if self._values is not None:
+            values = self._values
+            self._values = None
+
+        # create a key for storage
+        store_key = key or self._unique_key()
+        if self._sort is None:
+            self._sort = {}
+        self._sort['store'] = store_key
+
+        # if filter by pk, but without need to get "values", no redis call is done
+        # so force values to get a call to sort (to store result)
+        if self._lazy_collection['pks'] and not self._values:
+            self.values('pk')
+
+        # call the collection
+        self._len_mode = False
+        self._collection
+
+        # restore sort and values options
+        self._store = False
+        self._sort = sort_options
+        self._values = values
+
+        # create the new collection
+        stored_collection = self.__class__(self.cls)
+        stored_collection.from_stored(store_key)
+
+        # apply ttl if needed
+        if ttl is not None:
+            self.cls.get_connection().expire(store_key, ttl)
+
+        # set choices about instances/values from the current to the new collection
+        for attr in ('_instances', '_instances_skip_exist_test', '_values'):
+            setattr(stored_collection, attr, deepcopy(getattr(self, attr)))
+
+        # finally return the new collection
+        return stored_collection
+
+    def from_stored(self, key):
+        """
+        Set the current collection as based on a stored one. The key argument
+        is the key off the stored collection.
+        """
+        # only one stored key allowed
+        if self.stored_key:
+            raise ValueError('This collection is already based on a stored one')
+
+        # prepare the collection
+        self.stored_key = key
+        self.intersect(_StoredCollection(key))
+        self.sort(by='nosort')
+
+        # count the number of results to manage empty result (to not behave like
+        # expired key)
+        self._stored_len = self.cls.get_connection().llen(key)
+
+        return self
+
+    def stored_key_exists(self):
+        """
+        Check the existence of the stored key (useful if the collection is based
+        on a stored one, to check if the redis key still exists)
+        """
+        return self.cls.get_connection().exists(self.stored_key)
+
+
+class _StoredCollection(object):
+    """
+    Simple object to store the key of a stored collection, to be used in
+    ExtendedCollectionManager based on a stored collection.
+    The stored key is a list, so it's managed as a ListField (but we only need)
+    its key)
+    """
+    def __init__(self, key):
+        self.key = key
