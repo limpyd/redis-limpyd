@@ -302,7 +302,7 @@ class RelatedFieldMixin(fields.RedisField):
 
         return related_name.lower()
 
-    def from_python(self, values):
+    def from_python(self, *values):
         """
         Provide the ability to pass RedisModel instances as values. They are
         translated to their own pk.
@@ -324,13 +324,13 @@ class RelatedFieldMixin(fields.RedisField):
         """
         def func(self, *args, **kwargs):
             if many:
-                args = self.from_python(args)
+                args = self.from_python(*args)
             else:
                 if 'value' in kwargs:
-                    kwargs['value'] = self.from_python([kwargs['value']])[0]
+                    kwargs['value'] = self.from_python(kwargs['value'], )[0]
                 else:
                     args = list(args)
-                    args[0] = self.from_python([args[0]])[0]
+                    args[0] = self.from_python(args[0], )[0]
 
             # call the super method, with real pk
             sup_method = getattr(super(cls, self), command_name)
@@ -402,15 +402,15 @@ class M2MListField(MultiValuesRelatedFieldMixin, fields.ListField):
     _related_remover = 'lrem'
 
     def linsert(self, where, refvalue, value):
-        value = self.from_python([value])[0]
+        value = self.from_python(value, )[0]
         return super(M2MListField, self).linsert(where, refvalue, value)
 
     def lrem(self, count, value):
-        value = self.from_python([value])[0]
+        value = self.from_python(value, )[0]
         return super(M2MListField, self).lrem(count, value)
 
     def lset(self, index, value):
-        value = self.from_python([value])[0]
+        value = self.from_python(value, )[0]
         return super(M2MListField, self).lset(index, value)
 
 
@@ -433,5 +433,5 @@ class M2MSortedSetField(MultiValuesRelatedFieldMixin, fields.SortedSetField):
         return super(M2MSortedSetField, self).zadd(*pieces)
 
     def zincrby(self, value, amount=1):
-        value = self.from_python[value]
+        value = self.from_python(value, )
         return super(M2MSortedSetField, self).zincrby(value, amout)

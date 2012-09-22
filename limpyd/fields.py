@@ -665,7 +665,7 @@ class SortedSetField(MultiValuesField):
         """
         Take arguments attended by a zadd call, named or not, and return a flat list
         that can be used.
-        A callback can be called with all "values" if defined as the
+        A callback can be called with all "values" (as *args) if defined as the
         `values_callback` named argument. Real values will then be the result of
         this callback.
         """
@@ -684,7 +684,7 @@ class SortedSetField(MultiValuesField):
 
         values = pieces[1::2]
         if values_callback:
-            values = values_callback(values)
+            values = values_callback(*values)
 
         scores = pieces[0::2]
 
