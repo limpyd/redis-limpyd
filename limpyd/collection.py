@@ -153,6 +153,9 @@ class CollectionManager(object):
                     self._len = 1
                 else:
                     self._len = self._collection_length(final_set)
+                    if keys_to_delete:
+                        conn.delete(*keys_to_delete)
+
                 # return nothing
                 return
 
