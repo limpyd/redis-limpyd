@@ -44,11 +44,17 @@ class CollectionManager(object):
                           # `list(Model.collection)` (a `list` will call
                           # __iter__ AND __len__)
         self._values = None  # Will store parameters used to retrieve values
+        self._len_mode = True   # Set to True if the __len__ method is directly
+                                # called (to avoid some useless computations)
+                                # True by default to manage the __iter__ + __len__
+                                # case, specifically set to False in other cases
 
     def __iter__(self):
+        self._len_mode = False
         return self._collection.__iter__()
 
     def __getitem__(self, arg):
+        self._len_mode = False
         self._slice = {}
         if isinstance(arg, slice):
             # A slice has been requested
@@ -141,24 +147,36 @@ class CollectionManager(object):
                                                 self._lazy_collection['sets'],
                                                 pk, sort_options)
 
-            # fill the collection
-            if final_set is None:
-                # final_set is None if we have a pk without other sets, and no
-                # needs to get values so we can simply return the pk
-                collection = set([pk])
-            else:
-                # compute the sets and call redis te retrieve wanted values
-                collection = self._final_redis_call(final_set, sort_options)
-                if keys_to_delete:
-                    conn.delete(*keys_to_delete)
+            if self._len_mode:
+                if final_set is None:
+                    # final_set is None if we have a only pk
+                    self._len = 1
+                else:
+                    self._len = self._collection_length(final_set)
+                # return nothing
+                return
 
-            # Format return values if needed
-            return self._prepare_results(collection)
+            else:
+
+                # fill the collection
+                if final_set is None:
+                    # final_set is None if we have a pk without other sets, and no
+                    # needs to get values so we can simply return the pk
+                    collection = set([pk])
+                else:
+                    # compute the sets and call redis te retrieve wanted values
+                    collection = self._final_redis_call(final_set, sort_options)
+                    if keys_to_delete:
+                        conn.delete(*keys_to_delete)
+
+                # Format return values if needed
+                return self._prepare_results(collection)
 
         except:  # raise original exception
             raise
         finally:  # always reset the slice, having an exception or not
             self._slice = {}
+            self._len_mode = True
 
     def _final_redis_call(self, final_set, sort_options):
         """
@@ -172,6 +190,13 @@ class CollectionManager(object):
         else:
             # no sort, nor values, simply return the full set
             return conn.smembers(final_set)
+
+    def _collection_length(self, final_set):
+        """
+        Return the length of the final collection, directly asking redis for the
+        count without calling sort
+        """
+        return self.cls.get_connection().scard(final_set)
 
     def _to_instances(self, pks):
         """
@@ -300,10 +325,14 @@ class CollectionManager(object):
 
     def __len__(self):
         if self._len is None:
-            self._len = self._collection.__len__()
+            if not self._len_mode:
+                self._len = self._collection.__len__()
+            else:
+                self._collection
         return self._len
 
     def __repr__(self):
+        self._len_mode = False
         return self._collection.__repr__()
 
     def instances(self, skip_exist_test=False):

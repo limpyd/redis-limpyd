@@ -2,6 +2,7 @@
 
 import unittest
 
+from redis.exceptions import ResponseError
 from limpyd import fields
 from limpyd.collection import CollectionManager
 from limpyd.exceptions import *
@@ -35,9 +36,9 @@ class CollectionTest(CollectionBaseTest):
         self.assertEqual(set(Bike.collection()), set([bike1._pk, bike2._pk]))
 
     def test_filter_from_kwargs(self):
-        self.assertEqual(len(Boat.collection()), 4)
-        self.assertEqual(len(Boat.collection(power="sail")), 3)
-        self.assertEqual(len(Boat.collection(power="sail", launched=1966)), 1)
+        self.assertEqual(len(list(Boat.collection())), 4)
+        self.assertEqual(len(list(Boat.collection(power="sail"))), 3)
+        self.assertEqual(len(list(Boat.collection(power="sail", launched=1966))), 1)
 
     def test_should_raise_if_filter_is_not_indexable_field(self):
         with self.assertRaises(ValueError):
@@ -110,9 +111,9 @@ class CollectionTest(CollectionBaseTest):
                 self._add_filters(power='sail')
 
         # all boats, using the default manager, attached to the model
-        self.assertEqual(len(Boat.collection()), 4)
+        self.assertEqual(len(list(Boat.collection())), 4)
         # only sail powered boats, using an other manager
-        self.assertEqual(len(Boat.collection(manager=SailBoats)), 3)
+        self.assertEqual(len(list(Boat.collection(manager=SailBoats))), 3)
 
         class ActiveGroups(CollectionManager):
             def __init__(self, cls):
@@ -129,9 +130,9 @@ class CollectionTest(CollectionBaseTest):
         Group(name='limpyd fan boys', active=0)
 
         # all active groups, using our filtered manager, attached to the model
-        self.assertEqual(len(Group.collection()), 1)
+        self.assertEqual(len(list(Group.collection())), 1)
         # all groups by using the default manager
-        self.assertEqual(len(Group.collection(manager=CollectionManager)), 2)
+        self.assertEqual(len(list(Group.collection(manager=CollectionManager))), 2)
 
 
 class SliceTest(CollectionBaseTest):
@@ -327,19 +328,19 @@ class InstancesTest(CollectionBaseTest):
             list(Boat.collection().instances(skip_exist_test=True))
 
     def test_instances_should_work_if_filtering_on_only_a_pk(self):
-        boats = Boat.collection(pk=1).instances()
+        boats = list(Boat.collection(pk=1).instances())
         self.assertEqual(len(boats), 1)
         self.assertTrue(isinstance(boats[0], Boat))
 
-        boats = Boat.collection(pk=10).instances()
+        boats = list(Boat.collection(pk=10).instances())
         self.assertEqual(len(boats), 0)
 
     def test_instances_should_work_if_filtering_on_pk_and_other_fields(self):
-        boats = Boat.collection(pk=1, name="Pen Duick I").instances()
+        boats = list(Boat.collection(pk=1, name="Pen Duick I").instances())
         self.assertEqual(len(boats), 1)
         self.assertTrue(isinstance(boats[0], Boat))
 
-        boats = Boat.collection(pk=10, name="Pen Duick I").instances()
+        boats = list(Boat.collection(pk=10, name="Pen Duick I").instances())
         self.assertEqual(len(boats), 0)
 
     def test_call_to_primary_keys_should_cancel_instances(self):
@@ -467,6 +468,46 @@ class ValuesListTest(CollectionBaseTest):
         self.assertEqual(boats, set(['1', '2', '3', '4']))
         boats = set(Boat.collection().values_list('name', flat=True).primary_keys())
         self.assertEqual(boats, set(['1', '2', '3', '4']))
+
+
+class LenTest(CollectionBaseTest):
+
+    def test_len_should_not_call_sort(self):
+        collection = Boat.collection(power="sail")
+
+        # sorting will fail because alpha is not set to True
+        collection.sort(by='name')
+
+        # len won't fail on sort, not called
+        self.assertEqual(len(collection), 3)
+
+        # real call => the sort will fail
+        with self.assertRaises(ResponseError):
+            self.assertEqual(len(list(collection)), 3)
+
+    def test_len_call_could_be_followed_by_a_iter(self):
+        collection = Boat.collection(power="sail")
+        self.assertEqual(len(collection), 3)
+        self.assertEqual(set(collection), set(['1', '2', '3']))
+
+    def test_len_should_work_with_slices(self):
+        collection = Boat.collection(power="sail")[1:3]
+        self.assertEqual(len(collection), 2)
+
+    def test_len_should_work_with_pk(self):
+        collection = Boat.collection(pk=1)
+        self.assertEqual(len(collection), 1)
+        collection = Boat.collection(power="sail", pk=2)
+        self.assertEqual(len(collection), 1)
+        collection = Boat.collection(pk=10)
+        self.assertEqual(len(collection), 0)
+
+    def test_len_should_work_if_values_or_instances(self):
+        collection = Boat.collection(power="sail").sort(by='name').instances()
+        self.assertEqual(len(collection), 3)
+        collection = Boat.collection(power="sail").sort(by='name').values()
+        self.assertEqual(len(collection), 3)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -598,3 +598,17 @@ class StoreTest(BaseTest):
         collection = Group.collection(active=1, name='foobar')
         stored_collection = collection.store()
         self.assertEqual(list(stored_collection), [])
+
+
+class LenTest(BaseTest):
+    def test_len_should_work_with_sortedsets(self):
+        container = GroupsContainer()
+        container.groups_sortedset.zadd(1.0, 1, 2.0, 2)
+        collection = Group.collection().intersect(container.groups_sortedset)
+        collection.sort(by='name')  # to fail if sort called, becase alpha not set
+        self.assertEqual(len(collection), 2)
+
+    def test_len_should_work_with_stored_collection(self):
+        collection = Group.collection(active=1)
+        stored_collection = collection.store().sort(by='name')
+        self.assertEqual(len(stored_collection), 2)

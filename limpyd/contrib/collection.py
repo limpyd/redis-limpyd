@@ -89,6 +89,9 @@ class ExtendedCollectionManager(CollectionManager):
         If we have a stored collection, without any result, return an empty list
         """
         if self.stored_key and not self._stored_len:
+            if self._len_mode:
+                self._len = 0
+                self._len_mode = False
             self._slice = {}
             return []
         return super(ExtendedCollectionManager, self)._collection
@@ -225,6 +228,26 @@ class ExtendedCollectionManager(CollectionManager):
         # normal call
         return super(ExtendedCollectionManager, self)._final_redis_call(
                                                         final_set, sort_options)
+
+    def _collection_length(self, final_set):
+        """
+        Return the length of the final collection, directly asking redis for the
+        count without calling sort
+        """
+        conn = self.cls.get_connection()
+
+        # we have a sorted set without need to sort, use zcard
+        if self._has_sortedsets:
+            return conn.zcard(final_set)
+
+        # we have a stored collection, without other filter, use llen
+        elif self.stored_key and not self._lazy_collection['sets']\
+                and len(self._lazy_collection['intersects']) == 1:
+
+            return conn.llen(final_set)
+
+        # normal call
+        return super(ExtendedCollectionManager, self)._collection_length(final_set)
 
     def sort(self, **parameters):
         """
@@ -555,6 +578,7 @@ class ExtendedCollectionManager(CollectionManager):
             self.values('pk')
 
         # call the collection
+        self._len_mode = False
         self._collection
 
         # restore sort and values options
