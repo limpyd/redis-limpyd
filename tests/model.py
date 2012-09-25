@@ -120,6 +120,116 @@ class DatabaseTest(LimpydBaseTest):
 
         sub_test()
 
+    def test_database_could_transfer_its_models_to_another(self):
+        db1 = model.RedisDatabase(**TEST_CONNECTION_SETTINGS)
+        db2 = model.RedisDatabase(**TEST_CONNECTION_SETTINGS)
+        db3 = model.RedisDatabase(**TEST_CONNECTION_SETTINGS)
+
+        class M(model.RedisModel):
+            namespace = 'transfert-db-models'
+            abstract = True
+
+        class A(M):
+            abstract = True
+
+        class B(M):
+            abstract = True
+
+        class BA(B):
+            database = db1
+
+        class BAA(BA):
+            pass
+
+        class BAB(BA):
+            pass
+
+        class BB(B):
+            database = db2
+
+        class BBA(BB):
+            pass
+
+        class BBB(BB):
+            abstract = True
+
+        class BBBA(BBB):
+            pass
+
+        def assertModelsInDatabase(database, *models):
+            """
+            Test that the database contains all non-abstract models in the given
+            list and that each model has the correct database.
+            """
+            self.assertEqual(database._models, dict((m._name, m) for m in models if not m.abstract))
+            for m in models:
+                self.assertEqual(m.database, database)
+
+        def assertNoDatabase(*models):
+            for m in models:
+                self.assertFalse(hasattr(m, 'database'))
+
+        # starting point
+        assertNoDatabase(M, A, B)
+        assertModelsInDatabase(db1, BA, BAA, BAB)
+        assertModelsInDatabase(db2, BB, BBA, BBB, BBBA)
+        assertModelsInDatabase(db3)
+
+        # move B to db1
+        B.use_database(db1)
+        assertNoDatabase(M, A)  # B moved, alone, from here....
+        assertModelsInDatabase(db1, B, BA, BAA, BAB)  # ...to here
+        assertModelsInDatabase(db2, BB, BBA, BBB, BBBA)
+        assertModelsInDatabase(db3)
+
+        # move some models to db3
+        B.use_database(db3)
+        assertNoDatabase(M, A)
+        assertModelsInDatabase(db1)  # B and submodels...
+        assertModelsInDatabase(db3, B, BA, BAA, BAB)  # ...moved to db3
+        assertModelsInDatabase(db2, BB, BBA, BBB, BBBA)  # models in db2 are still here
+
+        # move back some to db1
+        BA.use_database(db1)
+        assertNoDatabase(M, A)
+        assertModelsInDatabase(db1, BA, BAA, BAB)  # BA and submodels are here now...
+        assertModelsInDatabase(db3, B)  # ...not here anymore
+        assertModelsInDatabase(db2, BB, BBA, BBB, BBBA)
+
+        # move some from db2 to db3
+        BBB.use_database(db3)
+        assertNoDatabase(M, A)
+        assertModelsInDatabase(db1, BA, BAA, BAB)
+        assertModelsInDatabase(db2, BB, BBA)  # BBB and submodel have moved...
+        assertModelsInDatabase(db3, B, BBB, BBBA)  # ...here
+
+        # move B alone in db2 (no direct submodel in db3)
+        B.use_database(db2)
+        assertNoDatabase(M, A)
+        assertModelsInDatabase(db1, BA, BAA, BAB)
+        assertModelsInDatabase(db2, B, BB, BBA)  # B is here now...
+        assertModelsInDatabase(db3, BBB, BBBA)
+
+        # move all from db3, to have a full chain
+        BBB.use_database(db2)
+        assertNoDatabase(M, A)
+        assertModelsInDatabase(db1, BA, BAA, BAB)
+        assertModelsInDatabase(db2, B, BB, BBA, BBB, BBBA)  # all from db3 is now here
+        assertModelsInDatabase(db3)
+
+        # and now move the B+BB chain in db3
+        B.use_database(db3)
+        assertNoDatabase(M, A)
+        assertModelsInDatabase(db1, BA, BAA, BAB)
+        assertModelsInDatabase(db2)  # nothing here anymore
+        assertModelsInDatabase(db3, B, BB, BBA, BBB, BBBA)
+
+        # move M, abstract without DB should move it's subclass A without DB
+        M.use_database(db1)
+        assertModelsInDatabase(db1, M, A, BA, BAA, BAB)  # hello M & A
+        assertModelsInDatabase(db2)
+        assertModelsInDatabase(db3, B, BB, BBA, BBB, BBBA)
+
 
 class GetAttrTest(LimpydBaseTest):
 

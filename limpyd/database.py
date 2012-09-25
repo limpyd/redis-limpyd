@@ -38,6 +38,24 @@ class RedisDatabase(object):
                 'on this database' % (model.namespace, model.__name__))
         self._models[model._name] = model
 
+    def use_for_model(self, model):
+        """
+        Update the given model to use the current database. Do it also for all
+        of its subclasses if they share the same database. (so it's easy to
+        call use_database on an abstract model to use the new database for all
+        subclasses)
+        """
+        model_database = getattr(model, 'database', None)
+        if model_database == self:
+            return
+        if not model.abstract:
+            self._add_model(model)
+            del model.database._models[model._name]
+        for submodel in model.__subclasses__():
+            if getattr(submodel, 'database', None) == model_database:
+                self.use_for_model(submodel)
+        model.database = self
+
     @property
     def connection(self):
         """
