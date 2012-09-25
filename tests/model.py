@@ -230,6 +230,18 @@ class DatabaseTest(LimpydBaseTest):
         assertModelsInDatabase(db2)
         assertModelsInDatabase(db3, B, BB, BBA, BBB, BBBA)
 
+    def test_database_should_accept_new_redis_connection_settings(self):
+        some_settings = TEST_CONNECTION_SETTINGS.copy()
+        some_settings['db'] = 14
+
+        database = model.RedisDatabase(**some_settings)
+        self.assertEqual(database.connection_settings['db'], 14)
+        connection = database.connection
+
+        database.connect(**TEST_CONNECTION_SETTINGS)
+        self.assertEqual(database.connection_settings['db'], TEST_CONNECTION_SETTINGS['db'])
+        self.assertNotEqual(connection, database.connection)
+
 
 class GetAttrTest(LimpydBaseTest):
 

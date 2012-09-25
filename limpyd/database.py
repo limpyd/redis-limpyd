@@ -22,10 +22,18 @@ class RedisDatabase(object):
     discard_cache = False
 
     def __init__(self, **connection_settings):
-        self.connection_settings = connection_settings or DEFAULT_CONNECTION_SETTINGS
+        self.connect(**(connection_settings or DEFAULT_CONNECTION_SETTINGS))
         # _models keep an entry for each defined model on this database
         self._models = dict()
         super(RedisDatabase, self).__init__()
+
+    def connect(self, **connection_settings):
+        """
+        Set the new connection settings to be used and reset the connection
+        cache so the next redis call will use these settings.
+        """
+        self.connection_settings = connection_settings
+        self._connection = None
 
     def _add_model(self, model):
         """
