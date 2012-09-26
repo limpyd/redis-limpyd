@@ -205,7 +205,7 @@ class RedisModel(RedisProxyCommand):
         call use_database on an abstract model to use the new database for all
         subclasses)
         """
-        database.use_for_model(cls)
+        return database._use_for_model(cls)
 
     def init_cache(self):
         """
