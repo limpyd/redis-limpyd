@@ -2,6 +2,8 @@
 
 import unittest
 
+import threading
+import time
 from datetime import datetime
 from redis.exceptions import RedisError
 
@@ -229,6 +231,43 @@ class DatabaseTest(LimpydBaseTest):
         assertModelsInDatabase(db1, M, A, BA, BAA, BAB)  # hello M & A
         assertModelsInDatabase(db2)
         assertModelsInDatabase(db3, B, BB, BBA, BBB, BBBA)
+
+    def test_use_database_shoud_be_threadsafe(self):
+        """
+        Check if when we use a new database, it's updated for the model on all
+        threads
+        """
+        db1 = model.RedisDatabase(**TEST_CONNECTION_SETTINGS)
+        db2 = model.RedisDatabase(**TEST_CONNECTION_SETTINGS)
+        db3 = model.RedisDatabase(**TEST_CONNECTION_SETTINGS)
+
+        class ThreadableModel(model.RedisModel):
+            database = db1
+            foo = fields.StringField()
+
+        class Thread(threading.Thread):
+            def __init__(self, test):
+                self.test = test
+                super(Thread, self).__init__()
+
+            def run(self):
+                # no reason to fail, but still test it
+                self.test.assertEqual(ThreadableModel.database, db1)
+                # wait a little to let the main thread set database to db2
+                time.sleep(0.1)
+                self.test.assertEqual(ThreadableModel.database, db2)
+                # will be tested in main thread
+                ThreadableModel.use_database(db3)
+
+        thread = Thread(self)
+        thread.start()
+
+        # will be tested in child thread
+        ThreadableModel.use_database(db2)
+
+        # wait a little to let the child thread set database to db3
+        time.sleep(0.2)
+        self.assertEqual(ThreadableModel.database, db3)
 
     def test_database_should_accept_new_redis_connection_settings(self):
         some_settings = TEST_CONNECTION_SETTINGS.copy()
