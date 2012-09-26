@@ -197,6 +197,16 @@ class RedisModel(RedisProxyCommand):
             else:
                 raise ValueError("No %s found with pk %s" % (self.__class__.__name__, value))
 
+    @classmethod
+    def use_database(cls, database):
+        """
+        Transfert the current model to the new database. Move subclasses to the
+        new database two if they actually share the same one (so it's easy to
+        call use_database on an abstract model to use the new database for all
+        subclasses)
+        """
+        return database._use_for_model(cls)
+
     def init_cache(self):
         """
         Call it to init or clear the command cache.

@@ -20,12 +20,20 @@ class RedisDatabase(object):
     """
     _connection = None
     discard_cache = False
-    # _models keep an entry for each defined model on this database
-    _models = dict()
 
     def __init__(self, **connection_settings):
-        self.connection_settings = connection_settings or DEFAULT_CONNECTION_SETTINGS
+        self.connect(**(connection_settings or DEFAULT_CONNECTION_SETTINGS))
+        # _models keep an entry for each defined model on this database
+        self._models = dict()
         super(RedisDatabase, self).__init__()
+
+    def connect(self, **connection_settings):
+        """
+        Set the new connection settings to be used and reset the connection
+        cache so the next redis call will use these settings.
+        """
+        self.connection_settings = connection_settings
+        self._connection = None
 
     def _add_model(self, model):
         """
@@ -37,6 +45,39 @@ class RedisDatabase(object):
                 'A model with namespace "%s" and name "%s" is already defined '
                 'on this database' % (model.namespace, model.__name__))
         self._models[model._name] = model
+
+    def _use_for_model(self, model):
+        """
+        Update the given model to use the current database. Do it also for all
+        of its subclasses if they share the same database. (so it's easy to
+        call use_database on an abstract model to use the new database for all
+        subclasses)
+        """
+        original_database = getattr(model, 'database', None)
+
+        def get_models(model):
+            """
+            Return the model and all its submodels that are on the same database
+            """
+            model_database = getattr(model, 'database', None)
+            if model_database == self:
+                return []
+            models = [model]
+            for submodel in model.__subclasses__():
+                if getattr(submodel, 'database', None) == model_database:
+                    models += get_models(submodel)
+            return models
+
+        # put the model and all its matching submodels on the new database
+        models = get_models(model)
+        for _model in models:
+            if not _model.abstract:
+                self._add_model(_model)
+                del original_database._models[_model._name]
+            _model.database = self
+
+        # return updated models
+        return models
 
     @property
     def connection(self):
