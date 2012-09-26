@@ -18,7 +18,7 @@ For example:
 
 Example of configuration::
 
-    from redis import model
+    from limpyd import model
     
     main_database = model.RedisDatabase(
         host="localhost",
