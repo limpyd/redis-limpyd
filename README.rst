@@ -18,7 +18,7 @@ For example:
 
 Example of configuration::
 
-    from redis import model
+    from limpyd import model
     
     main_database = model.RedisDatabase(
         host="localhost",
@@ -62,6 +62,7 @@ So you can use it like this::
 
 In the following documentation you'll find these topics:
 
+- About_
 - Database_
 - Models_
 - Fields_
@@ -73,7 +74,20 @@ In the following documentation you'll find these topics:
     
 
 
-.. _RedisDatabase:
+*****
+About
+*****
+
+`redis-limpyd` is a project initiated by `Yohan Boniface <https://github.com/yohanboniface/>`_, using python to store "models" in Redis_.
+
+The project can be found here: https://github.com/yohanboniface/redis-limyd
+
+Yohan is helped in the developement by `Stéphane "Twidi" Angel <https://github.com/twidi/>`_, with lot of work on his branches, aimed to be integrated upstream via pull requests when we have time to review code.
+You can found these branches here: https://github.com/twidi/redis-limpyd/branches (the `develop` branch is generally up to date with the work on all of them)
+
+If you want to help, please fork (`master` or a feature branch, not `develop`) and work on a branch with a comprehensive name, write tests (seriously, everything is severely tested in `limpyd`) and make a pull request.
+
+.. _RedisDatabase: Database_
 
 ********
 Database
@@ -109,9 +123,38 @@ Note that you cannot have two models with the same name (the name of the class) 
 
 It's not a good idea to declare many RedisDatabase_ objects on the same Redis_ database (defined with host+port+db), because of obvious colusion problems if models have the same name in each. So do it only if you really know what you're doing, and with different models only.
 
+You want to change the database used after the models being created. It can be useful if you want to use models defined in an external module. To manage this, simply use the `use_database` method of a model class.
+
+Say you use an external module defined like this::
+
+    class BaseModel(RedisModel):
+        database = RedisDatabase()
+        abstract = True
+
+    class Foo(BaseModel):
+        # ... fields ...
+
+    class Bar(BaseModel):
+        # ... fields ...
+
+In your code, to add these models to your database (which also allow to use them in `Related model`_) , simply do::
+
+    database = RedisDatabase(**connection_settings)
+    BaseModel.use_database(database)
+
+You can notice that you don't have to call this method on `Foo` and `Bar`. It's because they are subclasses of `BaseModel` and they don't have another database defined.
+
+If you simply want to change the settings of the redis connection to use (different server or db), you can use the `connect` method of your database, which accepts the same parameters as the constructor::
+
+    main_database = RedisDatabase(host='localhost', port=6379, db=0)
+
+    # ... later ...
+
+    main_database.connect(host='localhost', port=6370, db=3)
 
 
-.. _RedisModel:
+
+.. _RedisModel: Models_
 
 ******
 Models
@@ -893,7 +936,7 @@ With this we can do stuff like this::
     ['limpyd core devs']
 
 
-.. _RelatedModel:
+.. _RelatedModel: `Related model`_
 
 Related model
 -------------

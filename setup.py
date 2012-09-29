@@ -17,7 +17,7 @@ setup(
     description = limpyd.__doc__,
     keywords = "redis",
     url = limpyd.__homepage__,
-    download_url = "https://github.com/liberation/redis-limpyd/downloads",
+    download_url = "https://github.com/yohanboniface/redis-limpyd/downloads",
     packages = find_packages(),
     include_package_data=True,
     #license = "MIT",

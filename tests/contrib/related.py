@@ -1,12 +1,12 @@
 # -*- coding:utf-8 -*-
 
-from limpyd import fields
+from limpyd import model, fields
 from limpyd.exceptions import *
 from limpyd.contrib.related import (RelatedModel, RelatedCollection,
                                     FKStringField, FKHashableField, M2MSetField,
                                     M2MListField, M2MSortedSetField)
 
-from ..base import LimpydBaseTest
+from ..base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
 
 
 class TestRedisModel(RelatedModel):
@@ -404,3 +404,69 @@ class M2MSortedSetTest(LimpydBaseTest):
         self.assertEqual(core_devs.members.zrange(0, -1, withscores=True), [(twidi._pk, 10.0), (ybon._pk, 20.0)])
         self.assertEqual(core_devs.members.zscore(twidi), 10.0)
         self.assertEqual(core_devs.members.zrevrangebyscore(25, 15), [ybon._pk])
+
+
+class DatabaseTest(LimpydBaseTest):
+    def test_database_could_transfer_its_models_and_relations_to_another(self):
+        """
+        Move of models is tested in tests.models.DatabaseTest.test_database_could_transfer_its_models_to_another
+        The move of relations is tested here.
+        """
+        db1 = model.RedisDatabase(**TEST_CONNECTION_SETTINGS)
+        db2 = model.RedisDatabase(**TEST_CONNECTION_SETTINGS)
+        db3 = model.RedisDatabase(**TEST_CONNECTION_SETTINGS)
+
+        class M(RelatedModel):
+            namespace = 'transfert-db-relations'
+            abstract = True
+            foo = fields.StringField()
+
+        class A(M):
+            database = db1
+            b = FKStringField('B', related_name='a_set')
+
+        class B(M):
+            database = db1
+            a = FKStringField(A, related_name='b_set')
+
+        class C(M):
+            database = db2
+            b = FKStringField(B, related_name='c_set')  # link to a model on another database !
+
+        # getting list of linked C objects from a B object will fail because
+        # both models are not on the same database, so B is not aware of a link
+        # to him made on C. In fact C has created a relation on a B field on its
+        # database, but which is not defined
+        b = B(foo='bar')
+        with self.assertRaises(AttributeError):
+            b.c_set()
+
+        # the link A <-> B should work
+        self.assertEqual(list(b.a_set()), [])
+
+        # move B to db2 to allow relation to work
+        B.use_database(db2)
+        b = B(foo='bar')
+        self.assertEqual(list(b.c_set()), [])
+
+        # now the link A <-> B should be broken
+        with self.assertRaises(AttributeError):
+            b.a_set()
+
+        # move all to db3
+        A.use_database(db3)
+        B.use_database(db3)
+        C.use_database(db3)
+
+        # create and link objects
+        a = A(foo='bar')
+        b = B(foo='bar')
+        c = C(foo='bar')
+        a.b.set(b)
+        b.a.set(a)
+        c.b.set(b)
+
+        # all relation should work
+        self.assertEqual(list(a.b_set()), [b._pk])
+        self.assertEqual(list(b.a_set()), [a._pk])
+        self.assertEqual(list(b.c_set()), [c._pk])

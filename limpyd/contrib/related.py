@@ -130,6 +130,51 @@ class RelatedModel(model.RedisModel):
             related_collection.remove_instance()
         return super(RelatedModel, self).delete()
 
+    @classmethod
+    def use_database(cls, database):
+        """
+        Move model and its submodels to the new database, as the original
+        use_database method. And manage relations too (done here instead of
+        the database because the database class is not aware of relations)
+        """
+        original_database = getattr(cls, 'database', None)
+        impacted_models = super(RelatedModel, cls).use_database(database)
+
+        # no relation on the current database, so nothing nore to transfer
+        if not original_database or not getattr(original_database, '_relations', {}):
+            return impacted_models
+
+        # prepare relations to remove impacted ones
+        # relations in original_database._relations have this format
+        # related_model => (original_model, original_field, related_name)
+        # Here we want all relations with an original_model in our list of
+        # models impacted by the change of database (impacted_models), to move
+        # these relation on the new database
+        reverse_relations = {}
+        for related_model_name, relations in original_database._relations.iteritems():
+            for relation in relations:
+                reverse_relations.setdefault(relation[0], []).append((related_model_name, relation))
+
+        # create an dict to store relations in the new database
+        if not hasattr(database, '_relations'):
+            database._relations = {}
+
+        # move relation for all impacted models
+        for model in impacted_models:
+            if model.abstract:
+                continue
+            for related_model_name, relation in reverse_relations[model._name]:
+                # if the related model name is already used as a relation, check
+                # if it's not already used with the related_name of the relation
+                if related_model_name in database._relations:
+                    field = getattr(model, '_redis_attr_%s' % relation[1])
+                    field._assert_relation_does_not_exists()
+                # move the relation from the original database to the new
+                original_database._relations[related_model_name].remove(relation)
+                database._relations.setdefault(related_model_name, []).append(relation)
+
+        return impacted_models
+
 
 class RelatedFieldMetaclass(fields.MetaRedisProxy):
     """
@@ -211,19 +256,23 @@ class RelatedFieldMixin(fields.RedisField):
             self.database._relations = {}
         self.database._relations.setdefault(self.related_to, [])
 
-        # relation to save in the database
-        relation = (self._model._name, self.name, self.related_name)
+        # check unicity of related name for related model
+        self._assert_relation_does_not_exists()
 
-        # check if a relation with the current related_name doesn't already
-        # exists for the related model
+        # the relation didn't exists, we can save it
+        relation = (self._model._name, self.name, self.related_name)
+        self.database._relations[self.related_to].append(relation)
+
+    def _assert_relation_does_not_exists(self):
+        """
+        Check if a relation with the current related_name doesn't already exists
+        for the related model
+        """
         existing = [r for r in self.database._relations[self.related_to] if r[2] == self.related_name]
         if existing:
             raise ImplementationError(
-                "The related name defined for the field '%s.%s', named '%s', already exists on the model '%s'  (tied to the field '%s.%s')"
-                 % (self._model._name, self.name, self.related_name, self._model._name, existing[0][1], existing[0][0]))
-
-        # the relation didn't exists, we can save it
-        self.database._relations[self.related_to].append(relation)
+                "The related name defined for the field '%s.%s', named '%s', already exists on the model '%s' (tied to the field '%s.%s')"
+                 % (self._model._name, self.name, self.related_name, self.related_to, existing[0][1], existing[0][0]))
 
     def _get_related_model_name(self):
         """
