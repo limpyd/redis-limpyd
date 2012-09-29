@@ -160,6 +160,8 @@ class RelatedModel(model.RedisModel):
 
         # move relation for all impacted models
         for model in impacted_models:
+            if model.abstract:
+                continue
             for related_model_name, relation in reverse_relations[model._name]:
                 # if the related model name is already used as a relation, check
                 # if it's not already used with the related_name of the relation
