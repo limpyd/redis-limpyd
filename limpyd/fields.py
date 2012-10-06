@@ -370,12 +370,12 @@ class RedisField(RedisProxyCommand):
                 or params.get('_post_callback', None) is not None):
 
             with FieldLock(self):
-                return self._really_traverse_command(params, name, *args, **kwargs)
+                return self._index_and_traverse_command(params, name, *args, **kwargs)
 
         # only one command, simply run it and return the result
-        return self._really_traverse_command(params, name, *args, **kwargs)
+        return self._index_and_traverse_command(params, name, *args, **kwargs)
 
-    def _really_traverse_command(self, params, name, *args, **kwargs):
+    def _index_and_traverse_command(self, params, name, *args, **kwargs):
         """
         Really do stuff needed to run a command. If needed, pre and post
         callbacks are called, deindexing and indexing are done.
