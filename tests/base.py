@@ -1,8 +1,8 @@
 import unittest
 import sys
 
-from limpyd import DEFAULT_CONNECTION_SETTINGS, TEST_CONNECTION_SETTINGS
-from limpyd.database import RedisDatabase
+from limpyd.database import (RedisDatabase, DEFAULT_CONNECTION_SETTINGS,
+                             TEST_CONNECTION_SETTINGS)
 
 test_database = RedisDatabase(**TEST_CONNECTION_SETTINGS)
 

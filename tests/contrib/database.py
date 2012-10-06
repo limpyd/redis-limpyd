@@ -1,7 +1,7 @@
 # -*- coding:utf-8 -*-
 
 from ..base import LimpydBaseTest
-from limpyd import TEST_CONNECTION_SETTINGS
+from limpyd.database import TEST_CONNECTION_SETTINGS
 from limpyd.contrib.database import PipelineDatabase
 from limpyd import model, fields
 

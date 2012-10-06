@@ -1,11 +1,35 @@
 # -*- coding:utf-8 -*-
 
+import redis
 
-from limpyd import redis_connect, DEFAULT_CONNECTION_SETTINGS
 from limpyd.exceptions import *
 
 from logging import getLogger
 log = getLogger(__name__)
+
+
+DEFAULT_CONNECTION_SETTINGS = dict(
+    host="localhost",
+    port=6379,
+    db=0
+)
+
+TEST_CONNECTION_SETTINGS = DEFAULT_CONNECTION_SETTINGS.copy()
+TEST_CONNECTION_SETTINGS['db'] = 15
+
+
+def redis_connect(settings):
+    """
+    Connect to redis and cache the new connection
+    """
+    # compute a unique key for this settings, for caching. Work on the whole
+    # dict without directly using known keys to allow the use of unix socket
+    # connection or any other (future ?) way to connect to redis
+    connection_key = ':'.join([str(settings[k]) for k in sorted(settings)])
+    if connection_key not in redis_connect.cache:
+        redis_connect.cache[connection_key] = redis.StrictRedis(**settings)
+    return redis_connect.cache[connection_key]
+redis_connect.cache = {}
 
 
 class RedisDatabase(object):
