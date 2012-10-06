@@ -550,7 +550,10 @@ class MultiValuesField(RedisField):
         removing it.
         The returned value will be deindexed
         """
-        result = (args, kwargs, {'_to_index': [], '_to_deindex': []})
+        other_params = {
+            '_to_index': [],
+            '_to_deindex': [],
+        }
 
         if self.indexable:
 
@@ -559,9 +562,9 @@ class MultiValuesField(RedisField):
                     self.deindex([command_result])
                 return command_result
 
-            result[2]['_post_callback'] = deindex_result
+            other_params['_post_callback'] = deindex_result
 
-        return result
+        return (args, kwargs, other_params)
 
 
 class SortedSetField(MultiValuesField):
@@ -689,7 +692,10 @@ class ListField(MultiValuesField):
         Helper for lpushx and rpushx, that only index the new values if the list
         existed when the command was called
         """
-        result = (args, kwargs, {'_to_index': [], '_to_deindex': []})
+        other_params = {
+            '_to_index': [],
+            '_to_deindex': [],
+        }
 
         if self.indexable:
 
@@ -698,9 +704,9 @@ class ListField(MultiValuesField):
                     self.index(args)
                 return command_result
 
-            result[2]['_post_callback'] = index_args
+            other_params['_post_callback'] = index_args
 
-        return result
+        return (args, kwargs, other_params)
 
     def lrem(self, count, value):
         """
