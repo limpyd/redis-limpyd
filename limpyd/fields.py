@@ -27,16 +27,21 @@ __all__ = [
 class MetaRedisProxy(type):
     """
     This metaclass create the class normally, then takes a list of redis
-    commands found in the "_commands" class attribute, and for each one
+    commands found in the "available_*" class attributes, and for each one
     create the corresponding method if it not exists yet. Created methods simply
     call _traverse_command.
     """
 
     def __new__(mcs, name, base, dct):
         it = super(MetaRedisProxy, mcs).__new__(mcs, name, base, dct)
-        it._commands['modifiers'] = it._commands['full_modifiers'] + it._commands['partial_modifiers']
-        it._commands['all'] = set(it._commands['getters'] + it._commands['modifiers'])
-        for command_name in it._commands['all']:
+
+        for attr in ('available_getters', 'available_full_modifiers', 'available_partial_modifiers'):
+            if not hasattr(it, attr):
+                setattr(it, attr, ())
+
+        it.available_modifiers = tuple(set(it.available_full_modifiers + it.available_partial_modifiers))
+        it.available_commands = tuple(set(tuple(it.available_getters) + tuple(it.available_modifiers)))
+        for command_name in it.available_commands:
             if not hasattr(it, command_name):
                 setattr(it, command_name, it._make_command_method(command_name))
         return it
@@ -46,11 +51,9 @@ class RedisProxyCommand(object):
 
     __metaclass__ = MetaRedisProxy
 
-    _commands = {
-        'getters': (),
-        'full_modifiers': (),
-        'partial_modifiers': (),
-    }
+    available_getters = ()
+    available_full_modifiers = ()
+    available_partial_modifiers = ()
 
     @classmethod
     def _make_command_method(cls, command_name):
@@ -68,7 +71,7 @@ class RedisProxyCommand(object):
         Add the key to the args and call the Redis command.
         """
         # TODO: implement instance level cache
-        if not name in self._commands['all']:
+        if not name in self.available_commands:
             raise AttributeError("%s is not an available command for %s" % (name, self.__class__.__name__))
         attr = getattr(self.connection, "%s" % name)
         key = self.key
@@ -365,7 +368,7 @@ class RedisField(RedisProxyCommand):
         # we have many commands to handle for only one asked, do it while
         # blocking all others write access to the current model, using a lock on
         # the field
-        if (self.indexable and name in self._commands['modifiers']
+        if (self.indexable and name in self.available_modifiers
                 or params.get('_pre_callback', None) is not None
                 or params.get('_post_callback', None) is not None):
 
@@ -387,14 +390,14 @@ class RedisField(RedisProxyCommand):
             (args, kwargs) = params['_pre_callback'](name, *args, **kwargs)
 
         # deindex given values (or all in the field if none)
-        if self.indexable and name in self._commands['modifiers']:
+        if self.indexable and name in self.available_modifiers:
             self.deindex(params['_to_deindex'])
 
         # ask redis to run the command
         result = super(RedisField, self)._traverse_command(name, *args, **kwargs)
 
         # index given values (or all in the field if none)
-        if self.indexable and name in self._commands['modifiers']:
+        if self.indexable and name in self.available_modifiers:
             self.index(params['_to_index'])
 
         # call the _post_callback if we have one, to update the command's result
@@ -486,11 +489,9 @@ class StringField(RedisField):
     proxy_getter = "get"
     proxy_setter = "set"
 
-    _commands = {
-        'getters': ('get', 'getbit', 'getrange', 'strlen', ),
-        'full_modifiers': ('delete', 'getset', 'set', ),
-        'partial_modifiers': ('append', 'decr', 'decrby', 'incr', 'incrby', 'incrbyfloat', 'setbit', 'setex', 'setnx', 'setrange', )
-    }
+    available_getters = ('get', 'getbit', 'getrange', 'strlen', )
+    available_full_modifiers = ('delete', 'getset', 'set', )
+    available_partial_modifiers = ('append', 'decr', 'decrby', 'incr', 'incrby', 'incrbyfloat', 'setbit', 'setex', 'setnx', 'setrange', )
 
     _commands_to_proxy = {
         'getset': '_set',
@@ -580,11 +581,9 @@ class SortedSetField(MultiValuesField):
     proxy_getter = "zmembers"
     proxy_setter = "zadd"
 
-    _commands = {
-        'getters': ('zcard', 'zcount', 'zrange', 'zrangebyscore', 'zrank', 'zrevrange', 'zrevrangebyscore', 'zrevrank', 'zscore', ),
-        'full_modifiers': ('delete', 'zadd', 'zincrby', 'zrem', ),
-        'partial_modifiers': ('zremrangebyrank', 'zremrangebyscore', ),
-    }
+    available_getters = ('zcard', 'zcount', 'zrange', 'zrangebyscore', 'zrank', 'zrevrange', 'zrevrangebyscore', 'zrevrank', 'zscore', )
+    available_full_modifiers = ('delete', 'zadd', 'zincrby', 'zrem', )
+    available_partial_modifiers = ('zremrangebyrank', 'zremrangebyscore', )
 
     _commands_to_proxy = {
         'zrem': '_rem',
@@ -635,11 +634,9 @@ class SetField(MultiValuesField):
     proxy_getter = "smembers"
     proxy_setter = "sadd"
 
-    _commands = {
-        'getters': ('scard', 'sismember', 'smembers', 'srandmember', ),
-        'full_modifiers': ('delete', 'sadd', 'srem', ),
-        'partial_modifiers': ('spop', ),
-    }
+    available_getters = ('scard', 'sismember', 'smembers', 'srandmember', )
+    available_full_modifiers = ('delete', 'sadd', 'srem', )
+    available_partial_modifiers = ('spop', )
 
     _commands_to_proxy = {
         'sadd': '_add',
@@ -663,11 +660,9 @@ class ListField(MultiValuesField):
     proxy_getter = "lmembers"
     proxy_setter = "lpush"
 
-    _commands = {
-        'getters': ('lindex', 'llen', 'lrange', ),
-        'full_modifiers': ('delete', 'linsert', 'lpop', 'lpush', 'lpushx', 'lrem', 'rpop', 'rpush', 'rpushx', ),
-        'partial_modifiers': ('lset', 'ltrim', ),
-    }
+    available_getters = ('lindex', 'llen', 'lrange', )
+    available_full_modifiers = ('delete', 'linsert', 'lpop', 'lpush', 'lpushx', 'lrem', 'rpop', 'rpush', 'rpushx', )
+    available_partial_modifiers = ('lset', 'ltrim', )
 
     _commands_to_proxy = {
         'lpop': '_pop',
@@ -740,11 +735,9 @@ class HashableField(RedisField):
     proxy_getter = "hget"
     proxy_setter = "hset"
 
-    _commands = {
-        'getters': ('hget', ),
-        'full_modifiers': ('hdel', 'hset', 'hsetnx', ),
-        'partial_modifiers': ('hincrby', 'hincrbyfloat', ),
-    }
+    available_getters = ('hget', )
+    available_full_modifiers = ('hdel', 'hset', 'hsetnx', )
+    available_partial_modifiers = ('hincrby', 'hincrbyfloat', )
 
     _commands_to_proxy = {
         'hset': '_set',
@@ -812,11 +805,9 @@ class PKField(RedisField):
     proxy_getter = "get"
     proxy_setter = "set"
 
-    _commands = {
-        'getters': ('get',),
-        'full_modifiers': ('set',),
-        'partial_modifiers': (),
-    }
+    available_getters = ('get',)
+    available_full_modifiers = ('set',)
+    available_partial_modifiers = ()
 
     name = 'pk'  # Default name ok the pk, can be changed by declaring a new PKField
     indexable = False  # Not an `indexable` field...
