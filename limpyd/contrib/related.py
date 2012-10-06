@@ -384,24 +384,24 @@ class RelatedFieldMixin(fields.RedisField):
         return func
 
 
-class FKStringField(RelatedFieldMixin, fields.StringField):
+class FKStringField(fields.StringField, RelatedFieldMixin):
     """ Related field based on a StringField, acting as a Foreign Key """
     _commands_with_single_value_from_python = ['set', 'setnx', 'getset', ]
 
 
-class FKHashableField(RelatedFieldMixin, fields.HashableField):
+class FKHashableField(fields.HashableField, RelatedFieldMixin):
     """ Related field based on a HashableField, acting as a Foreign Key """
     _commands_with_single_value_from_python = ['hset', 'hsetnx', ]
 
 
-class M2MSetField(RelatedFieldMixin, fields.SetField):
+class M2MSetField(fields.SetField, RelatedFieldMixin):
     """ Related field based on a SetField, acting as a M2M """
     _commands_with_single_value_from_python = ['sismember', ]
     _commands_with_many_values_from_python = ['sadd', 'srem', ]
     _related_remover = 'srem'
 
 
-class M2MListField(RelatedFieldMixin, fields.ListField):
+class M2MListField(fields.ListField, RelatedFieldMixin):
     """ Related field based on a ListField, acting as a sorted M2M """
     _commands_with_single_value_from_python = ['lpushx', 'rpushx', ]
     _commands_with_many_values_from_python = ['lpush', 'rpush', ]
@@ -420,7 +420,7 @@ class M2MListField(RelatedFieldMixin, fields.ListField):
         return super(M2MListField, self).lset(index, value)
 
 
-class M2MSortedSetField(RelatedFieldMixin, fields.SortedSetField):
+class M2MSortedSetField(fields.SortedSetField, RelatedFieldMixin):
     """ Related field based on a SortesSetField, acting as a M2M with scores """
     _commands_with_single_value_from_python = ['zscore', 'zrank', 'zrevrank']
     _commands_with_many_values_from_python = ['zrem']
