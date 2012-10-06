@@ -27,7 +27,7 @@ __all__ = [
 class MetaRedisProxy(type):
     """
     This metaclass create the class normally, then takes a list of redis
-    commands found in the "_commands" class attribute, and for each one
+    commands found in the "available_*" class attributes, and for each one
     create the corresponding method if it not exists yet. Created methods simply
     call _traverse_command.
     """
@@ -36,16 +36,16 @@ class MetaRedisProxy(type):
         it = super(MetaRedisProxy, mcs).__new__(mcs, name, base, dct)
 
         # make sure we have a set for each list of type of command
-        for command_type in ('getters', 'no_cache_getters', 'full_modifiers', 'partial_modifiers'):
-            it._commands[command_type] = set(it._commands.get(command_type, ()))
+        for attr in ('available_getters', 'no_cache_getters', 'available_full_modifiers', 'available_partial_modifiers'):
+            setattr(it, attr, set(getattr(it, attr, ())))
 
         # add simplest set: getters, modidiers, all
-        it._commands['getters'].update(it._commands['no_cache_getters'])
-        it._commands['modifiers'] = it._commands['full_modifiers'].union(it._commands['partial_modifiers'])
-        it._commands['all'] = it._commands['getters'].union(it._commands['modifiers'])
+        it.available_getters.update(it.no_cache_getters)
+        it.available_modifiers = it.available_full_modifiers.union(it.available_partial_modifiers)
+        it.available_commands = it.available_getters.union(it.available_modifiers)
 
         # create a method for each command
-        for command_name in it._commands['all']:
+        for command_name in it.available_commands:
             if not hasattr(it, command_name):
                 setattr(it, command_name, it._make_command_method(command_name))
         return it
@@ -55,16 +55,16 @@ class RedisProxyCommand(object):
 
     __metaclass__ = MetaRedisProxy
 
-    # Commands allowed for an object, by type, each entry is a list/typle. If an
-    # entry is not defined, it is considered empty.
-    # Here the possible types:
-    #  - getters:  commands that get data from redis
-    #  - no_cache_getters: idem as getters but result will never be cached locally
-    #  - full_modifiers: commands that set data in redis, for which we know the
-    #                    final content of the field
-    #  - partial_modifiers: idem as full_modifiers, but we don't know the final
-    #                       content of the field without getting it after the call
-    _commands = {}
+    # Commands allowed for an object, by type, each attribute is a list/typle.
+    # If an attribute is not defined, the one from its parent class is used.
+    # Here the different attributes:
+    # - available_getters: commands that get data from redis
+    # - no_cache_getters: idem as getters but result will never be locally cached
+    # - available_full_modifiers: commands that set data in redis, for which we
+    # know the final content of the field
+    # - available_partial_modifiers: idem as full_modifiers, but we don't know
+    # the final content of the field without
+    # getting it after the call
 
     @classmethod
     def _make_command_method(cls, command_name):
@@ -82,7 +82,7 @@ class RedisProxyCommand(object):
         Add the key to the args and call the Redis command.
         """
         # TODO: implement instance level cache
-        if not name in self._commands['all']:
+        if not name in self.available_commands:
             raise AttributeError("%s is not an available command for %s" % (name, self.__class__.__name__))
         attr = getattr(self.connection, "%s" % name)
         key = self.key
@@ -379,17 +379,17 @@ class RedisField(RedisProxyCommand):
         # we have many commands to handle for only one asked, do it while
         # blocking all others write access to the current model, using a lock on
         # the field
-        if (self.indexable and name in self._commands['modifiers']
+        if (self.indexable and name in self.available_modifiers
                 or params.get('_pre_callback', None) is not None
                 or params.get('_post_callback', None) is not None):
 
             with FieldLock(self):
-                return self._really_traverse_command(params, name, *args, **kwargs)
+                return self._index_and_traverse_command(params, name, *args, **kwargs)
 
         # only one command, simply run it and return the result
-        return self._really_traverse_command(params, name, *args, **kwargs)
+        return self._index_and_traverse_command(params, name, *args, **kwargs)
 
-    def _really_traverse_command(self, params, name, *args, **kwargs):
+    def _index_and_traverse_command(self, params, name, *args, **kwargs):
         """
         Really do stuff needed to run a command. If needed, pre and post
         callbacks are called, deindexing and indexing are done.
@@ -401,14 +401,14 @@ class RedisField(RedisProxyCommand):
             (args, kwargs) = params['_pre_callback'](name, *args, **kwargs)
 
         # deindex given values (or all in the field if none)
-        if self.indexable and name in self._commands['modifiers']:
+        if self.indexable and name in self.available_modifiers:
             self.deindex(params['_to_deindex'])
 
         # ask redis to run the command
         result = super(RedisField, self)._traverse_command(name, *args, **kwargs)
 
         # index given values (or all in the field if none)
-        if self.indexable and name in self._commands['modifiers']:
+        if self.indexable and name in self.available_modifiers:
             self.index(params['_to_index'])
 
         # call the _post_callback if we have one, to update the command's result
@@ -500,11 +500,9 @@ class StringField(RedisField):
     proxy_getter = "get"
     proxy_setter = "set"
 
-    _commands = {
-        'getters': ('get', 'getbit', 'getrange', 'strlen', ),
-        'full_modifiers': ('delete', 'getset', 'set', ),
-        'partial_modifiers': ('append', 'decr', 'decrby', 'incr', 'incrby', 'incrbyfloat', 'setbit', 'setex', 'setnx', 'setrange', )
-    }
+    available_getters = ('get', 'getbit', 'getrange', 'strlen', )
+    available_full_modifiers = ('delete', 'getset', 'set', )
+    available_partial_modifiers = ('append', 'decr', 'decrby', 'incr', 'incrby', 'incrbyfloat', 'setbit', 'setex', 'setnx', 'setrange', )
 
     _commands_to_proxy = {
         'getset': '_set',
@@ -564,7 +562,10 @@ class MultiValuesField(RedisField):
         removing it.
         The returned value will be deindexed
         """
-        result = (args, kwargs, {'_to_index': [], '_to_deindex': []})
+        other_params = {
+            '_to_index': [],
+            '_to_deindex': [],
+        }
 
         if self.indexable:
 
@@ -573,9 +574,9 @@ class MultiValuesField(RedisField):
                     self.deindex([command_result])
                 return command_result
 
-            result[2]['_post_callback'] = deindex_result
+            other_params['_post_callback'] = deindex_result
 
-        return result
+        return (args, kwargs, other_params)
 
 
 class SortedSetField(MultiValuesField):
@@ -591,11 +592,9 @@ class SortedSetField(MultiValuesField):
     proxy_getter = "zmembers"
     proxy_setter = "zadd"
 
-    _commands = {
-        'getters': ('zcard', 'zcount', 'zrange', 'zrangebyscore', 'zrank', 'zrevrange', 'zrevrangebyscore', 'zrevrank', 'zscore', ),
-        'full_modifiers': ('delete', 'zadd', 'zincrby', 'zrem', ),
-        'partial_modifiers': ('zremrangebyrank', 'zremrangebyscore', ),
-    }
+    available_getters = ('zcard', 'zcount', 'zrange', 'zrangebyscore', 'zrank', 'zrevrange', 'zrevrangebyscore', 'zrevrank', 'zscore', )
+    available_full_modifiers = ('delete', 'zadd', 'zincrby', 'zrem', )
+    available_partial_modifiers = ('zremrangebyrank', 'zremrangebyscore', )
 
     _commands_to_proxy = {
         'zrem': '_rem',
@@ -646,11 +645,9 @@ class SetField(MultiValuesField):
     proxy_getter = "smembers"
     proxy_setter = "sadd"
 
-    _commands = {
-        'getters': ('scard', 'sismember', 'smembers', 'srandmember', ),
-        'full_modifiers': ('delete', 'sadd', 'srem', ),
-        'partial_modifiers': ('spop', ),
-    }
+    available_getters = ('scard', 'sismember', 'smembers', 'srandmember', )
+    available_full_modifiers = ('delete', 'sadd', 'srem', )
+    available_partial_modifiers = ('spop', )
 
     _commands_to_proxy = {
         'sadd': '_add',
@@ -674,11 +671,9 @@ class ListField(MultiValuesField):
     proxy_getter = "lmembers"
     proxy_setter = "lpush"
 
-    _commands = {
-        'getters': ('lindex', 'llen', 'lrange', ),
-        'full_modifiers': ('delete', 'linsert', 'lpop', 'lpush', 'lpushx', 'lrem', 'rpop', 'rpush', 'rpushx', ),
-        'partial_modifiers': ('lset', 'ltrim', ),
-    }
+    available_getters = ('lindex', 'llen', 'lrange', )
+    available_full_modifiers = ('delete', 'linsert', 'lpop', 'lpush', 'lpushx', 'lrem', 'rpop', 'rpush', 'rpushx', )
+    available_partial_modifiers = ('lset', 'ltrim', )
 
     _commands_to_proxy = {
         'lpop': '_pop',
@@ -703,7 +698,10 @@ class ListField(MultiValuesField):
         Helper for lpushx and rpushx, that only index the new values if the list
         existed when the command was called
         """
-        result = (args, kwargs, {'_to_index': [], '_to_deindex': []})
+        other_params = {
+            '_to_index': [],
+            '_to_deindex': [],
+        }
 
         if self.indexable:
 
@@ -712,9 +710,9 @@ class ListField(MultiValuesField):
                     self.index(args)
                 return command_result
 
-            result[2]['_post_callback'] = index_args
+            other_params['_post_callback'] = index_args
 
-        return result
+        return (args, kwargs, other_params)
 
     def lrem(self, count, value):
         """
@@ -748,11 +746,9 @@ class HashableField(RedisField):
     proxy_getter = "hget"
     proxy_setter = "hset"
 
-    _commands = {
-        'getters': ('hget', ),
-        'full_modifiers': ('hdel', 'hset', 'hsetnx', ),
-        'partial_modifiers': ('hincrby', 'hincrbyfloat', ),
-    }
+    available_getters = ('hget', )
+    available_full_modifiers = ('hdel', 'hset', 'hsetnx', )
+    available_partial_modifiers = ('hincrby', 'hincrbyfloat', )
 
     _commands_to_proxy = {
         'hset': '_set',
@@ -820,10 +816,8 @@ class PKField(RedisField):
     proxy_getter = "get"
     proxy_setter = "set"
 
-    _commands = {
-        'getters': ('get',),
-        'full_modifiers': ('set',),
-    }
+    available_getters = ('get',)
+    available_full_modifiers = ('set',)
 
     name = 'pk'  # Default name ok the pk, can be changed by declaring a new PKField
     indexable = False  # Not an `indexable` field...
@@ -964,7 +958,7 @@ class FieldLock(Lock):
         and a computed lock key based on the names of the field and its model.
         """
         self.field = field
-        self.dummy_lock = False
+        self.sub_lock_mode = False
         super(FieldLock, self).__init__(
             redis = field._model.get_connection(),
             name = make_key(field._model._name, 'lock-for-update', field.name),
@@ -989,35 +983,35 @@ class FieldLock(Lock):
 
     def acquire(self, *args, **kwargs):
         """
-        Really acquire the lock only if it's not a dummy one. Then save the
-        dummy status.
+        Really acquire the lock only if it's not a sub-lock. Then save the
+        sub-lock status.
         """
         if not self.field.lockable:
             return
         if self.already_locked_by_model:
-            self.dummy_lock = True
+            self.sub_lock_mode = True
             return
         self.already_locked_by_model = True
         super(FieldLock, self).acquire(*args, **kwargs)
 
     def release(self, *args, **kwargs):
         """
-        Really release the lock only if it's not a dummy one. Then save the
-        dummy status.
+        Really release the lock only if it's not a sub-lock. Then save the
+        sub-lock status and mark the model as unlocked.
         """
         if not self.field.lockable:
             return
-        if self.dummy_lock:
+        if self.sub_lock_mode:
             return
         super(FieldLock, self).release(*args, **kwargs)
-        self.already_locked_by_model = self.dummy_lock = False
+        self.already_locked_by_model = self.sub_lock_mode = False
 
     def __exit__(self, *args, **kwargs):
         """
-        Ensure that a not-dummy lock is set as dummy when exiting.
+        Mark the model as unlocked.
         """
         super(FieldLock, self).__exit__(*args, **kwargs)
         if not self.field.lockable:
             return
-        if not self.dummy_lock:
-            self.already_locked_by_model = self.dummy_lock = False
+        if not self.sub_lock_mode:
+            self.already_locked_by_model = False

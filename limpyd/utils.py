@@ -53,7 +53,7 @@ class memoize_command(object):
             command_name = args[0]
 
             if (not self.cacheable or self.database.discard_cache or
-                    command_name in self._commands['no_cache_getters']):
+                    command_name in self.no_cache_getters):
                 return func(self, *args, **kwargs)
 
             haxh = make_cache_key(*args, **kwargs)
@@ -65,7 +65,8 @@ class memoize_command(object):
                 self.init_cache()
             cache = self.get_cache()
             # Warning: Some commands are both setter and modifiers (getset)
-            if command_name in self._commands['modifiers']:
+            command_name = args[0]
+            if command_name in self.available_modifiers:
                 # clear cache each time a modifier affects the field
                 log.debug("Clearing cache for %s" % name)
                 cache.clear()
@@ -74,7 +75,7 @@ class memoize_command(object):
                 # It will be run only first time for getters and every time for
                 # modifiers
                 result = func(self, *args, **kwargs)
-                if command_name in self._commands['getters']:
+                if command_name in self.available_getters:
                     # Populate the cache if getter
                     log.debug("Storing key %s for %s" % (haxh, name))
                     cache[haxh] = result
