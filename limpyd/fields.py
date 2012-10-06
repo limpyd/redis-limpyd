@@ -951,7 +951,7 @@ class FieldLock(Lock):
         and a computed lock key based on the names of the field and its model.
         """
         self.field = field
-        self.dummy_lock = False
+        self.sub_lock_mode = False
         super(FieldLock, self).__init__(
             redis = field._model.get_connection(),
             name = make_key(field._model._name, 'lock-for-update', field.name),
@@ -976,35 +976,35 @@ class FieldLock(Lock):
 
     def acquire(self, *args, **kwargs):
         """
-        Really acquire the lock only if it's not a dummy one. Then save the
-        dummy status.
+        Really acquire the lock only if it's not a sub-lock. Then save the
+        sub-lock status.
         """
         if not self.field.lockable:
             return
         if self.already_locked_by_model:
-            self.dummy_lock = True
+            self.sub_lock_mode = True
             return
         self.already_locked_by_model = True
         super(FieldLock, self).acquire(*args, **kwargs)
 
     def release(self, *args, **kwargs):
         """
-        Really release the lock only if it's not a dummy one. Then save the
-        dummy status.
+        Really release the lock only if it's not a sub-lock. Then save the
+        sub-lock status and mark the model as unlocked.
         """
         if not self.field.lockable:
             return
-        if self.dummy_lock:
+        if self.sub_lock_mode:
             return
         super(FieldLock, self).release(*args, **kwargs)
-        self.already_locked_by_model = self.dummy_lock = False
+        self.already_locked_by_model = self.sub_lock_mode = False
 
     def __exit__(self, *args, **kwargs):
         """
-        Ensure that a not-dummy lock is set as dummy when exiting.
+        Mark the model as unlocked.
         """
         super(FieldLock, self).__exit__(*args, **kwargs)
         if not self.field.lockable:
             return
-        if not self.dummy_lock:
-            self.already_locked_by_model = self.dummy_lock = False
+        if not self.sub_lock_mode:
+            self.already_locked_by_model = False
