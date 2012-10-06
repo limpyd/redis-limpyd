@@ -69,24 +69,25 @@ class RelatedCollection(object):
         a simple one, or remove the instance from the field if it's a set/list/
         sorted_set)
         """
-        related_pks = self()
-        for pk in related_pks:
+        with fields.FieldLock(self.related_field):
+            related_pks = self()
+            for pk in related_pks:
 
-            # get the real related field
-            related_instance = self.related_field._model(pk)
-            related_field = getattr(related_instance, self.related_field.name)
+                # get the real related field
+                related_instance = self.related_field._model(pk)
+                related_field = getattr(related_instance, self.related_field.name)
 
-            # check if we have a dedicated remove method
-            remover = getattr(related_field, '_related_remover', None)
+                # check if we have a dedicated remove method
+                remover = getattr(related_field, '_related_remover', None)
 
-            # then remove the instance from the related field
-            if remover is not None:
-                # if we have a remover method, it wants the instance as argument
-                # (the related field may be a set/list/sorted_set)
-                getattr(related_field, remover)(self.instance._pk)
-            else:
-                # no remover method, simple delete the field
-                related_field.delete()
+                # then remove the instance from the related field
+                if remover is not None:
+                    # if we have a remover method, it wants the instance as argument
+                    # (the related field may be a set/list/sorted_set)
+                    getattr(related_field, remover)(self.instance._pk)
+                else:
+                    # no remover method, simple delete the field
+                    related_field.delete()
 
 
 class RelatedModel(model.RedisModel):
@@ -209,7 +210,7 @@ class RelatedFieldMixin(fields.RedisField):
     """
     __metaclass__ = RelatedFieldMetaclass
 
-    _copy_conf = copy(fields.IndexableField._copy_conf)
+    _copy_conf = copy(fields.RedisField._copy_conf)
     _copy_conf['kwargs'] += [('to', 'related_to'), 'related_name']
 
     _commands_with_single_value_from_python = []

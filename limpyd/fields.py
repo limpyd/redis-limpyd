@@ -3,6 +3,7 @@
 from logging import getLogger
 from copy import copy
 from redis.exceptions import RedisError
+from redis.client import Lock
 
 from limpyd.utils import make_key, memoize_command
 from limpyd.exceptions import *
@@ -24,22 +25,35 @@ __all__ = [
 
 
 class MetaRedisProxy(type):
+    """
+    This metaclass create the class normally, then takes a list of redis
+    commands found in the "available_*" class attributes, and for each one
+    create the corresponding method if it not exists yet. Created methods simply
+    call _traverse_command.
+    """
 
     def __new__(mcs, name, base, dct):
         it = super(MetaRedisProxy, mcs).__new__(mcs, name, base, dct)
-        available_commands = set(it.available_getters + it.available_modifiers)
-        setattr(it, "available_commands", available_commands)
-        for command_name in [c for c in available_commands if not hasattr(it, c)]:
-            setattr(it, command_name, it._make_command_method(command_name))
+
+        for attr in ('available_getters', 'available_full_modifiers', 'available_partial_modifiers'):
+            if not hasattr(it, attr):
+                setattr(it, attr, ())
+
+        it.available_modifiers = tuple(set(it.available_full_modifiers + it.available_partial_modifiers))
+        it.available_commands = tuple(set(tuple(it.available_getters) + tuple(it.available_modifiers)))
+        for command_name in it.available_commands:
+            if not hasattr(it, command_name):
+                setattr(it, command_name, it._make_command_method(command_name))
         return it
 
 
 class RedisProxyCommand(object):
 
     __metaclass__ = MetaRedisProxy
-    available_getters = tuple()
-    available_modifiers = tuple()
-    available_commands = available_getters + available_modifiers
+
+    available_getters = ()
+    available_full_modifiers = ()
+    available_partial_modifiers = ()
 
     @classmethod
     def _make_command_method(cls, command_name):
@@ -53,7 +67,9 @@ class RedisProxyCommand(object):
 
     @memoize_command()
     def _traverse_command(self, name, *args, **kwargs):
-        """Add the key to the args and call the Redis command."""
+        """
+        Add the key to the args and call the Redis command.
+        """
         # TODO: implement instance level cache
         if not name in self.available_commands:
             raise AttributeError("%s is not an available command for %s" % (name, self.__class__.__name__))
@@ -71,6 +87,10 @@ class RedisProxyCommand(object):
         return result
 
     def post_command(self, sender, name, result, args, kwargs):
+        """
+        Call after we got the result of a redis command.
+        By default, does nothing, but must return a value.
+        """
         return result
 
     @classmethod
@@ -89,11 +109,15 @@ class RedisProxyCommand(object):
         return self.get_connection()
 
     def init_cache(self):
-        # Implemented in fields and models.
+        """
+        Initialize the cache Must be implemented in fields and models.
+        """
         pass
 
     def get_cache(self):
-        # Implemented in fields and models.
+        """
+        Retrieve the cache Must be implemented in fields and models.
+        """
         pass
 
     def has_cache(self):
@@ -101,31 +125,50 @@ class RedisProxyCommand(object):
         Is the cache already initialized?
         """
         try:
-            cache = self.get_cache()
-            return True
+            self.get_cache()
         except (KeyError, AttributeError):
             return False
+        else:
+            return True
 
 
 class RedisField(RedisProxyCommand):
     """
-    Wrapper to help use the redis data structures.
+    Base class for all fields using redis data structures.
     """
+    # The "_commands_to_proxy" dict take redis commands as keys, and proxy
+    # method names as values. These proxy_methods must take the real command
+    # name in first parameter, and a *args+**kwargs to pass needed values.
+    # Their goal is to simplify management of values to index/deindex for simple
+    # redis commands.
+    _commands_to_proxy = {}
+
     _creation_order = 0  # internal class counter to keep fields ordered
 
     proxy_setter = None
     unique = False
     _copy_conf = {
         'args': [],
-        'kwargs': ['cacheable', 'default'],
-        'attrs': ['name', '_instance', '_model']
+        'kwargs': ['cacheable', 'lockable', 'default'],
+        'attrs': ['name', '_instance', '_model', 'indexable', 'unique']
     }
 
     def __init__(self, *args, **kwargs):
+        """
+        Manage all field attributes
+        """
         self.indexable = False
         self.cacheable = kwargs.get('cacheable', True)
+        self.lockable = kwargs.get('lockable', True)
         if "default" in kwargs:
             self.default = kwargs["default"]
+
+        self.indexable = kwargs.get("indexable", False)
+        self.unique = kwargs.get("unique", False)
+        if self.unique:
+            if hasattr(self, "default"):
+                raise ImplementationError('Cannot set "default" and "unique" together!')
+            self.indexable = True
 
         # keep fields ordered
         self._creation_order = RedisField._creation_order
@@ -160,6 +203,9 @@ class RedisField(RedisProxyCommand):
 
     @property
     def key(self):
+        """
+        A property to return the key used in redis for the current field.
+        """
         return self.make_key(
             self._instance._name,
             self._instance.get_pk(),
@@ -168,6 +214,9 @@ class RedisField(RedisProxyCommand):
 
     @property
     def database(self):
+        """
+        A simple shortcut to access the database property of the field's instance
+        """
         if not self._model:
             raise TypeError('A field cannot use a database if not linked to a model')
         return self._model.database
@@ -185,6 +234,9 @@ class RedisField(RedisProxyCommand):
 
     @property
     def connection(self):
+        """
+        A simple shortcut to get the connections of the field's instance's model
+        """
         if not self._model:
             raise TypeError('A field cannot use a connection if not linked to a model')
         return self._model.get_connection()
@@ -231,26 +283,23 @@ class RedisField(RedisProxyCommand):
         return new_copy
 
     def make_key(self, *args):
+        """
+        Simple shortcut to the make_key global function to create a redis key
+        based on all given arguments.
+        """
         return make_key(*args)
 
     def delete(self):
         """
         Delete the field from redis.
         """
-        result = self._delete_key()
-        if self.cacheable:
-            # delete cache
-            self.init_cache()
-        return result
-
-    def _delete_key(self):
-        """
-        Delete the field specific key.
-        """
-        return self.connection.delete(self.key)
+        return self._traverse_command('delete', _to_index=[])
 
     def post_command(self, sender, name, result, args, kwargs):
-        # By default, let the instance manage the post_modify signal
+        """
+        Call after we got the result of a redis command.
+        By default, let the instance manage the post_modify signal
+        """
         return self._instance.post_command(
                    sender=self,
                    name=name,
@@ -290,44 +339,83 @@ class RedisField(RedisProxyCommand):
         """
         self._instance = instance
 
-
-class IndexableField(RedisField):
-    """
-    Base field for the indexable fields.
-
-    Store data in index at save.
-    Retrieve instances from these indexes.
-    """
-    _copy_conf = copy(RedisField._copy_conf)
-    _copy_conf['kwargs'] += ['indexable', 'unique']
-
-    def __init__(self, *args, **kwargs):
-        super(IndexableField, self).__init__(*args, **kwargs)
-        self.indexable = kwargs.get("indexable", False)
-        self.unique = kwargs.get("unique", False)
-        if self.unique:
-            if hasattr(self, "default"):
-                raise ImplementationError('Cannot set "default" and "unique" together!')
-            self.indexable = True
-
     def _traverse_command(self, name, *args, **kwargs):
-        # TODO manage transaction
+        """
+        In addition to the default _traverse_command, we manage indexes.
+        Values to specifically deindex and index can be passed in kwargs via the
+        "_to_index" and "_to_deindex" arguments (without them, the whole field
+        will be deindexed and/or indexed)
+        It's also possible to pass two callbacks as kwargs:
+        - "_pre_callback" will be executed before starting the whole stuff, ie
+          before starting deindexaction. It takes the command name, and *args
+          and **kwargs. Local args and kwargs will be updated with the result of
+          the call to this callback
+        - "post_callback" will be executed after the whole stuff is done, ie
+          after the indexing is done. It takes the command's result and return
+          a final one.
+
+        """
+        available_params = ('_to_deindex', '_to_index', '_pre_callback', '_post_callback')
+        params = dict((key, kwargs.pop(key, None)) for key in available_params)
+
+        # if we have a proxy, call it to get update args and kwargs, to get
+        # value(s) to deindex and index, and to get some callbacks
+        if name in self._commands_to_proxy:
+            command = getattr(self, self._commands_to_proxy[name])
+            (args, kwargs, new_params) = command(name, *args, **kwargs)
+            params = dict((key, new_params.get(key, params[key])) for key in available_params)
+
+        # we have many commands to handle for only one asked, do it while
+        # blocking all others write access to the current model, using a lock on
+        # the field
+        if (self.indexable and name in self.available_modifiers
+                or params.get('_pre_callback', None) is not None
+                or params.get('_post_callback', None) is not None):
+
+            with FieldLock(self):
+                return self._index_and_traverse_command(params, name, *args, **kwargs)
+
+        # only one command, simply run it and return the result
+        return self._index_and_traverse_command(params, name, *args, **kwargs)
+
+    def _index_and_traverse_command(self, params, name, *args, **kwargs):
+        """
+        Really do stuff needed to run a command. If needed, pre and post
+        callbacks are called, deindexing and indexing are done.
+        Finally the result of the really called comamnd is returned.
+        """
+
+        # call the _pre_callback if we have one to update args and kwargs
+        if params.get('_pre_callback', None) is not None:
+            (args, kwargs) = params['_pre_callback'](name, *args, **kwargs)
+
+        # deindex given values (or all in the field if none)
         if self.indexable and name in self.available_modifiers:
-            self.deindex()
-        result = super(IndexableField, self)._traverse_command(name, *args, **kwargs)
+            self.deindex(params['_to_deindex'])
+
+        # ask redis to run the command
+        result = super(RedisField, self)._traverse_command(name, *args, **kwargs)
+
+        # index given values (or all in the field if none)
         if self.indexable and name in self.available_modifiers:
-            self.index()
+            self.index(params['_to_index'])
+
+        # call the _post_callback if we have one, to update the command's result
+        if params.get('_post_callback', None) is not None:
+            result = params['_post_callback'](result)
+
         return result
 
     def index_value(self, value):
-        # Has traverse_commande is blind, and can't infer the final value from
-        # commands like ``append`` or ``setrange``, we let the command process
-        # then check the result, and raise before modifying the indexes if the
-        # value was not unique, and then remove the key
-        # We should try a better algo (we lose the previous value here by doing
-        # that this way)
-        if value:
-            value = value.decode('utf-8')  # FIXME centralize utf-8 handling?
+        """
+        index a specific value for this field.
+        Has traverse_commande is blind, and can't infer the final value from
+        commands like ``append`` or ``setrange``, we let the command process
+        then check the result, and raise before modifying the indexes if the
+        value was not unique, and then remove the key.
+        We should try a better algo because we can lose data if the
+        UniquenessError is raised.
+        """
         key = self.index_key(value)
         if self.unique:
             # Lets check if the index key already exist for another instance
@@ -345,66 +433,85 @@ class IndexableField(RedisField):
         log.debug("indexing %s with key %s" % (key, self._instance.get_pk()))
         return self.connection.sadd(key, self._instance.get_pk())
 
-    def index(self):
+    def values_for_indexing(self):
         """
-        Index the current value of the field
+        Values for indexing must be a list, so return the simple value as a list
         """
-        self.index_value(self.proxy_get())
+        return [self.proxy_get()]
+
+    def index(self, values=None):
+        """
+        Index all values stored in the field, or only given ones if any.
+        """
+        if values is None:
+            values = self.values_for_indexing()
+        for value in values:
+            self.index_value(value)
 
     def deindex_value(self, value):
         """
         Remove stored index if needed.
         """
         if value:
-            value = value.decode('utf-8')
             key = self.index_key(value)
             return self.connection.srem(key, self._instance.get_pk())
         else:
             return True  # True?
 
-    def deindex(self):
+    def deindex(self, values=None):
         """
-        Deindex the current value of the field
+        Deindex all values stored in the field, or only given ones if any.
         """
-        self.deindex_value(self.proxy_get())
-
-    def delete(self):
-        if self.indexable:
-            self.deindex()
-        return super(IndexableField, self).delete()
+        if values is None:
+            values = self.values_for_indexing()
+        for value in values:
+            self.deindex_value(value)
 
     def index_key(self, value):
+        """
+        Return the redis key used to store all pk of objects having the given
+        value. It's the index's key.
+        """
         # Ex. bikemodel:name:{bikename}
         if not self.indexable:
             raise ValueError("Field %s is not indexable, cannot ask its index_key" % self.name)
+        if value and isinstance(value, str):
+            value = value.decode('utf-8')
         return self.make_key(
             self._model._name,
             self.name,
             value,
         )
 
-    def populate_instance_pk_from_index(self, value):
-        key = self.index_key(value)
-        pk = self.connection.get(key)
-        if pk:
-            self._instance._pk = int(pk)
-        else:
-            raise ValueError("Can't retrieve instance pk with %s = %s" % (self.name, value))
 
-
-class StringField(IndexableField):
+class StringField(RedisField):
 
     proxy_getter = "get"
     proxy_setter = "set"
-    available_getters = ('get', 'getbit', 'getrange', 'getset', 'strlen')
-    available_modifiers = ('append', 'decr', 'decrby', 'getset', 'incr', 'incrby', 'incrbyfloat', 'set', 'setbit', 'setnx', 'setrange')
+
+    available_getters = ('get', 'getbit', 'getrange', 'strlen', )
+    available_full_modifiers = ('delete', 'getset', 'set', )
+    available_partial_modifiers = ('append', 'decr', 'decrby', 'incr', 'incrby', 'incrbyfloat', 'setbit', 'setex', 'setnx', 'setrange', )
+
+    _commands_to_proxy = {
+        'getset': '_set',
+        'set': '_set',
+    }
+
+    def _set(self, command, *args, **kwargs):
+        """
+        Helper for commands that only set a value to the field.
+        The value is either in the kwargs, or as the first argument of the args.
+        """
+        value = kwargs.get('value', args[0])
+        return (args, kwargs, {'_to_index': [value], '_to_deindex': None})
 
 
-class IndexableMultiValuesField(IndexableField):
+class MultiValuesField(RedisField):
     """
     It's a base class for SetField, SortedSetField and ListField, to manage
     indexes when their constructor got the param "indexable" set to True.
-    Indexes need more work than for simple IndexableFields as we have here many
+    Indexes need more work than for simple RedisField as we have here many
     values in each field.
     A naive implementation is to simply deindex all existing values, call the
     wanted redis command, then reindex all.
@@ -418,95 +525,50 @@ class IndexableMultiValuesField(IndexableField):
     are defined.
     """
 
-    # The "_commands_to_proxy" dict take redis commands as keys, and proxy
-    # method names as values. There proxy_methods must take the real command
-    # name in first parameter, and a *args to pass needed values. Some proxy
-    # methods defined here are _add, _rem and _pop. Their goal is to simplify
-    # management of values to index/deindex for simple redis commands.
-    _commands_to_proxy = {}
-
-    def index(self, values=None):
+    def values_for_indexing(self):
         """
-        Index all values stored in the field, or only given ones if any.
+        Return all values in the field for (de)indexing
         """
-        if values is None:
-            values = self.proxy_get()
-        for value in values:
-            self.index_value(value)
+        return self.proxy_get()
 
-    def deindex(self, values=None):
-        """
-        Deindex all values stored in the field, or only given ones if any.
-        """
-        if values is None:
-            values = self.proxy_get()
-        for value in values:
-            self.deindex_value(value)
-
-    def _traverse_command(self, name, *args, **kwargs):
-        """
-        The only difference with the method from IndexableField is that we can
-        specify which values to index/deindex, by passing two arguments in kwargs:
-        "_to_index" and "_to_deindex".
-        If one of these arguments is None, or not given, all values will be
-        indexed or deindexed.
-        But if an empty list/set is given, no values are indexed/deindexed.
-        """
-
-        # Commands defined in "_commands_to_proxy" are handled here, to call
-        # their proxy methods. Then, these proxy methods can call this
-        # _traverse_command method with a named argument "_bypass_proxy" to True
-        # to really do (de)indexing and execute the command
-        bypass_proxy = kwargs.pop('_bypass_proxy', False)
-        if name in self._commands_to_proxy and not bypass_proxy:
-            command = getattr(self, self._commands_to_proxy[name])
-            return command(name, *args)
-
-        values_to_index = kwargs.pop('_to_index', None)
-        values_to_deindex = kwargs.pop('_to_deindex', None)
-
-        # TODO manage transaction
-        if self.indexable and name in self.available_modifiers:
-            self.deindex(values_to_deindex)
-
-        # we don't call _traverse_command from IndexableField, but the one from
-        # RedisField because we manage indexes manually here
-        result = super(IndexableField, self)._traverse_command(name, *args, **kwargs)
-
-        if self.indexable and name in self.available_modifiers:
-            self.index(values_to_index)
-
-        return result
-
-    def _add(self, command, *args):
+    def _add(self, command, *args, **kwargs):
         """
         Helper for commands that only remove values from the field.
         Added values will be indexed.
         """
-        return self._traverse_command(command, *args, _to_index=args, _to_deindex=[], _bypass_proxy=True)
+        return (args, kwargs, {'_to_index': args, '_to_deindex': []})
 
-    def _rem(self, command, *args):
+    def _rem(self, command, *args, **kwargs):
         """
         Helper for commands that only remove values from the field.
         Removed values will be deindexed.
         """
-        return self._traverse_command(command, *args, _to_index=[], _to_deindex=args, _bypass_proxy=True)
+        return (args, kwargs, {'_to_index': [], '_to_deindex': args})
 
-    def _pop(self, command, *args):
+    def _pop(self, command, *args, **kwargs):
         """
         Helper for commands that pop a value from the field, returning it while
         removing it.
         The returned value will be deindexed
         """
-        # we don't call _traverse_command from IndexableField, but the one from
-        # RedisField because we manage indexes manually here
-        result = super(IndexableField, self)._traverse_command(command)
-        if self.indexable and result is not None:
-            self.deindex([result])
-        return result
+        other_params = {
+            '_to_index': [],
+            '_to_deindex': [],
+        }
+
+        if self.indexable:
+
+            def deindex_result(command_result):
+                if command_result is not None:
+                    self.deindex([command_result])
+                return command_result
+
+            other_params['_post_callback'] = deindex_result
+
+        return (args, kwargs, other_params)
 
 
-class SortedSetField(IndexableMultiValuesField):
+class SortedSetField(MultiValuesField):
     """
     A field with values stored in a sorted set.
     If the indexable argument is set to True on the constructor, all stored
@@ -518,8 +580,10 @@ class SortedSetField(IndexableMultiValuesField):
 
     proxy_getter = "zmembers"
     proxy_setter = "zadd"
-    available_getters = ('zcard', 'zcount', 'zrange', 'zrangebyscore', 'zrank', 'zrevrange', 'zrevrangebyscore', 'zrevrank', 'zscore')
-    available_modifiers = ('zadd', 'zincrby', 'zrem', 'zremrangebyrank', 'zremrangebyscore')
+
+    available_getters = ('zcard', 'zcount', 'zrange', 'zrangebyscore', 'zrank', 'zrevrange', 'zrevrangebyscore', 'zrevrank', 'zscore', )
+    available_full_modifiers = ('delete', 'zadd', 'zincrby', 'zrem', )
+    available_partial_modifiers = ('zremrangebyrank', 'zremrangebyscore', )
 
     _commands_to_proxy = {
         'zrem': '_rem',
@@ -559,7 +623,7 @@ class SortedSetField(IndexableMultiValuesField):
         return self._traverse_command('zincrby', value, amount, _to_index=[value], _to_deindex=[])
 
 
-class SetField(IndexableMultiValuesField):
+class SetField(MultiValuesField):
     """
     A field with values stored in a redis set.
     If the indexable argument is set to True on the constructor, all stored
@@ -569,8 +633,10 @@ class SetField(IndexableMultiValuesField):
 
     proxy_getter = "smembers"
     proxy_setter = "sadd"
-    available_getters = ('scard', 'sismember', 'smembers', 'srandmember')
-    available_modifiers = ('sadd', 'spop', 'srem',)
+
+    available_getters = ('scard', 'sismember', 'smembers', 'srandmember', )
+    available_full_modifiers = ('delete', 'sadd', 'srem', )
+    available_partial_modifiers = ('spop', )
 
     _commands_to_proxy = {
         'sadd': '_add',
@@ -579,7 +645,7 @@ class SetField(IndexableMultiValuesField):
     }
 
 
-class ListField(IndexableMultiValuesField):
+class ListField(MultiValuesField):
     """
     A field with values stored in a list.
     If the indexable argument is set to True on the constructor, all stored
@@ -593,8 +659,10 @@ class ListField(IndexableMultiValuesField):
 
     proxy_getter = "lmembers"
     proxy_setter = "lpush"
-    available_getters = ('lindex', 'llen', 'lrange')
-    available_modifiers = ('linsert', 'lpop', 'lpush', 'lpushx', 'lrem', 'lset', 'ltrim', 'rpop', 'rpush', 'rpushx')
+
+    available_getters = ('lindex', 'llen', 'lrange', )
+    available_full_modifiers = ('delete', 'linsert', 'lpop', 'lpush', 'lpushx', 'lrem', 'rpop', 'rpush', 'rpushx', )
+    available_partial_modifiers = ('lset', 'ltrim', )
 
     _commands_to_proxy = {
         'lpop': '_pop',
@@ -614,17 +682,26 @@ class ListField(IndexableMultiValuesField):
     def linsert(self, where, refvalue, value):
         return self._traverse_command('linsert', where, refvalue, value, _to_index=[value], _to_deindex=[])
 
-    def _pushx(self, command, *args):
+    def _pushx(self, command, *args, **kwargs):
         """
         Helper for lpushx and rpushx, that only index the new values if the list
         existed when the command was called
         """
-        # we don't call _traverse_command from IndexableField, but the one from
-        # RedisField because we manage indexes manually here
-        result = super(IndexableField, self)._traverse_command(command, *args)
-        if result and self.indexable:
-            self.index(args)
-        return result
+        other_params = {
+            '_to_index': [],
+            '_to_deindex': [],
+        }
+
+        if self.indexable:
+
+            def index_args(command_result):
+                if command_result:
+                    self.index(args)
+                return command_result
+
+            other_params['_post_callback'] = index_args
+
+        return (args, kwargs, other_params)
 
     def lrem(self, count, value):
         """
@@ -652,13 +729,19 @@ class ListField(IndexableMultiValuesField):
         return self._traverse_command('lset', index, value, _to_index=[value], _to_deindex=to_deindex)
 
 
-class HashableField(IndexableField):
+class HashableField(RedisField):
     """Field stored in the parent object hash."""
 
     proxy_getter = "hget"
     proxy_setter = "hset"
+
     available_getters = ('hget', )
-    available_modifiers = ('hincrby', 'hincrbyfloat', 'hset', 'hsetnx')
+    available_full_modifiers = ('hdel', 'hset', 'hsetnx', )
+    available_partial_modifiers = ('hincrby', 'hincrbyfloat', )
+
+    _commands_to_proxy = {
+        'hset': '_set',
+    }
 
     @property
     def key(self):
@@ -674,18 +757,12 @@ class HashableField(IndexableField):
         args.insert(0, self.name)
         return super(HashableField, self)._traverse_command(name, *args, **kwargs)
 
-    def _delete_key(self):
+    def delete(self):
         """
-        We need to delete only the field in the parent hash.
+        Delete the field from redis, only the hash entry
         """
-        return self.connection.hdel(self.key, self.name)
-
-    def hdel(self):
-        """
-        A simple proxy to the main delete method, but here to provide the real
-        redis command name
-        """
-        return self.delete()
+        return self._traverse_command('hdel', _to_index=[])
+    hdel = delete
 
     def hexists(self):
         """
@@ -705,6 +782,15 @@ class HashableField(IndexableField):
             return self.connection.hexists(key, self.name)
     exists = hexists
 
+    def _set(self, command, *args, **kwargs):
+        """
+        Helper for commands that only set a value to the field.
+        The value is either in the kwargs, or as the second argument of the args
+        (the first one is the hash entry)
+        """
+        value = kwargs.get('value', args[1])
+        return (args, kwargs, {'_to_index': [value], '_to_deindex': None})
+
 
 class PKField(RedisField):
     """
@@ -718,11 +804,14 @@ class PKField(RedisField):
     # Use only a simple getter and setter. We take all control on the setter.
     proxy_getter = "get"
     proxy_setter = "set"
+
     available_getters = ('get',)
-    available_modifiers = ('set',)
+    available_full_modifiers = ('set',)
+    available_partial_modifiers = ()
 
     name = 'pk'  # Default name ok the pk, can be changed by declaring a new PKField
-    unique = True  # Not an indexable field, but can be usefull in loops
+    indexable = False  # Not an `indexable` field...
+    unique = True  # ... but `unique` can be usefull in loops
     _auto_increment = False  # False for PKField, True for AutoPKField
     _auto_added = False  # True only if automatically added by limpyd
     _set = False  # True when set for the first (and unique) time
@@ -840,3 +929,79 @@ class AutoPKField(PKField):
                             self._model._name)
         key = self._instance.make_key(self._model._name, 'max_pk')
         return self.normalize(self.connection.incr(key))
+
+
+class FieldLock(Lock):
+    """
+    This subclass of the Lock object is used to add a lock on the field. It will
+    be used on write operations to block writes for other instances on this
+    field, during all operations needed to do a deindex+write+index.
+    Only one lock is done on a specific field for a specific model. If during
+    lock, another one is asked in the same thread, we assume that it's a
+    operation that must be done during the main lock and we don't wait for
+    relase.
+    """
+
+    def __init__(self, field, timeout=5, sleep=0.1):
+        """
+        Save the field and create a real lock,, using the correct connection
+        and a computed lock key based on the names of the field and its model.
+        """
+        self.field = field
+        self.sub_lock_mode = False
+        super(FieldLock, self).__init__(
+            redis = field._model.get_connection(),
+            name = make_key(field._model._name, 'lock-for-update', field.name),
+            timeout = timeout,
+            sleep = sleep,
+        )
+
+    def _get_already_locked_by_model(self):
+        """
+        A lock is self_locked if already set for the current field+model on the current
+        thread.
+        """
+        return self.field._model._is_field_locked(self.field)
+
+    def _set_already_locked_by_model(self, value):
+        if value:
+            self.field._model._mark_field_as_locked(self.field)
+        else:
+            self.field._model._unmark_field_as_locked(self.field)
+
+    already_locked_by_model = property(_get_already_locked_by_model, _set_already_locked_by_model)
+
+    def acquire(self, *args, **kwargs):
+        """
+        Really acquire the lock only if it's not a sub-lock. Then save the
+        sub-lock status.
+        """
+        if not self.field.lockable:
+            return
+        if self.already_locked_by_model:
+            self.sub_lock_mode = True
+            return
+        self.already_locked_by_model = True
+        super(FieldLock, self).acquire(*args, **kwargs)
+
+    def release(self, *args, **kwargs):
+        """
+        Really release the lock only if it's not a sub-lock. Then save the
+        sub-lock status and mark the model as unlocked.
+        """
+        if not self.field.lockable:
+            return
+        if self.sub_lock_mode:
+            return
+        super(FieldLock, self).release(*args, **kwargs)
+        self.already_locked_by_model = self.sub_lock_mode = False
+
+    def __exit__(self, *args, **kwargs):
+        """
+        Mark the model as unlocked.
+        """
+        super(FieldLock, self).__exit__(*args, **kwargs)
+        if not self.field.lockable:
+            return
+        if not self.sub_lock_mode:
+            self.already_locked_by_model = False

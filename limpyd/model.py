@@ -2,6 +2,7 @@
 
 from logging import getLogger
 from copy import copy
+import threading
 
 from limpyd.fields import *
 from limpyd.utils import make_key, make_cache_key
@@ -12,7 +13,7 @@ from limpyd.collection import CollectionManager
 __all__ = ['RedisModel', ]
 
 log = getLogger(__name__)
-
+threadlocal = threading.local()
 
 class MetaRedisModel(MetaRedisProxy):
     """
@@ -112,6 +113,7 @@ class RedisModel(RedisProxyCommand):
 
     namespace = None  # all models in an app may have the same namespace
     cacheable = True
+    lockable = True
     abstract = True
     DoesNotExist = DoesNotExist
 
@@ -126,6 +128,7 @@ class RedisModel(RedisProxyCommand):
         - one arg == get from pk
         """
         self.cacheable = self.__class__.cacheable
+        self.lockable = self.__class__.lockable
 
         # --- Meta stuff
         # Put back the fields with the original names
@@ -134,8 +137,9 @@ class RedisModel(RedisProxyCommand):
             # Copy it, to avoid sharing fields between model instances
             newattr = copy(attr)
             newattr._attach_to_instance(self)
-            # Force field.cacheable to False if it's False for the model
+            # Force field.cacheable and lockable to False if it's False for the model
             newattr.cacheable = newattr.cacheable and self.cacheable
+            newattr.lockable = newattr.lockable and self.lockable
             setattr(self, attr_name, newattr)
 
         # The `pk` field always exists, even if the real pk has another name
@@ -457,3 +461,31 @@ class RedisModel(RedisProxyCommand):
         self.connection.srem(self._redis_attr_pk.collection_key, self._pk)
         # Deactivate the instance
         delattr(self, "_pk")
+
+    @classmethod
+    def _thread_lock_storage(cls):
+        """
+        We mark each locked field in a thread, to allow other operations in the
+        same thread on the same field (for the same instance or others). This
+        way, operations within the lock, in the same thread, can bypass it (the
+        whole set of operations must be locked)
+        """
+        if not hasattr(threadlocal, 'limpyd_locked_fields'):
+            threadlocal.limpyd_locked_fields = {}
+        if cls._name not in threadlocal.limpyd_locked_fields:
+            threadlocal.limpyd_locked_fields[cls._name] = set()
+        return threadlocal.limpyd_locked_fields[cls._name]
+
+    @classmethod
+    def _mark_field_as_locked(cls, field):
+        cls._thread_lock_storage().add(field.name)
+
+    @classmethod
+    def _unmark_field_as_locked(cls, field):
+        if field.name in cls._thread_lock_storage():
+            cls._thread_lock_storage().remove(field.name)
+
+    @classmethod
+    def _is_field_locked(cls, field):
+        return field.name in cls._thread_lock_storage()
+

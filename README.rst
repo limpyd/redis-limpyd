@@ -239,6 +239,13 @@ As we don't store field values in the object, and to avoid querying Redis_ each 
 
 See Cache_ for more informations about this local cache.
 
+**lockable**
+
+By default, when updating a `indexable` field, update of the same field for all other instances of the model are locked while the update is not finished, to ensure consistency.
+
+If you prefere speed, or are sure that you don't have more than one thread/process/server that write to the same database, you can set this `lockable` attribute to False to disable it for all the model's fields.
+
+Note that you can also disable it at the field's level.
 
 
 ******
@@ -309,6 +316,10 @@ In this example you will be able to filter on the field `foo` but not on `bar`.
 
 See Collections_ to know how to filter objects.
 
+When updating an indexable field, a lock is acquired on Redis on this field, for all instances of the model. It wasn't possible to use pipeline or redis scripting, because both need to know in advance keys to update, but we don't always know since keys for indexes are based on values. So a all *writing* operations on an indexable field are protected, to ensure consistensy if many threads, process, servers are working on the same redis database.
+
+If you are sure you have only one thread, or you don't want to ensure consistency, you can disable locking by setting to False the `lockable` argument when creating a field, or the `lockable` attribute of a model to inactive the lock for all of its fields.
+
 **unique**
 
 The `unique` argument is the same as the `indexable` one, except it will ensure that you can't have multiple objects with the same value for some fields. `unique` fields are also indexed, and can be filtered, as for the `indexable` argument.
@@ -326,6 +337,12 @@ Example::
     UniquenessError: Key :example:bar:BAR already exists (for instance 1)
 
 See Collections_ to know how to filter objects, as for `indexable`.
+
+**lockable**
+
+You can set this argument to False if you don't want a lock to be acquired on this field for all instances of the model. See `indexable` for more informations about locking.
+
+If not specified, it's default to True, except if the `lockable` attribute of the model is False, in which case it's forced to False for all fields.
 
 
 
