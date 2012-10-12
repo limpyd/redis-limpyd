@@ -14,9 +14,6 @@ DEFAULT_CONNECTION_SETTINGS = dict(
     db=0
 )
 
-TEST_CONNECTION_SETTINGS = DEFAULT_CONNECTION_SETTINGS.copy()
-TEST_CONNECTION_SETTINGS['db'] = 15
-
 
 def redis_connect(settings):
     """
