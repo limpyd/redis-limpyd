@@ -15,20 +15,6 @@ DEFAULT_CONNECTION_SETTINGS = dict(
 )
 
 
-def redis_connect(settings):
-    """
-    Connect to redis and cache the new connection
-    """
-    # compute a unique key for this settings, for caching. Work on the whole
-    # dict without directly using known keys to allow the use of unix socket
-    # connection or any other (future ?) way to connect to redis
-    connection_key = ':'.join([str(settings[k]) for k in sorted(settings)])
-    if connection_key not in redis_connect.cache:
-        redis_connect.cache[connection_key] = redis.StrictRedis(**settings)
-    return redis_connect.cache[connection_key]
-redis_connect.cache = {}
-
-
 class RedisDatabase(object):
     """
     A RedisDatabase regroups some models and handles the connection to Redis for
@@ -39,16 +25,31 @@ class RedisDatabase(object):
     In a database, two models with the same namespace (empty by default) cannot
     have the same name (defined by the class name)
     """
-    _connection = None
+    _connections = {}  # class level cache
     discard_cache = False
 
     def __init__(self, **connection_settings):
-        self.connect(**(connection_settings or DEFAULT_CONNECTION_SETTINGS))
+        self._connection = None  # Instance level cache
+        self.reset(**(connection_settings or DEFAULT_CONNECTION_SETTINGS))
         # _models keep an entry for each defined model on this database
         self._models = dict()
         super(RedisDatabase, self).__init__()
 
-    def connect(self, **connection_settings):
+    def connect(self, **settings):
+        """
+        Connect to redis and cache the new connection
+        """
+        # compute a unique key for this settings, for caching. Work on the whole
+        # dict without directly using known keys to allow the use of unix socket
+        # connection or any other (future ?) way to connect to redis
+        if not settings:
+            settings = self.connection_settings
+        connection_key = ':'.join([str(settings[k]) for k in sorted(settings)])
+        if connection_key not in self._connections:
+            self._connections[connection_key] = redis.StrictRedis(**settings)
+        return self._connections[connection_key]
+
+    def reset(self, **connection_settings):
         """
         Set the new connection settings to be used and reset the connection
         cache so the next redis call will use these settings.
@@ -107,5 +108,5 @@ class RedisDatabase(object):
         the class
         """
         if not self._connection:
-            self._connection = redis_connect(self.connection_settings)
+            self._connection = self.connect()
         return self._connection

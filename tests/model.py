@@ -277,7 +277,7 @@ class DatabaseTest(LimpydBaseTest):
         self.assertEqual(database.connection_settings['db'], 14)
         connection = database.connection
 
-        database.connect(**TEST_CONNECTION_SETTINGS)
+        database.reset(**TEST_CONNECTION_SETTINGS)
         self.assertEqual(database.connection_settings['db'], TEST_CONNECTION_SETTINGS['db'])
         self.assertNotEqual(connection, database.connection)
 
