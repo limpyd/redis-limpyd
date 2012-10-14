@@ -358,26 +358,16 @@ class RedisModel(RedisProxyCommand):
             "hash",
         )
 
-    def hmget(self, *keys):
+    def hmget(self, *args):
         """
         This command on the model allow getting many hashable fields with only
         one redis call. You should pass hash name to retrieve as arguments.
         Try to get values from local cache if possible.
         """
-
-        # manage arguments: redis-py waits for a list, but it's not concistent
-        # with the rest of the api, so we accept a list as a single argument,
-        # or a list as *keys
-        if len(keys) == 1 and isinstance(keys[0], (list, tuple)):
-            keys = keys[0]
-
-        # use all hashable fields if no arguments
-        elif len(keys) == 0:
-            keys = self._hashable_fields
-
-        # check that each field is a HashableField
+        if len(args) == 0:
+            args = self._hashable_fields
         else:
-            if not any(key in self._hashable_fields for key in keys):
+            if not any(arg in self._hashable_fields for arg in args):
                 raise ValueError("Only hashable fields can be used here.")
 
         # get values from cache if we can
@@ -387,7 +377,7 @@ class RedisModel(RedisProxyCommand):
         if self.cacheable:
             # we do the cache stuff only if the object is cacheable, to avoid
             # useless computations if not
-            for field_name in keys:
+            for field_name in args:
                 field = getattr(self, field_name)
                 if field.cacheable and field.has_cache():
                     field_cache = field.get_cache()
@@ -399,11 +389,11 @@ class RedisModel(RedisProxyCommand):
                 to_retrieve.append(field_name)
         else:
             # object not cacheable, retrieve all fields
-            to_retrieve = keys
+            to_retrieve = args
 
         retrieved_dict = {}
         if to_retrieve:
-            # call redis if some keys are not cached (waits for a list)
+            # call redis if some keys are not cached
             retrieved = self._traverse_command('hmget', to_retrieve)
             retrieved_dict = dict(zip(to_retrieve, retrieved))
 
@@ -420,7 +410,7 @@ class RedisModel(RedisProxyCommand):
         if cached:
             # we have some fields cached, return the values in the right order
             retrieved = []
-            for field_name in keys:
+            for field_name in args:
                 if field_name in cached:
                     retrieved.append(cached[field_name])
                 else:
@@ -428,24 +418,14 @@ class RedisModel(RedisProxyCommand):
 
         return retrieved
 
-    def hmset(self, mapping=None, **kwargs):
+    def hmset(self, **kwargs):
         """
         This command on the model allow setting many hashable fields with only
         one redis call. You should pass kwargs with field names as keys, with
         their value.
         Index and cache are managed for indexable and/or cacheable fields.
         """
-
-        # manage arguments: redis-py waits for a dict, but it's not concistent
-        # with the rest of the api, so we accept a dict as a single argument,
-        # or a dict as **kwargs
-        if kwargs:
-            if mapping:
-                raise ValueError('hmset accepts either a dict as unique '
-                                 'argument (mapping), OR as **kwargs, not both')
-            mapping = kwargs
-
-        if not any(mapping in self._hashable_fields for mapping in mapping.keys()):
+        if not any(kwarg in self._hashable_fields for kwarg in kwargs.keys()):
             raise ValueError("Only hashable fields can be used here.")
 
         indexed = []
@@ -454,19 +434,19 @@ class RedisModel(RedisProxyCommand):
         try:
 
             # Set indexes for indexable fields.
-            for field_name, value in mapping.items():
+            for field_name, value in kwargs.items():
                 field = getattr(self, field_name)
                 if field.indexable:
                     field.deindex()
                     field.index_value(value)
                     indexed.append((field, value))
 
-            # Call redis (waits for a dict)
-            result = self._traverse_command('hmset', mapping)
+            # Call redis (from kwargs to one dict arg)
+            result = self._traverse_command('hmset', kwargs)
 
             # Clear the cache for each cacheable field
             if self.cacheable:
-                for field_name, value in mapping.items():
+                for field_name, value in kwargs.items():
                     field = getattr(self, field_name)
                     if not field.cacheable or not field.has_cache():
                         continue

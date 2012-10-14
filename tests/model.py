@@ -944,29 +944,6 @@ class HMTest(LimpydBaseTest):
             data = obj.hmget()
             self.assertEqual(data, ['FOO2', 'BAR', None])
 
-    def test_hmset_should_accept_a_dict_or_kwargs(self):
-        obj = self.HMTestModel()
-        # test passing key|values as **kwargs
-        obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
-        self.assertEqual(obj.foo.hget(), 'FOO')
-        self.assertEqual(obj.bar.hget(), 'BAR')
-        self.assertEqual(obj.baz.hget(), 'BAZ')
-        # test passing key|values a dict
-        obj.hmset(dict(foo='FOOFOO', bar='BARBAR', baz='BAZBAZ'))
-        self.assertEqual(obj.foo.hget(), 'FOOFOO')
-        self.assertEqual(obj.bar.hget(), 'BARBAR')
-        self.assertEqual(obj.baz.hget(), 'BAZBAZ')
-
-    def test_hmget_should_accept_a_list_or_args(self):
-        obj = self.HMTestModel(foo='FOO', bar='BAR', baz='BAZ')
-        # test passing keys as *args
-        data = obj.hmget('foo', 'bar', 'baz')
-        self.assertEqual(data, ['FOO', 'BAR', 'BAZ'])
-        # test passing keys as a list
-        data2 = obj.hmget(['foo', 'bar', 'baz'])
-        self.assertEqual(data2, ['FOO', 'BAR', 'BAZ'])
-
-
 
 class ConnectionTest(LimpydBaseTest):
 
