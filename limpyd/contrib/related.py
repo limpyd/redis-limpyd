@@ -387,12 +387,43 @@ class RelatedFieldMixin(fields.RedisField):
         return func
 
 
-class FKStringField(RelatedFieldMixin, fields.StringField):
+class SimpleValueRelatedFieldMixin(RelatedFieldMixin):
+    """
+    Mixin for all related fields storing one unique value.
+    Add a instance method to get the related object.
+    Example:
+
+        class Person(RelatedModel):
+            name = PKField()
+
+        class Group(RelatedModel):
+            name = PKField()
+            owner = FKStringField(Person, related_name='owned_groups')
+
+        person = Person(name='person')
+        group = Group(name='group', owner=person)
+
+        # returns the owner's pk
+        group.owner.get()
+
+        # return the full person instance
+        group.owner.instance()
+
+    """
+    def instance(self, skip_exist_test=False):
+        """
+        Returns the instance of the related object linked by the field.
+        """
+        model = self.database._models[self.related_to]
+        return model(self.proxy_get(), _skip_exist_test=skip_exist_test)
+
+
+class FKStringField(SimpleValueRelatedFieldMixin, fields.StringField):
     """ Related field based on a StringField, acting as a Foreign Key """
     _commands_with_single_value_from_python = ['set', 'setnx', 'getset', ]
 
 
-class FKHashableField(RelatedFieldMixin, fields.HashableField):
+class FKHashableField(SimpleValueRelatedFieldMixin, fields.HashableField):
     """ Related field based on a HashableField, acting as a Foreign Key """
     _commands_with_single_value_from_python = ['hset', 'hsetnx', ]
 

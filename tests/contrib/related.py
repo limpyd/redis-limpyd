@@ -346,6 +346,20 @@ class FKTest(LimpydBaseTest):
         fan_boys.parent.set(main_group)
         self.assertEqual(set(main_group.children()), set([core_devs._pk, fan_boys._pk]))
 
+    def test_calling_instance_on_fkfield_should_retrieve_the_related_instance(self):
+        twidi = Person(name='twidi')
+        main_group = Group(name='limpyd groups')
+        core_devs = Group(name='limpyd core devs', owner=twidi, parent=main_group)
+
+        # test FKStrinField
+        owner = core_devs.owner.instance()
+        self.assertEqual(owner._pk, twidi._pk)
+        self.assertTrue(isinstance(owner, Person))
+        # test FKHashableField
+        parent = core_devs.parent.instance()
+        self.assertEqual(parent._pk, main_group._pk)
+        self.assertTrue(isinstance(parent, Group))
+
     def test_deleting_an_object_must_clear_the_fk(self):
         main_group = Group(name='limpyd groups')
         core_devs = Group(name='limpyd core devs')
