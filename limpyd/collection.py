@@ -74,7 +74,7 @@ class CollectionManager(object):
             # Nevertheless, use the redis pagination, to minimize
             # data transfert and use the fast redis offset system
             start = arg
-            if start > 0:
+            if start >= 0:
                 self._slice['start'] = start
                 self._slice['num'] = 1  # one element
                 return self._collection[0]
