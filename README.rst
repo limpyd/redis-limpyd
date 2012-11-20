@@ -1264,6 +1264,11 @@ With the callable possibility added to M2M fields, you can do this::
     >>> foo.following().values_list('name', flat=True)
     ['bar', 'baz']
 
+Note that to provide even more consitency, use can call the `collection` method of a M2M field instead of simple "calling" it. So both lines below are the same::
+
+    >>> foo.following()
+    >>> foo.following.collection()
+    
 
 
 Update and deletion

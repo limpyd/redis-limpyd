@@ -459,13 +459,16 @@ class MultiValuesRelatedFieldMixin(RelatedFieldMixin):
 
     def __call__(self, **filters):
         """
-        When calling a MultiValuesRelatedField, we return a collection,
-        filtered with given arguments, the result beeing "intersected" with the
-        members of the current field.
+        When calling (via `()` or via `.collection()`) a MultiValuesRelatedField,
+        we return a collection, filtered with given arguments, the result beeing
+        "intersected" with the members of the current field.
         """
         model = self.database._models[self.related_to]
         collection = self.collection_manager(model)
         return collection(**filters).intersect(self)
+
+    # calling obj.field.collection() is the same as calling obj.field()
+    collection = __call__
 
 
 class M2MSetField(MultiValuesRelatedFieldMixin, fields.SetField):

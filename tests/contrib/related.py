@@ -299,6 +299,19 @@ class MultiValuesCollectionTest(LimpydBaseTest):
         self.assertEqual(len(members_instances), 2)
         self.assertTrue(isinstance(members_instances[0], Person))
 
+    def test_collection_should_be_alias_of_call(self):
+        """
+        Test that we can use obj.field.collection() the same way we can use
+        obj.field()
+        """
+        members1 = self.core_devs.members()
+        self.assertTrue(isinstance(members1, ExtendedCollectionManager))
+
+        members2 = self.core_devs.members.collection()
+        self.assertTrue(isinstance(members1, ExtendedCollectionManager))
+
+        self.assertEqual(list(members1), list(members2))
+
 
 class FKTest(LimpydBaseTest):
 
