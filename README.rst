@@ -1188,8 +1188,43 @@ Note that the collection manager of all related fields is the ExtendedCollection
     ['group 2']
 
 
-Simulating collection
----------------------
+Retrieving the other side
+-------------------------
+
+Foreign keys
+""""""""""""
+
+It's easy to set a foreign key, and easy to retrieve it using the default API.
+
+Using these models::
+
+    class Person(related.RelatedModel):
+        database = main_database
+        name = StringField()
+
+    class Group(related.RelatedModel):
+        database = main_database
+        name = StringField()
+        owner = FKStringField(Person)
+
+We can add data::
+
+    >>> core_devs = Group(name='limpyd core devs', private=0)
+    >>> ybon = Person(name='ybon')
+    >>> core_devs.owner.hset(ybon)
+
+And we can retrieve the related object this way::
+
+    >>> owner_pk = core_devs.owner.hget()
+    >>> owner = Person(owner_pk)
+
+But we can use the `instance` method defined on foreign keys::
+
+    >>> owner = core_devs.owner.instance()
+
+
+Many to Many
+""""""""""""
 
 To provide consistency on calling collections on the both sides of a relation, the M2MSetField_, M2MListField_ and M2MSortedSetField_ are `callable`, simulating a call to a collection, and effectively returning one. It's very useful to sort and/or return `instances`, `values` or `values_list`.
 
