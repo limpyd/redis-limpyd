@@ -16,12 +16,6 @@ class CollectionManager(object):
     MyModel.collection().sort(by='field') => return the collection sorted.
     MyModel.collection().sort(by='field')[:10] => slice the sorted collection.
     MyModel.collection().instances() => return the instances
-    MyModel.collection().values('foo', 'bar') => return a list of dictionnaries
-                                                 for the wanted fields (or all)
-    MyModel.collection().values_list('foo', 'bar') => return a list of tuples
-                                                      for the wanted fields (or all)
-    MyModel.collection().values_list('foo', flat=True) => return a flat list of
-                                                          the wanted field
 
     Note:
     Slicing a collection will force a sort.
@@ -43,7 +37,6 @@ class CollectionManager(object):
                           # having to compute the whole thing twice when doing
                           # `list(Model.collection)` (a `list` will call
                           # __iter__ AND __len__)
-        self._values = None  # Will store parameters used to retrieve values
         self._len_mode = True   # Set to True if the __len__ method is directly
                                 # called (to avoid some useless computations)
                                 # True by default to manage the __iter__ + __len__
@@ -81,7 +74,7 @@ class CollectionManager(object):
             # Nevertheless, use the redis pagination, to minimize
             # data transfert and use the fast redis offset system
             start = arg
-            if start > 0:
+            if start >= 0:
                 self._slice['start'] = start
                 self._slice['num'] = 1  # one element
                 return self._collection[0]
@@ -105,17 +98,13 @@ class CollectionManager(object):
     def _prepare_sort_options(self, has_pk):
         """
         Prepare "sort" options to use when calling the collection, depending
-        on "_sort", "_slice" and "_values" attributes
+        on "_sort" and "_slice" attributes
         """
         sort_options = {}
         if self._sort is not None and not has_pk:
             sort_options.update(self._sort)
         if self._slice is not None:
             sort_options.update(self._slice)
-        if self._values:
-            # if we asked for values, we have to use the redis 'sort'
-            # command, which is able to return other fields.
-            sort_options['get'] = self._values['fields']['keys']
         if not sort_options and self._sort is None:
             sort_options = None
         return sort_options
@@ -211,19 +200,6 @@ class CollectionManager(object):
         return [self.cls(pk, _skip_exist_test=self._instances_skip_exist_test)
                                                            for pk in pks]
 
-    def _to_values(self, collection):
-        """
-        Regroup values in tuples or dicts for each "instance".
-        Exemple: Given this result from redis: ['id1', 'name1', 'id2', 'name2']
-         tuples: [('id1', 'name1'), ('id2', 'name2')]
-         dicts:  [{'id': 'id1', 'name': 'name1'}, {'id': 'id2', 'name': 'name2'}]
-        """
-        result = zip(*([iter(collection)] * len(self._values['fields']['names'])))
-        if self._values['mode'] == 'dicts':
-            result = [dict(zip(self._values['fields']['names'], a_result))
-                                                for a_result in result]
-        return result
-
     def _prepare_results(self, results):
         """
         Called in _collection to prepare results from redis before returning
@@ -231,8 +207,6 @@ class CollectionManager(object):
         """
         if self._instances:
             results = self._to_instances(results)
-        elif self._values and self._values['mode'] != 'flat':
-            results = self._to_values(results)
         else:
             results = list(results)
 
@@ -344,7 +318,7 @@ class CollectionManager(object):
         If skip_exist_test is set to True, the instances returned by the
         collection won't have their primary key checked for existence.
         """
-        self._values = None
+        self.reset_result_type()
         self._instances = True
         self._instances_skip_exist_test = skip_exist_test
         return self
@@ -362,82 +336,21 @@ class CollectionManager(object):
                 fields.append(field_name)
         return fields
 
-    def values(self, *fields):
-        """
-        Ask the collection to return a list of dict of given fields for each
-        instance found in the collection.
-        If no fields are given, all "simple value" fields are used.
-        """
-        if not fields:
-            fields = self._get_simple_fields()
-
-        fields = self._coerce_fields_parameters(fields)
-
-        self._instances = False
-        self._values = {'fields': fields, 'mode': 'dicts'}
-        return self
-
-    def values_list(self, *fields, **kwargs):
-        """
-        Ask the collection to return a list of tuples of given fields (in the
-        given order) for each instance found in the collection.
-        If 'flat=True' is passed, the resulting list will be flat, ie without
-        tuple. It's a valid kwarg only if only one field is given.
-        If no fields are given, all "simple value" fields are used.
-        """
-        flat = kwargs.pop('flat', False)
-        if kwargs:
-            raise ValueError('Unexpected keyword arguments for the values method: %s'
-                             % (kwargs.keys(),))
-
-        if not fields:
-            fields = self._get_simple_fields()
-
-        if flat and len(fields) > 1:
-            raise ValueError("'flat' is not valid when values is called with more than one field.")
-
-        fields = self._coerce_fields_parameters(fields)
-
-        self._instances = False
-        self._values = {'fields': fields, 'mode': 'flat' if flat else 'tuples'}
-        return self
-
-    def _coerce_fields_parameters(self, fields):
-        """
-        Used by values and values_list to get the list of fields to use in the
-        redis sort command to retrieve fields.
-        The result is a dict with two lists:
-          - 'names', with wanted field names
-          - 'keys', with keys to use in the sort command
-        """
-        final_fields = {'names': [], 'keys': []}
-        for field_name in fields:
-            if self.cls._field_is_pk(field_name):
-                final_fields['names'].append(field_name)
-                final_fields['keys'].append('#')
-            else:
-                try:
-                    field = getattr(self.cls, "_redis_attr_%s" % field_name)
-                except AttributeError:
-                    raise ValueError("%s if not a valid field to get from collection"
-                                     " for %s" % (field_name, self.cls.__name__))
-                else:
-                    if isinstance(field, MultiValuesField):
-                        raise ValueError("It's not possible to get a MultiValuesField"
-                                         " from a collection (asked: %s" % field_name)
-                    final_fields['names'].append(field_name)
-                    final_fields['keys'].append(field.sort_wildcard)
-        return final_fields
-
     def primary_keys(self):
         """
         Ask the collection to return a list of primary keys. It's the default
         but if `instances`, `values` or `values_list` was previously called,
         a call to `primary_keys` restore this default behaviour.
         """
-        self._instances = False
-        self._values = None
+        self.reset_result_type()
         return self
+
+    def reset_result_type(self):
+        """
+        Reset the type of values attened for the collection (ie cancel a
+        previous "instances" call)
+        """
+        self._instances = False
 
     def _coerce_by_parameter(self, parameters):
         if "by" in parameters:

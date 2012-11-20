@@ -119,10 +119,8 @@ class RedisModel(RedisProxyCommand):
     collection_manager = CollectionManager
     DoesNotExist = DoesNotExist
 
-    _commands = {
-        'no_cache_getters': ('hmget', ),
-        'full_modifiers': ('hmset', ),
-    }
+    no_cache_getters = ('hmget', )
+    available_full_modifiers = ('hmset', )
 
     def __init__(self, *args, **kwargs):
         """

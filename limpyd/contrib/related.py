@@ -194,7 +194,7 @@ class RelatedFieldMetaclass(fields.MetaRedisProxy):
         return it
 
 
-class RelatedFieldMixin(fields.RedisField):
+class RelatedFieldMixin(object):
     """
     Base mixin for all fields holding related instances.
     This mixin provides:

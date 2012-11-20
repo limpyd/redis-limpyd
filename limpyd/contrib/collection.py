@@ -40,12 +40,17 @@ class ExtendedCollectionManager(CollectionManager):
 
     def __init__(self, cls):
         super(ExtendedCollectionManager, self).__init__(cls)
+
         self._lazy_collection['intersects'] = set()
+
         self._has_sortedsets = False
         self._sort_by_sortedset = None
+
         self._store = False
         self.stored_key = False
         self._stored_len = None
+
+        self._values = None  # Will store parameters used to retrieve values
 
     def _call_script(self, script_name, keys=[], args=[]):
         """
@@ -403,8 +408,24 @@ class ExtendedCollectionManager(CollectionManager):
         if self._store:
             # if store, redis doesn't return result, so don't return anything here
             return
-        else:
-            return super(ExtendedCollectionManager, self)._prepare_results(results)
+
+        if self._values and self._values['mode'] != 'flat':
+            results = self._to_values(results)
+
+        return super(ExtendedCollectionManager, self)._prepare_results(results)
+
+    def _to_values(self, collection):
+        """
+        Regroup values in tuples or dicts for each "instance".
+        Exemple: Given this result from redis: ['id1', 'name1', 'id2', 'name2']
+         tuples: [('id1', 'name1'), ('id2', 'name2')]
+         dicts:  [{'id': 'id1', 'name': 'name1'}, {'id': 'id2', 'name': 'name2'}]
+        """
+        result = zip(*([iter(collection)] * len(self._values['fields']['names'])))
+        if self._values['mode'] == 'dicts':
+            result = [dict(zip(self._values['fields']['names'], a_result))
+                                                for a_result in result]
+        return result
 
     @property
     def _sort_by_sortedset_before(self):
@@ -432,11 +453,20 @@ class ExtendedCollectionManager(CollectionManager):
 
     def _prepare_sort_options(self, has_pk):
         """
+        Prepare sort options for _values attributes.
         If we manager sort by score after getting the result, we do not want to
         get values from the first sort call, but only from the last one, after
         converting results in zset into keys
         """
         sort_options = super(ExtendedCollectionManager, self)._prepare_sort_options(has_pk)
+
+        if self._values:
+            # if we asked for values, we have to use the redis 'sort'
+            # command, which is able to return other fields.
+            if not sort_options:
+                sort_options = {}
+            sort_options['get'] = self._values['fields']['keys']
+
         if self._sort_by_sortedset_after:
             for key in ('get', 'store'):
                 if key in self._sort_by_sortedset:
@@ -445,8 +475,8 @@ class ExtendedCollectionManager(CollectionManager):
                 for key in ('get', 'store'):
                     if key in sort_options:
                         self._sort_by_sortedset[key] = sort_options.pop(key)
-            if not sort_options:
-                sort_options = None
+        if not sort_options:
+            sort_options = None
         return sort_options
 
     def _get_final_set(self, sets, pk, sort_options):
@@ -521,6 +551,11 @@ class ExtendedCollectionManager(CollectionManager):
 
     def _coerce_fields_parameters(self, fields):
         """
+        Used by values and values_list to get the list of fields to use in the
+        redis sort command to retrieve fields.
+        The result is a dict with two lists:
+          - 'names', with wanted field names
+          - 'keys', with keys to use in the sort command
         When sorting by score, we allow to retrieve the score in values/values_list.
         For this, just pass SORTED_SCORE (importable from contrib.collection) as
         a name to retrieve.
@@ -535,13 +570,29 @@ class ExtendedCollectionManager(CollectionManager):
             fields = list(fields)
             fields.pop(sorted_score_pos)
 
-        fields = super(ExtendedCollectionManager, self)._coerce_fields_parameters(fields)
+        final_fields = {'names': [], 'keys': []}
+        for field_name in fields:
+            if self.cls._field_is_pk(field_name):
+                final_fields['names'].append(field_name)
+                final_fields['keys'].append('#')
+            else:
+                try:
+                    field = getattr(self.cls, "_redis_attr_%s" % field_name)
+                except AttributeError:
+                    raise ValueError("%s if not a valid field to get from collection"
+                                     " for %s" % (field_name, self.cls.__name__))
+                else:
+                    if isinstance(field, MultiValuesField):
+                        raise ValueError("It's not possible to get a MultiValuesField"
+                                         " from a collection (asked: %s" % field_name)
+                    final_fields['names'].append(field_name)
+                    final_fields['keys'].append(field.sort_wildcard)
 
         if sorted_score_pos is not None:
-            fields['names'].insert(sorted_score_pos, SORTED_SCORE)
-            fields['keys'].insert(sorted_score_pos, SORTED_SCORE)
+            final_fields['names'].insert(sorted_score_pos, SORTED_SCORE)
+            final_fields['keys'].insert(sorted_score_pos, SORTED_SCORE)
 
-        return fields
+        return final_fields
 
     def store(self, key=None, ttl=DEFAULT_STORE_TTL):
         """
@@ -627,6 +678,54 @@ class ExtendedCollectionManager(CollectionManager):
         on a stored one, to check if the redis key still exists)
         """
         return self.cls.get_connection().exists(self.stored_key)
+
+    def reset_result_type(self):
+        """
+        Reset the type of values attened for the collection (ie cancel a
+        previous "instances" or "values" call)
+        """
+        self._values = None
+        return super(ExtendedCollectionManager, self).reset_result_type()
+
+    def values(self, *fields):
+        """
+        Ask the collection to return a list of dict of given fields for each
+        instance found in the collection.
+        If no fields are given, all "simple value" fields are used.
+        """
+        if not fields:
+            fields = self._get_simple_fields()
+
+        fields = self._coerce_fields_parameters(fields)
+
+        self._instances = False
+        self._values = {'fields': fields, 'mode': 'dicts'}
+        return self
+
+    def values_list(self, *fields, **kwargs):
+        """
+        Ask the collection to return a list of tuples of given fields (in the
+        given order) for each instance found in the collection.
+        If 'flat=True' is passed, the resulting list will be flat, ie without
+        tuple. It's a valid kwarg only if only one field is given.
+        If no fields are given, all "simple value" fields are used.
+        """
+        flat = kwargs.pop('flat', False)
+        if kwargs:
+            raise ValueError('Unexpected keyword arguments for the values method: %s'
+                             % (kwargs.keys(),))
+
+        if not fields:
+            fields = self._get_simple_fields()
+
+        if flat and len(fields) > 1:
+            raise ValueError("'flat' is not valid when values is called with more than one field.")
+
+        fields = self._coerce_fields_parameters(fields)
+
+        self._instances = False
+        self._values = {'fields': fields, 'mode': 'flat' if flat else 'tuples'}
+        return self
 
 
 class _StoredCollection(object):

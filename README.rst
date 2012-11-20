@@ -848,49 +848,6 @@ To cancel retrieving instances and get the default return format, call the `prim
     >>> Person.collection(firstname='John').instances().primary_keys()
     >>> ['1', '2']
 
-Retrieving values
-=================
-
-If you don't want only primary keys, but instances are too much, or too slow, you can ask the collection to return values with two methods: `values` and `values_list` (inspired by django)
-
-It can be really useful to quickly iterate on all results when you, for example, only need to display simple values.
-
-**values**
-
-When calling `values` on a collection, the result of the collection is not a list of primary keys, but a list of dictionaries, one for each matching entry, with each field passed as argument. If no field is passed, all fields are retrieved. Note that only simple fields (PKField_, StringField_ and HashableField_) are concerned.
-
-Example::
-
-    >>> Person.collection(firstname='John').values()
-    [{'pk': '1', 'firstname': 'John', 'lastname': 'Smith', 'birth_year': '1960'}, {'pk': '2', 'firstname': 'John', 'lastname': 'Doe', 'birth_year': '1965'}]
-    >>> Person.collection(firstname='John').values('pk', 'lastname')
-    [{'pk': '1', 'lastname': 'Smith'}, {'pk': '2', 'lastname': 'Doe'}]
-
-
-**values_list**
-
-The `values_list` method works the same as `values` but instead of having the collection return a list of dictionaries, it will return a list of tuples with values for asked fields, in the same order as they are passed as arguments. If no field is passed, all fields are retrieved in the same order as they are defined in the model.
-
-Example::
-
-    >>> Person.collection(firstname='John').values_list()
-    [('1', 'John', 'Smith', '1960'), (2', 'John', 'Doe', '1965')]
-    >>> Person.collection(firstname='John').values_list('pk', 'lastname')
-    [('1', 'Smith'), ('2', 'Doe')]
-
-If you want to retrieve a single field, you can ask to get a flat list as a final result, by passing the `flat` named argument to True::
-
-    >>> Person.collection(firstname='John').values_list('pk', 'lastname')  # without flat
-    [('Smith', ), ('Doe', )]
-    >>> Person.collection(firstname='John').values_list('lastname', flat=True)  # with flat
-    ['Smith', 'Doe']
-
-
-To cancel retrieving values and get the default return format, call the `primary_keys` method::
-
-    >>> Person.collection(firstname='John').values().primary_keys()  # works with values_list too
-    >>> ['1', '2']
-
 
 Lazyness
 ========
@@ -1423,6 +1380,7 @@ Extended collection
 
 Although the standard collection may be sufficient in most cases, we added an ExtendedCollectionManager_ in contrib, which enhance the base one with some useful stuff:
 
+- ability to retrieve values as dict or liist of tuples
 - ability to chain filters
 - ability to intersect the final result with a list of primary keys
 - ability to sort by the score of a sorted set
@@ -1432,6 +1390,50 @@ Although the standard collection may be sufficient in most cases, we added an Ex
 To use this ExtendedCollectionManager_, declare it as seen in Subclassing_.
 
 All of these new capabilities are described below:
+
+
+Retrieving values
+=================
+
+If you don't want only primary keys, but instances are too much, or too slow, you can ask the collection to return values with two methods: `values` and `values_list` (inspired by django)
+
+It can be really useful to quickly iterate on all results when you, for example, only need to display simple values.
+
+**values**
+
+When calling `values` on a collection, the result of the collection is not a list of primary keys, but a list of dictionaries, one for each matching entry, with each field passed as argument. If no field is passed, all fields are retrieved. Note that only simple fields (PKField_, StringField_ and HashableField_) are concerned.
+
+Example::
+
+    >>> Person.collection(firstname='John').values()
+    [{'pk': '1', 'firstname': 'John', 'lastname': 'Smith', 'birth_year': '1960'}, {'pk': '2', 'firstname': 'John', 'lastname': 'Doe', 'birth_year': '1965'}]
+    >>> Person.collection(firstname='John').values('pk', 'lastname')
+    [{'pk': '1', 'lastname': 'Smith'}, {'pk': '2', 'lastname': 'Doe'}]
+
+
+**values_list**
+
+The `values_list` method works the same as `values` but instead of having the collection return a list of dictionaries, it will return a list of tuples with values for asked fields, in the same order as they are passed as arguments. If no field is passed, all fields are retrieved in the same order as they are defined in the model.
+
+Example::
+
+    >>> Person.collection(firstname='John').values_list()
+    [('1', 'John', 'Smith', '1960'), (2', 'John', 'Doe', '1965')]
+    >>> Person.collection(firstname='John').values_list('pk', 'lastname')
+    [('1', 'Smith'), ('2', 'Doe')]
+
+If you want to retrieve a single field, you can ask to get a flat list as a final result, by passing the `flat` named argument to True::
+
+    >>> Person.collection(firstname='John').values_list('pk', 'lastname')  # without flat
+    [('Smith', ), ('Doe', )]
+    >>> Person.collection(firstname='John').values_list('lastname', flat=True)  # with flat
+    ['Smith', 'Doe']
+
+
+To cancel retrieving values and get the default return format, call the `primary_keys` method::
+
+    >>> Person.collection(firstname='John').values().primary_keys()  # works with values_list too
+    >>> ['1', '2']
 
 
 Chaining filters
