@@ -355,11 +355,14 @@ class RelatedFieldMixin(object):
         """
         Provide the ability to pass RedisModel instances as values. They are
         translated to their own pk.
+        It works too with FKs.
         """
         result = []
         for value in values:
             if isinstance(value, model.RedisModel):
                 value = value._pk
+            elif isinstance(value, SimpleValueRelatedFieldMixin):
+                value = value.proxy_get()
             result.append(value)
         return result
 

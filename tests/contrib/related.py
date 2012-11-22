@@ -329,6 +329,16 @@ class FKTest(LimpydBaseTest):
         self.assertEqual(ybon.prefered_group.get(), core_devs._pk)
         self.assertEqual(set(core_devs.person_set()), set([ybon._pk]))
 
+    def test_fk_can_be_given_as_fk(self):
+        core_devs = Group(name='limpyd core devs')
+        fan_boys = Group(name='limpyd fan boys')
+        ybon = Person(name='ybon')
+
+        core_devs.owner.hset(ybon)
+        fan_boys.owner.hset(core_devs.owner)
+        self.assertEqual(fan_boys.owner.hget(), ybon._pk)
+        self.assertEqual(set(ybon.owned_groups()), set([core_devs._pk, fan_boys._pk]))
+
     def test_can_update_fk(self):
         core_devs = Group(name='limpyd core devs')
         ybon = Person(name='ybon')
@@ -410,6 +420,14 @@ class M2MSetTest(LimpydBaseTest):
         self.assertEqual(core_devs.members.smembers(), set([twidi._pk, ybon._pk]))
         self.assertEqual(set(ybon.membership()), set([core_devs._pk]))
         self.assertEqual(set(twidi.membership()), set([core_devs._pk]))
+
+    def test_set_m2m_values_can_be_given_as_fk(self):
+        core_devs = Group(name='limpyd core devs')
+        ybon = Person(name='ybon')
+
+        core_devs.owner.hset(ybon)
+        core_devs.members.sadd(core_devs.owner)
+        self.assertEqual(core_devs.members.smembers(), set([ybon._pk]))
 
     def test_removed_m2m_values_should_update_related_collection(self):
         core_devs = Group(name='limpyd core devs')
