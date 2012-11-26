@@ -199,13 +199,15 @@ class RelatedFieldMixin(object):
     Base mixin for all fields holding related instances.
     This mixin provides:
     - force indexable to True
-    - a "from_python" method that can translate RedisModel instances in their pk
-      (useful to pass object insteand of "object._pk" when adding/removing a FK)
-    All commands that may receive objects as arguments must call This
-    "from_python" method. To do this automatically, simple add command names
-    that accept only one value in "_commands_with_single_value_from_python" and
-    ones that accept many values (without any other arguments) in
-    "_commands_with_many_values_from_python" (see RelatedFieldMetaclass)
+    - a "from_python" method that can translate a RedisModel instance, or a
+      FK field in its pk (useful to pass object instead of "object._pk" when
+      adding/removing a FK)
+      All commands that may receive objects as arguments must call this
+      "from_python" method (or "from_python_many" if many values to convert).
+      To do this automatically, simply add command names that accept only one
+      value in "_commands_with_single_value_from_python" and ones that accept
+      many values (without any other arguments) in
+      "_commands_with_many_values_from_python" (see RelatedFieldMetaclass)
     - management of related parameters: "to" and "related_name"
     """
     __metaclass__ = RelatedFieldMetaclass
@@ -351,20 +353,23 @@ class RelatedFieldMixin(object):
 
         return related_name.lower()
 
-    def from_python(self, *values):
+    def from_python(self, value):
         """
-        Provide the ability to pass RedisModel instances as values. They are
-        translated to their own pk.
-        It works too with FKs.
+        Provide the ability to pass a RedisModel instances or a FK field as
+        value instead of passing the PK. The value will then be translated in
+        the real PK.
         """
-        result = []
-        for value in values:
-            if isinstance(value, model.RedisModel):
-                value = value._pk
-            elif isinstance(value, SimpleValueRelatedFieldMixin):
-                value = value.proxy_get()
-            result.append(value)
-        return result
+        if isinstance(value, model.RedisModel):
+            value = value._pk
+        elif isinstance(value, SimpleValueRelatedFieldMixin):
+            value = value.proxy_get()
+        return value
+
+    def from_python_many(self, *values):
+        """
+        Apply the from_python to each values and return the final list
+        """
+        return map(self.from_python, values)
 
     @classmethod
     def _make_command_method(cls, command_name, many=False):
@@ -376,13 +381,13 @@ class RelatedFieldMixin(object):
         """
         def func(self, *args, **kwargs):
             if many:
-                args = self.from_python(*args)
+                args = self.from_python_many(*args)
             else:
                 if 'value' in kwargs:
-                    kwargs['value'] = self.from_python(kwargs['value'], )[0]
+                    kwargs['value'] = self.from_python(kwargs['value'])
                 else:
                     args = list(args)
-                    args[0] = self.from_python(args[0], )[0]
+                    args[0] = self.from_python(args[0])
 
             # call the super method, with real pk
             sup_method = getattr(super(cls, self), command_name)
@@ -488,15 +493,15 @@ class M2MListField(MultiValuesRelatedFieldMixin, fields.ListField):
     _related_remover = 'lrem'
 
     def linsert(self, where, refvalue, value):
-        value = self.from_python(value, )[0]
+        value = self.from_python(value)
         return super(M2MListField, self).linsert(where, refvalue, value)
 
     def lrem(self, count, value):
-        value = self.from_python(value, )[0]
+        value = self.from_python(value)
         return super(M2MListField, self).lrem(count, value)
 
     def lset(self, index, value):
-        value = self.from_python(value, )[0]
+        value = self.from_python(value)
         return super(M2MListField, self).lset(index, value)
 
 
@@ -514,10 +519,10 @@ class M2MSortedSetField(MultiValuesRelatedFieldMixin, fields.SortedSetField):
         doing the same calculation on kwargs one more time.
         """
         if 'values_callback' not in kwargs:
-            kwargs['values_callback'] = self.from_python
+            kwargs['values_callback'] = self.from_python_many
         pieces = fields.SortedSetField.coerce_zadd_args(*args, **kwargs)
         return super(M2MSortedSetField, self).zadd(*pieces)
 
     def zincrby(self, value, amount=1):
-        value = self.from_python(value, )
-        return super(M2MSortedSetField, self).zincrby(value, amout)
+        value = self.from_python(value)
+        return super(M2MSortedSetField, self).zincrby(value, amount)
