@@ -81,7 +81,7 @@ class CompatibilityTest(BaseTest):
         self.assertEqual(active_names, ['bar', 'foo'])
 
 
-class FieldOrValueTest(BaseTest):
+class FieldOrModelAsValueForSortAndFilterTest(BaseTest):
 
     def test_sort_should_accept_field_or_fieldname(self):
         # test with field name
@@ -104,6 +104,11 @@ class FieldOrValueTest(BaseTest):
         collection = Group.collection(pk=group.pk)  # pass the pk, but value will be get when calling the collection
         group.name.hset('aaa')  # create a pk for the object
         self.assertEqual(list(collection), [group.pk.get()])
+
+    def test_filter_should_accept_instance_as_value(self):
+        group1 = Group(name='foo')
+        collection = Group.collection(pk=group1)  # pass the instance, but its PK is used
+        self.assertEqual(group1.get_pk(), collection[0])
 
 
 class FilterTest(BaseTest):

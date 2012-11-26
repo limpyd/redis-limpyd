@@ -3,6 +3,7 @@
 from itertools import islice, chain
 from copy import deepcopy
 
+from limpyd.model import RedisModel
 from limpyd.collection import CollectionManager
 from limpyd.fields import (SetField, ListField, SortedSetField, MultiValuesField,
                            RedisField, SingleValueField, PKField)
@@ -520,6 +521,8 @@ class ExtendedCollectionManager(CollectionManager):
         In addition to the normal _add_filters, this one accept RedisField objects
         on the right part of a filter. The value will be fetched from redis when
         calling the collection.
+        The filter value can also be a model instance, in which case its PK is
+        used.
         """
         string_filters = filters.copy()
 
@@ -534,6 +537,9 @@ class ExtendedCollectionManager(CollectionManager):
                 else:
                     self._lazy_collection['sets'].add(value)
                 string_filters.pop(field_name)
+
+            elif isinstance(value, RedisModel):
+                string_filters[field_name] = value.get_pk()
 
         super(ExtendedCollectionManager, self)._add_filters(**string_filters)
 
