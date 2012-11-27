@@ -81,7 +81,14 @@ class CompatibilityTest(BaseTest):
         self.assertEqual(active_names, ['bar', 'foo'])
 
 
-class FieldOrValueTest(BaseTest):
+class FieldOrModelAsValueForSortAndFilterTest(BaseTest):
+
+    class Query(TestRedisModel):
+        namespace = 'FieldOrModelAsValueForSortAndFilterTest'
+        collection_manager = ExtendedCollectionManager
+        name = fields.HashableField()
+        active = fields.HashableField()
+        public = fields.HashableField()
 
     def test_sort_should_accept_field_or_fieldname(self):
         # test with field name
@@ -92,18 +99,53 @@ class FieldOrValueTest(BaseTest):
         groups = list(Group.collection().sort(by=name_field, alpha=True).values_list('name', flat=True))
         self.assertEqual(groups, ['bar', 'baz', 'foo', 'qux'])
 
-    def test_filter_should_accept_field_or_value(self):
-        group = Group(name='aaa')
-        collection = Group.collection(name=group.name)  # pass the name, but value will be get when calling the collection
-        group.name.hset('foo')
-        attended = set(['1', group.pk.get()])
+    def test_filter_should_accept_field_from_same_model(self):
+        # test using field from same model, without updating its value
+        group = Group(name='foo')
+        collection = Group.collection(name=group.name)
+        attended = set([self.groups[0].get_pk(), group.get_pk()])
+        self.assertEqual(set(collection), attended)
+
+        # test using a field from same model, updating its value before running the collection
+        group = Group(name='foo')
+        collection = Group.collection(name=group.name)
+        attended = set([self.groups[1].get_pk(), group.get_pk()])
+        group.name.hset('bar')
+        self.assertEqual(set(collection), attended)
+
+    def test_filter_should_accept_field_from_other_model(self):
+        # test using a field from another model, without updating its value
+        query = FieldOrModelAsValueForSortAndFilterTest.Query(name='foo')
+        collection = Group.collection(name=query.name)
+        attended = set([self.groups[0].get_pk(), ])
+        self.assertEqual(set(collection), attended)
+
+        # test using a field from another model, updating its value before running the collection
+        query = FieldOrModelAsValueForSortAndFilterTest.Query(name='foo')
+        collection = Group.collection(name=query.name)
+        attended = set([self.groups[1].get_pk(), ])
+        query.name.hset('bar')
+        self.assertEqual(set(collection), attended)
+
+        # test using a field from another model, really creating the object later
+        query = FieldOrModelAsValueForSortAndFilterTest.Query()
+        collection = Group.collection(name=query.name)
+        attended = set([self.groups[2].get_pk(), ])
+        query.name.hset('baz')
         self.assertEqual(set(collection), attended)
 
     def test_filter_should_accept_pkfield_or_pkvalue(self):
         group = Group()
         collection = Group.collection(pk=group.pk)  # pass the pk, but value will be get when calling the collection
         group.name.hset('aaa')  # create a pk for the object
-        self.assertEqual(list(collection), [group.pk.get()])
+        attended = set([group.pk.get()])
+        self.assertEqual(set(collection), attended)
+
+    def test_filter_should_accept_instance_as_value(self):
+        group = Group(name='foo')
+        collection = Group.collection(pk=group)
+        attended = set([group.get_pk(), ])
+        self.assertEqual(set(collection), attended)
 
 
 class FilterTest(BaseTest):

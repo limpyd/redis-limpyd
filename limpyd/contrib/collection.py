@@ -1,16 +1,21 @@
 # -*- coding:utf-8 -*-
 
 from itertools import islice, chain
+from collections import namedtuple
 from copy import deepcopy
 
+from limpyd.model import RedisModel
 from limpyd.collection import CollectionManager
 from limpyd.fields import (SetField, ListField, SortedSetField, MultiValuesField,
-                           RedisField, SingleValueField, PKField)
+                           RedisField, SingleValueField)
 from limpyd.exceptions import DoesNotExist
 from limpyd.contrib.database import PipelineDatabase
 
 SORTED_SCORE = 'sorted_score'
 DEFAULT_STORE_TTL = 60
+
+
+ExtendedFilter = namedtuple('ExtendedFilter', ['name', 'value'])
 
 
 class ExtendedCollectionManager(CollectionManager):
@@ -121,11 +126,18 @@ class ExtendedCollectionManager(CollectionManager):
         for set_ in sets:
             if isinstance(set_, basestring):
                 all_sets.add(set_)
-            elif isinstance(set_, SingleValueField):
-                # If a simple field, we retrieve the actual value to get the
-                # set to use
-                value = set_.proxy_get()
-                key = set_.index_key(value)
+            elif isinstance(set_, ExtendedFilter):
+                # We have a RedisModel and we'll use its pk, or a RedisField
+                # (single value) and we'll use its value
+                field_name, value = set_
+                field = getattr(self.cls, "_redis_attr_%s" % field_name)
+                if isinstance(value, RedisModel):
+                    val = value.get_pk()
+                elif isinstance(value, SingleValueField):
+                    val = value.proxy_get()
+                else:
+                    raise ValueError(u'Invalide filter value for %s: %s' % (field_name, value))
+                key = field.index_key(val)
                 all_sets.add(key)
             elif isinstance(set_, SetField):
                 # Use the set key. If we need to intersect, we'll use
@@ -520,19 +532,36 @@ class ExtendedCollectionManager(CollectionManager):
         In addition to the normal _add_filters, this one accept RedisField objects
         on the right part of a filter. The value will be fetched from redis when
         calling the collection.
+        The filter value can also be a model instance, in which case its PK will
+        be fetched when calling the collection, too.
         """
         string_filters = filters.copy()
 
         for field_name, value in filters.iteritems():
+
+            is_extended = False
+
             if isinstance(value, RedisField):
+                # we will fetch the value when running the collection
                 if not isinstance(value, SingleValueField) or getattr(value, '_instance', None) is None:
-                    raise ValueError('The right part of a filter must be a '
-                                     'a value, or a simple value field attached '
-                                     'to an instance')
-                if isinstance(value, PKField):
-                    self._lazy_collection['pks'].add(value)
+                    raise ValueError('If a field is used as a filter value, it '
+                                     'must be a simple value field attached to '
+                                     'an instance')
+                is_extended = True
+
+            elif isinstance(value, RedisModel):
+                # we will fetch the PK when running the collection
+                is_extended = True
+
+            if is_extended:
+                # create an ExtendedFilter which will be used in _prepare_sets
+                # or _get_pk
+                extended_filter = ExtendedFilter(field_name, value)
+                if self.cls._field_is_pk(field_name):
+                    self._lazy_collection['pks'].add(extended_filter)
                 else:
-                    self._lazy_collection['sets'].add(value)
+                    self._lazy_collection['sets'].add(extended_filter)
+
                 string_filters.pop(field_name)
 
         super(ExtendedCollectionManager, self)._add_filters(**string_filters)
@@ -542,11 +571,20 @@ class ExtendedCollectionManager(CollectionManager):
     def _get_pk(self):
         """
         Override the default _get_pk method to retrieve the real pk value if we
-        have a PKField instead of a pk value
+        have a SingleValueField or a RedisModel instead of a real PK value
         """
         pk = super(ExtendedCollectionManager, self)._get_pk()
-        if pk is not None and isinstance(pk, PKField):
-            pk = pk.get()
+
+        if pk is not None and isinstance(pk, ExtendedFilter):
+            # We have a RedisModel and we want its pk, or a RedisField
+            # (single value) and we want its value
+            if isinstance(pk.value, RedisModel):
+                pk = pk.value.get_pk()
+            elif isinstance(pk.value, SingleValueField):
+                pk = pk.value.proxy_get()
+            else:
+                raise ValueError(u'Invalide filter value for a PK: %s' % pk.value)
+
         return pk
 
     def _coerce_fields_parameters(self, fields):
