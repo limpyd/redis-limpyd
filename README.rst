@@ -1159,6 +1159,95 @@ You can pass other filters too::
     >>> person1.owned_groups(private=1)
     ['group 2']
 
+Note that the collection manager of all related fields is the ExtendedCollectionManager_, so you can do things like::
+
+    >>> owned = person1.owned_groups()
+    >>> owned.filter(private=1)
+    ['group 2']
+
+
+Retrieving the other side
+-------------------------
+
+Foreign keys
+""""""""""""
+
+It's easy to set a foreign key, and easy to retrieve it using the default API.
+
+Using these models::
+
+    class Person(related.RelatedModel):
+        database = main_database
+        name = StringField()
+
+    class Group(related.RelatedModel):
+        database = main_database
+        name = StringField()
+        owner = FKStringField(Person)
+
+We can add data::
+
+    >>> core_devs = Group(name='limpyd core devs', private=0)
+    >>> ybon = Person(name='ybon')
+    >>> core_devs.owner.hset(ybon)
+
+And we can retrieve the related object this way::
+
+    >>> owner_pk = core_devs.owner.hget()
+    >>> owner = Person(owner_pk)
+
+But we can use the `instance` method defined on foreign keys::
+
+    >>> owner = core_devs.owner.instance()
+
+
+Many to Many
+""""""""""""
+
+To provide consistency on calling collections on the both sides of a relation, the M2MSetField_, M2MListField_ and M2MSortedSetField_ are `callable`, simulating a call to a collection, and effectively returning one. It's very useful to sort and/or return `instances`, `values` or `values_list`.
+
+Imagine the model::
+
+    class Person(related.RelatedModel):
+        database = main_database
+        name = PKStringField()
+        following = M2MSetField('self', related_name='followers')
+
+Let's add some data::
+
+    >>> foo = Person(name='Foo')  # pk=1
+    >>> bar = Person(name='Bar')  # pk=2
+    >>> baz = Person(name='Baz')  # pk=3
+    >>> foo.following.sadd(bar, baz)
+    >>> baz.following.sadd(bar)
+
+So we can retrieve followers via the `Related collection`_::
+
+    >>> bar.followers()
+    ['1', '3']
+    >>> baz.followers().values_list('name', flat=True)
+    ['foo', 'baz']
+
+And on the other side... without simulating a collection when calling a M2MField, it's easy to retrieve primary keys::
+
+    >>>foo.following.smembers()
+    ['2', '3']
+
+But it's not the same "api" (but it sounds ok because it's a SetField), and it's really hard to retrieve names, or other stuff like with `values` and `values_list`, or even `instances`.
+
+With the callable possibility added to M2M fields, you can do this::
+
+    >>> foo.following()  # return a collection
+    ['1', '3']
+    >>> foo.following().values_list('name', flat=True)
+    ['bar', 'baz']
+
+Note that to provide even more consitency, use can call the `collection` method of a M2M field instead of simple "calling" it. So both lines below are the same::
+
+    >>> foo.following()
+    >>> foo.following.collection()
+    
+
 
 Update and deletion
 -------------------

@@ -5,6 +5,7 @@ from limpyd.exceptions import *
 from limpyd.contrib.related import (RelatedModel, RelatedCollection,
                                     FKStringField, FKHashableField, M2MSetField,
                                     M2MListField, M2MSortedSetField)
+from limpyd.contrib.collection import ExtendedCollectionManager
 
 from ..base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
 
@@ -20,6 +21,7 @@ class TestRedisModel(RelatedModel):
 
 class Person(TestRedisModel):
     name = fields.PKField()
+    age = fields.StringField(indexable=True)
     prefered_group = FKStringField('Group')
     following = M2MSetField('self', related_name='followers')
 
@@ -231,6 +233,86 @@ class RelatedCollectionTest(LimpydBaseTest):
         self.assertEqual(test2, set([core_devs._pk]))
 
 
+class MultiValuesCollectionTest(LimpydBaseTest):
+
+    def setUp(self):
+        super(MultiValuesCollectionTest, self).setUp()
+        self.core_devs = Group(name='limpyd core devs')
+        self.ybon = Person(name='ybon', age=30)
+        self.twidi = Person(name='twidi', age=35)
+        self.core_devs.members.sadd(self.ybon)
+        self.core_devs.members.sadd(self.twidi)
+
+    def test_calling_a_multivaluesrelatedfield_should_return_a_collection(self):
+        members = self.core_devs.members()
+        self.assertTrue(isinstance(members, ExtendedCollectionManager))
+
+    def test_return_value_of_collection(self):
+        members_pk = set(self.core_devs.members())
+        self.assertTrue(members_pk, set(['twidi', 'ybon']))
+        members_instances = list(self.core_devs.members().instances())
+        self.assertEqual(len(members_instances), 2)
+        self.assertTrue(isinstance(members_instances[0], Person))
+
+    def test_additional_filters(self):
+        members_pk = set(self.core_devs.members(name='twidi'))
+        self.assertEqual(members_pk, set(['twidi']))
+
+        members_pk = set(self.core_devs.members(name='diox'))
+        self.assertEqual(members_pk, set())
+
+    def test_sort(self):
+        members_pk = list(self.core_devs.members().sort(by='age'))
+        self.assertEqual(members_pk, ['ybon', 'twidi'])
+        members_pk = list(self.core_devs.members().sort(by='-age'))
+        self.assertEqual(members_pk, ['twidi', 'ybon'])
+
+    def test_should_work_with_listfield(self):
+
+        class GroupAsList(TestRedisModel):
+            name = fields.PKField()
+            members = M2MListField(Person, related_name='members_list')
+
+        core_devs = GroupAsList(name='limpyd core devs')
+        core_devs.members.rpush(self.ybon)
+        core_devs.members.rpush(self.twidi)
+
+        members_pk = set(core_devs.members())
+        self.assertTrue(members_pk, set(['twidi', 'ybon']))
+        members_instances = list(core_devs.members().instances())
+        self.assertEqual(len(members_instances), 2)
+        self.assertTrue(isinstance(members_instances[0], Person))
+
+    def test_should_work_with_sortedsetfield(self):
+
+        class GroupAsSortedSet(TestRedisModel):
+            name = fields.PKField()
+            members = M2MSortedSetField(Person, related_name='members_zset')
+
+        core_devs = GroupAsSortedSet(name='limpyd core devs')
+        core_devs.members.zadd(100, self.ybon)
+        core_devs.members.zadd(50, self.twidi)
+
+        members_pk = set(core_devs.members())
+        self.assertTrue(members_pk, set(['twidi', 'ybon']))
+        members_instances = list(core_devs.members().instances())
+        self.assertEqual(len(members_instances), 2)
+        self.assertTrue(isinstance(members_instances[0], Person))
+
+    def test_collection_should_be_alias_of_call(self):
+        """
+        Test that we can use obj.field.collection() the same way we can use
+        obj.field()
+        """
+        members1 = self.core_devs.members()
+        self.assertTrue(isinstance(members1, ExtendedCollectionManager))
+
+        members2 = self.core_devs.members.collection()
+        self.assertTrue(isinstance(members1, ExtendedCollectionManager))
+
+        self.assertEqual(list(members1), list(members2))
+
+
 class FKTest(LimpydBaseTest):
 
     def test_fk_can_be_given_as_object(self):
@@ -246,6 +328,16 @@ class FKTest(LimpydBaseTest):
         ybon.prefered_group.set(core_devs)
         self.assertEqual(ybon.prefered_group.get(), core_devs._pk)
         self.assertEqual(set(core_devs.person_set()), set([ybon._pk]))
+
+    def test_fk_can_be_given_as_fk(self):
+        core_devs = Group(name='limpyd core devs')
+        fan_boys = Group(name='limpyd fan boys')
+        ybon = Person(name='ybon')
+
+        core_devs.owner.hset(ybon)
+        fan_boys.owner.hset(core_devs.owner)
+        self.assertEqual(fan_boys.owner.hget(), ybon._pk)
+        self.assertEqual(set(ybon.owned_groups()), set([core_devs._pk, fan_boys._pk]))
 
     def test_can_update_fk(self):
         core_devs = Group(name='limpyd core devs')
@@ -276,6 +368,20 @@ class FKTest(LimpydBaseTest):
         core_devs.parent.set(main_group)
         fan_boys.parent.set(main_group)
         self.assertEqual(set(main_group.children()), set([core_devs._pk, fan_boys._pk]))
+
+    def test_calling_instance_on_fkfield_should_retrieve_the_related_instance(self):
+        twidi = Person(name='twidi')
+        main_group = Group(name='limpyd groups')
+        core_devs = Group(name='limpyd core devs', owner=twidi, parent=main_group)
+
+        # test FKStrinField
+        owner = core_devs.owner.instance()
+        self.assertEqual(owner._pk, twidi._pk)
+        self.assertTrue(isinstance(owner, Person))
+        # test FKHashableField
+        parent = core_devs.parent.instance()
+        self.assertEqual(parent._pk, main_group._pk)
+        self.assertTrue(isinstance(parent, Group))
 
     def test_deleting_an_object_must_clear_the_fk(self):
         main_group = Group(name='limpyd groups')
@@ -314,6 +420,14 @@ class M2MSetTest(LimpydBaseTest):
         self.assertEqual(core_devs.members.smembers(), set([twidi._pk, ybon._pk]))
         self.assertEqual(set(ybon.membership()), set([core_devs._pk]))
         self.assertEqual(set(twidi.membership()), set([core_devs._pk]))
+
+    def test_set_m2m_values_can_be_given_as_fk(self):
+        core_devs = Group(name='limpyd core devs')
+        ybon = Person(name='ybon')
+
+        core_devs.owner.hset(ybon)
+        core_devs.members.sadd(core_devs.owner)
+        self.assertEqual(core_devs.members.smembers(), set([ybon._pk]))
 
     def test_removed_m2m_values_should_update_related_collection(self):
         core_devs = Group(name='limpyd core devs')

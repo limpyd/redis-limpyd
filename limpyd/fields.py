@@ -2,6 +2,7 @@
 
 from logging import getLogger
 from copy import copy
+from itertools import izip
 from redis.exceptions import RedisError
 from redis.client import Lock
 
@@ -32,22 +33,48 @@ class MetaRedisProxy(type):
     call _call_command.
     """
 
+    @staticmethod
+    def class_can_have_commands(klass):
+        """
+        Return False if the given class inherits from RedisProxyCommand, which
+        indicates that it can handle its own sets of available commands.
+        If not a subclass of RedisProxyCommand, (for example "object", to create
+        a simple mixin), returns False.
+        """
+        try:
+            return issubclass(klass, RedisProxyCommand)
+        except NameError:
+            # We pass here if we are workong on RedisProxyCommand itself, which
+            # is not yet defined in this case
+            return False
+
     def __new__(mcs, name, base, dct):
+        """
+        Create methods for all redis commands available for the given class.
+        """
         it = super(MetaRedisProxy, mcs).__new__(mcs, name, base, dct)
 
-        # make sure we have a set for each list of type of command
-        for attr in ('available_getters', 'no_cache_getters', 'available_full_modifiers', 'available_partial_modifiers'):
-            setattr(it, attr, set(getattr(it, attr, ())))
+        # It the class we are working on is not aimed to directly have its own
+        # commands defined, we don't try to manage them.
+        # It's needed to use mixins, which must be based on `object`.
+        # See contrib.related.*RelatedFieldMixin to see an example of such a
+        # mixin
 
-        # add simplest set: getters, modidiers, all
-        it.available_getters.update(it.no_cache_getters)
-        it.available_modifiers = it.available_full_modifiers.union(it.available_partial_modifiers)
-        it.available_commands = it.available_getters.union(it.available_modifiers)
+        if any([mcs.class_can_have_commands(one_base) for one_base in base]):
 
-        # create a method for each command
-        for command_name in it.available_commands:
-            if not hasattr(it, command_name):
-                setattr(it, command_name, it._make_command_method(command_name))
+            # make sure we have a set for each list of type of command
+            for attr in ('available_getters', 'no_cache_getters', 'available_full_modifiers', 'available_partial_modifiers'):
+                setattr(it, attr, set(getattr(it, attr, ())))
+
+            # add simplest set: getters, modidiers, all
+            it.available_getters.update(it.no_cache_getters)
+            it.available_modifiers = it.available_full_modifiers.union(it.available_partial_modifiers)
+            it.available_commands = it.available_getters.union(it.available_modifiers)
+
+            # create a method for each command
+            for command_name in it.available_commands:
+                if not hasattr(it, command_name):
+                    setattr(it, command_name, it._make_command_method(command_name))
 
         return it
 
@@ -656,6 +683,40 @@ class SortedSetField(MultiValuesField):
         of the sorted set, so we index it.
         """
         return self._call_command('zincrby', value, amount, _to_index=[value], _to_deindex=[])
+
+    @staticmethod
+    def coerce_zadd_args(*args, **kwargs):
+        """
+        Take arguments attended by a zadd call, named or not, and return a flat list
+        that can be used.
+        A callback can be called with all "values" (as *args) if defined as the
+        `values_callback` named argument. Real values will then be the result of
+        this callback.
+        """
+        values_callback = kwargs.pop('values_callback', None)
+
+        pieces = []
+        if args:
+            if len(args) % 2 != 0:
+                raise RedisError("ZADD requires an equal number of "
+                                 "values and scores")
+            pieces.extend(args)
+
+        for pair in kwargs.iteritems():
+            pieces.append(pair[1])
+            pieces.append(pair[0])
+
+        values = pieces[1::2]
+        if values_callback:
+            values = values_callback(*values)
+
+        scores = pieces[0::2]
+
+        pieces = []
+        for z in izip(scores, values):
+            pieces.extend(z)
+
+        return pieces
 
 
 class SetField(MultiValuesField):

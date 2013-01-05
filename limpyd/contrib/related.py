@@ -2,10 +2,10 @@
 
 import re
 from copy import copy
-from redis.exceptions import RedisError
 
 from limpyd import model, fields
 from limpyd.exceptions import *
+from limpyd.contrib.collection import ExtendedCollectionManager
 
 # used to validate a related_name
 re_identifier = re.compile(r"\W")
@@ -116,7 +116,7 @@ class RelatedModel(model.RedisModel):
             related_field = getattr(related_model, '_redis_attr_%s' % field_name)
 
             # add the collection
-            collection = RelatedCollection(self, related_field)
+            collection = related_field.related_collection_class(self, related_field)
             setattr(self, related_field.related_name, collection)
             self.related_collections.append(related_field.related_name)
 
@@ -194,18 +194,20 @@ class RelatedFieldMetaclass(fields.MetaRedisProxy):
         return it
 
 
-class RelatedFieldMixin(fields.RedisField):
+class RelatedFieldMixin(object):
     """
     Base mixin for all fields holding related instances.
     This mixin provides:
     - force indexable to True
-    - a "from_python" method that can translate RedisModel instances in their pk
-      (useful to pass object insteand of "object._pk" when adding/removing a FK)
-    All commands that may receive objects as arguments must call This
-    "from_python" method. To do this automatically, simple add command names
-    that accept only one value in "_commands_with_single_value_from_python" and
-    ones that accept many values (without any other arguments) in
-    "_commands_with_many_values_from_python" (see RelatedFieldMetaclass)
+    - a "from_python" method that can translate a RedisModel instance, or a
+      FK field in its pk (useful to pass object instead of "object._pk" when
+      adding/removing a FK)
+      All commands that may receive objects as arguments must call this
+      "from_python" method (or "from_python_many" if many values to convert).
+      To do this automatically, simply add command names that accept only one
+      value in "_commands_with_single_value_from_python" and ones that accept
+      many values (without any other arguments) in
+      "_commands_with_many_values_from_python" (see RelatedFieldMetaclass)
     - management of related parameters: "to" and "related_name"
     """
     __metaclass__ = RelatedFieldMetaclass
@@ -215,6 +217,9 @@ class RelatedFieldMixin(fields.RedisField):
 
     _commands_with_single_value_from_python = []
     _commands_with_many_values_from_python = []
+
+    collection_manager = ExtendedCollectionManager
+    related_collection_class = RelatedCollection
 
     def __init__(self, to, *args, **kwargs):
         """
@@ -348,17 +353,23 @@ class RelatedFieldMixin(fields.RedisField):
 
         return related_name.lower()
 
-    def from_python(self, values):
+    def from_python(self, value):
         """
-        Provide the ability to pass RedisModel instances as values. They are
-        translated to their own pk.
+        Provide the ability to pass a RedisModel instances or a FK field as
+        value instead of passing the PK. The value will then be translated in
+        the real PK.
         """
-        result = []
-        for value in values:
-            if isinstance(value, model.RedisModel):
-                value = value._pk
-            result.append(value)
-        return result
+        if isinstance(value, model.RedisModel):
+            value = value._pk
+        elif isinstance(value, SimpleValueRelatedFieldMixin):
+            value = value.proxy_get()
+        return value
+
+    def from_python_many(self, *values):
+        """
+        Apply the from_python to each values and return the final list
+        """
+        return map(self.from_python, values)
 
     @classmethod
     def _make_command_method(cls, command_name, many=False):
@@ -370,13 +381,13 @@ class RelatedFieldMixin(fields.RedisField):
         """
         def func(self, *args, **kwargs):
             if many:
-                args = self.from_python(args)
+                args = self.from_python_many(*args)
             else:
                 if 'value' in kwargs:
-                    kwargs['value'] = self.from_python([kwargs['value']])[0]
+                    kwargs['value'] = self.from_python(kwargs['value'])
                 else:
                     args = list(args)
-                    args[0] = self.from_python([args[0]])[0]
+                    args[0] = self.from_python(args[0])
 
             # call the super method, with real pk
             sup_method = getattr(super(cls, self), command_name)
@@ -384,43 +395,118 @@ class RelatedFieldMixin(fields.RedisField):
         return func
 
 
-class FKStringField(fields.StringField, RelatedFieldMixin):
+class SimpleValueRelatedFieldMixin(RelatedFieldMixin):
+    """
+    Mixin for all related fields storing one unique value.
+    Add a instance method to get the related object.
+    Example:
+
+        class Person(RelatedModel):
+            name = PKField()
+
+        class Group(RelatedModel):
+            name = PKField()
+            owner = FKStringField(Person, related_name='owned_groups')
+
+        person = Person(name='person')
+        group = Group(name='group', owner=person)
+
+        # returns the owner's pk
+        group.owner.get()
+
+        # return the full person instance
+        group.owner.instance()
+
+    """
+    def instance(self, skip_exist_test=False):
+        """
+        Returns the instance of the related object linked by the field.
+        """
+        model = self.database._models[self.related_to]
+        meth = model.lazy_connect if skip_exist_test else model
+        return meth(self.proxy_get())
+
+
+class FKStringField(SimpleValueRelatedFieldMixin, fields.StringField):
     """ Related field based on a StringField, acting as a Foreign Key """
     _commands_with_single_value_from_python = ['set', 'setnx', 'getset', ]
 
 
-class FKHashableField(fields.HashableField, RelatedFieldMixin):
+class FKHashableField(SimpleValueRelatedFieldMixin, fields.HashableField):
     """ Related field based on a HashableField, acting as a Foreign Key """
     _commands_with_single_value_from_python = ['hset', 'hsetnx', ]
 
 
-class M2MSetField(fields.SetField, RelatedFieldMixin):
+class MultiValuesRelatedFieldMixin(RelatedFieldMixin):
+    """
+    Mixin for all related fields based on MultiValuesField.
+    Add a __call__ method creating a collection to use the field the same way
+    we can use the RelatedCollection on the other side.
+    Example showing both sides:
+
+        class Person(RelatedModel):
+            name = PKField()
+
+        class Group(RelatedModel):
+            name = PKField()
+            members = M2MSetField(Person, related_name='membership')
+
+        person1 = Person(name='person1')
+        person2 = Person(name='person2')
+        group1 = Group(name='group1')
+        group2 = Group(name='group2')
+
+        group1.members.sadd(person1, person2)
+        group2.members.sadd(person1, person2)
+
+        # A RelatedColleciton that return a collection with set(['person1', 'person2'])
+        person1.membership()
+        # A M2MSetField call, that return a collection with set(['group1', 'group2'])
+        group1.members()
+
+    """
+
+    def __call__(self, **filters):
+        """
+        When calling (via `()` or via `.collection()`) a MultiValuesRelatedField,
+        we return a collection, filtered with given arguments, the result beeing
+        "intersected" with the members of the current field.
+        """
+        model = self.database._models[self.related_to]
+        collection = self.collection_manager(model)
+        return collection(**filters).intersect(self)
+
+    # calling obj.field.collection() is the same as calling obj.field()
+    collection = __call__
+
+
+class M2MSetField(MultiValuesRelatedFieldMixin, fields.SetField):
     """ Related field based on a SetField, acting as a M2M """
     _commands_with_single_value_from_python = ['sismember', ]
     _commands_with_many_values_from_python = ['sadd', 'srem', ]
     _related_remover = 'srem'
 
 
-class M2MListField(fields.ListField, RelatedFieldMixin):
+class M2MListField(MultiValuesRelatedFieldMixin, fields.ListField):
     """ Related field based on a ListField, acting as a sorted M2M """
     _commands_with_single_value_from_python = ['lpushx', 'rpushx', ]
     _commands_with_many_values_from_python = ['lpush', 'rpush', ]
     _related_remover = 'lrem'
 
     def linsert(self, where, refvalue, value):
-        value = self.from_python([value])[0]
+        value = self.from_python(value)
         return super(M2MListField, self).linsert(where, refvalue, value)
 
     def lrem(self, count, value):
-        value = self.from_python([value])[0]
+        value = self.from_python(value)
         return super(M2MListField, self).lrem(count, value)
 
     def lset(self, index, value):
-        value = self.from_python([value])[0]
+        value = self.from_python(value)
         return super(M2MListField, self).lset(index, value)
 
 
-class M2MSortedSetField(fields.SortedSetField, RelatedFieldMixin):
+class M2MSortedSetField(MultiValuesRelatedFieldMixin, fields.SortedSetField):
     """ Related field based on a SortesSetField, acting as a M2M with scores """
     _commands_with_single_value_from_python = ['zscore', 'zrank', 'zrevrank']
     _commands_with_many_values_from_python = ['zrem']
@@ -433,25 +519,11 @@ class M2MSortedSetField(fields.SortedSetField, RelatedFieldMixin):
         We pass the parsed args/kwargs as args in the super call, to avoid
         doing the same calculation on kwargs one more time.
         """
-        pieces = []
-        if args:
-            if len(args) % 2 != 0:
-                raise RedisError("ZADD requires an equal number of "
-                                 "values and scores")
-            pieces.extend(args)
-        for pair in kwargs.iteritems():
-            pieces.append(pair[1])
-            pieces.append(pair[0])
-
-        values = self.from_python(pieces[1::2])
-        scores = pieces[0::2]
-
-        pieces = []
-        for z in zip(scores, values):
-            pieces.extend(z)
-
+        if 'values_callback' not in kwargs:
+            kwargs['values_callback'] = self.from_python_many
+        pieces = fields.SortedSetField.coerce_zadd_args(*args, **kwargs)
         return super(M2MSortedSetField, self).zadd(*pieces)
 
     def zincrby(self, value, amount=1):
-        value = self.from_python[value]
-        return super(M2MSortedSetField, self).zincrby(value, amout)
+        value = self.from_python(value)
+        return super(M2MSortedSetField, self).zincrby(value, amount)
