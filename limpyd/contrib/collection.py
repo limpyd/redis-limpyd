@@ -699,7 +699,7 @@ class ExtendedCollectionManager(CollectionManager):
 
         # prepare the collection
         self.stored_key = key
-        self.intersect(_StoredCollection(key))
+        self.intersect(_StoredCollection(self.cls.get_connection(), key))
         self.sort(by='nosort')
 
         # count the number of results to manage empty result (to not behave like
@@ -768,8 +768,16 @@ class _StoredCollection(object):
     """
     Simple object to store the key of a stored collection, to be used in
     ExtendedCollectionManager based on a stored collection.
-    The stored key is a list, so it's managed as a ListField (but we only need)
-    its key)
+    The stored key is a list, so it's managed as a ListField (but we only need
+    its key, and lmembers if no scripting)
     """
-    def __init__(self, key):
+    def __init__(self, connection, key):
+        self.connection = connection
         self.key = key
+
+    def lmembers(self):
+        """
+        Return the list of all members of the list, used by _list_to_set if
+        no scripting
+        """
+        return self.connection.lrange(self.key, 0, -1)
