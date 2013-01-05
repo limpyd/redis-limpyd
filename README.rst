@@ -2,19 +2,15 @@
 Limpyd
 ======
 
-Idea is to provide an **easy** way to store objects in `Redis <http://redis.io/>`_, 
-**without losing the power and the control of the Redis API**, in a *limpid* way. So, scope is to 
-provide just as abstraction as needed.
+`Limpyd` provides an **easy** way to store objects in `Redis <http://redis.io/>`_, **without losing the power and the control of the Redis API**, in a *limpid* way, with just as abstraction as needed.
 
-For example:
+Featuring:
 
 - Don't care about keys, `limpyd` do it for you
 - Retrieve objects from some of their attributes
 - Retrieve objects collection
 - CRUD abstraction
 - Keep the power of all the `Redis data types <http://redis.io/topics/data-types>`_ in your own code
-
-**This is full R&D, so *do not* try to use it in production right now!**
 
 Example of configuration::
 
@@ -59,3 +55,23 @@ So you can use it like this::
     True
     >>> tricycle.hmget('color')
     ['yellow']
+
+
+Documentation
+=============
+
+See https://redis-limpyd.readthedocs.org/ for a full documentation.
+
+
+Maintainers
+===========
+
+* `Stéphane «Twidi» Angel <https://github.com/twidi/>`_
+* `Yohan Boniface <https://github.com/yohanboniface/>`_
+
+
+Extentions
+==========
+
+* A bundle of great extensions: `Limpyd-extensions <https://github.com/twidi/redis-limpyd-extensions>`_
+* A queue/task/job manager: `Limpyd-jobs <https://github.com/twidi/redis-limpyd-jobs>`_
