@@ -98,6 +98,7 @@ class RelatedModel(model.RedisModel):
     """
 
     abstract = True
+    collection_manager = ExtendedCollectionManager
 
     def __init__(self, *args, **kwargs):
         """
@@ -218,7 +219,6 @@ class RelatedFieldMixin(object):
     _commands_with_single_value_from_python = []
     _commands_with_many_values_from_python = []
 
-    collection_manager = ExtendedCollectionManager
     related_collection_class = RelatedCollection
 
     def __init__(self, to, *args, **kwargs):
@@ -473,7 +473,7 @@ class MultiValuesRelatedFieldMixin(RelatedFieldMixin):
         "intersected" with the members of the current field.
         """
         model = self.database._models[self.related_to]
-        collection = self.collection_manager(model)
+        collection = model.collection_manager(model)
         return collection(**filters).intersect(self)
 
     # calling obj.field.collection() is the same as calling obj.field()
