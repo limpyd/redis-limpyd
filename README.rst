@@ -477,17 +477,6 @@ It's up to you to associate names and values, but you can find an example below:
     >>> example.hmget_dict('foo', 'bar')
     {'bar': 'BAR', 'foo': 'FOO'}
 
-You can pass arguments to `hmget` in two ways:
-
-- as a list (as the `hmget` call in `redis-py`_)::
-
-    >>> example.hmget(['foo', 'bar'])
-
-- as simple arguments (as calls of other methods in `redis-py`_)::
-
-    >>> example.hmget('foo', 'bar')
-
-
 hmset
 """""
 
@@ -501,17 +490,6 @@ Example (with same model as for hmget_)::
     True
     >>> example.hmget('foo', 'bar')
     ['FOO', 'BAR']
-
-You can pass arguments to `hmset` in two ways:
-
-- as a dictionary (as the `hmset` call in `redis-py`_)::
-
-    >>> example.hmset({'foo': 'FOO', 'bar': 'BAR'})
-
-- as named arguments (as calls of other methods in `redis-py`_)::
-
-    >>> example.hmset(foo='FOO', bar='BAR')
-
 
 
 SetField

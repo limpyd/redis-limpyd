@@ -423,7 +423,8 @@ class SimpleValueRelatedFieldMixin(RelatedFieldMixin):
         Returns the instance of the related object linked by the field.
         """
         model = self.database._models[self.related_to]
-        return model(self.proxy_get(), _skip_exist_test=skip_exist_test)
+        meth = model.lazy_connect if skip_exist_test else model
+        return meth(self.proxy_get())
 
 
 class FKStringField(SimpleValueRelatedFieldMixin, fields.StringField):

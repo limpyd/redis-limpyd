@@ -38,6 +38,8 @@ class MetaRedisProxy(type):
         """
         Return False if the given class inherits from RedisProxyCommand, which
         indicates that it can handle its own sets of available commands.
+        If not a subclass of RedisProxyCommand, (for example "object", to create
+        a simple mixin), returns False.
         """
         try:
             return issubclass(klass, RedisProxyCommand)
@@ -104,20 +106,18 @@ class RedisProxyCommand(object):
 
     def _call_command(self, name, *args, **kwargs):
         """
-        Check if the command to be executed is a modifier, to flag the object as
-        being in an update. Then call _traverse_command.
+        Check if the command to be executed is a modifier, to connect the object.
+        Then call _traverse_command.
         """
         obj = getattr(self, '_instance', self)  # _instance if a field, self if an instance
-        if name in self.available_modifiers:
-            obj._update_running = True
-        try:
-            result = self._traverse_command(name, *args, **kwargs)
-        except:
-            obj._update_running = False
-            raise  # raise the original exception
-        else:
-            obj._update_running = False
-            return result
+
+        # Bhe object may not be already connected, so if we want to update a
+        # field, connect it before.
+        # If the object as no PK yet, let the object create itself
+        if name in self.available_modifiers and obj._pk and not obj.connected:
+            obj.connect()
+
+        return self._traverse_command(name, *args, **kwargs)
 
     @memoize_command()
     def _traverse_command(self, name, *args, **kwargs):

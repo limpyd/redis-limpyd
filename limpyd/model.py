@@ -135,8 +135,8 @@ class RedisModel(RedisProxyCommand):
         self.cacheable = self.__class__.cacheable
         self.lockable = self.__class__.lockable
 
-        self._update_running = False
-        self._exist_test_skipped = False
+        # set to True when the instance's PK will be tested for existence in redis
+        self._connected = False
 
         # --- Meta stuff
         # Put back the fields with the original names
@@ -159,9 +159,6 @@ class RedisModel(RedisProxyCommand):
 
         # Prepare command internal caching
         self.init_cache()
-
-        # Get specific params and remove them from kwargs
-        params = dict((key, kwargs.pop(key, None)) for key in ('_skip_exist_test',))
 
         # Validate arguments
         if len(args) > 0 and len(kwargs) > 0:
@@ -206,12 +203,42 @@ class RedisModel(RedisProxyCommand):
 
         # --- Instanciate from DB
         if len(args) == 1:
-            value = args[0]
-            if params['_skip_exist_test'] or self.exists(pk=value):
-                self._pk = self.pk.normalize(value)
-                self._exist_test_skipped = bool(params['_skip_exist_test'])
-            else:
-                raise ValueError("No %s found with pk %s" % (self.__class__.__name__, value))
+            self._pk = self.pk.normalize(args[0])
+            self.connect()
+
+    def connect(self):
+        """
+        Connect the instance to redis by checking the existence of its primary
+        key. Do nothing if already connected.
+        """
+        if self.connected:
+            return
+        pk = self._pk
+        if self.exists(pk=pk):
+            self._connected = True
+        else:
+            self._pk = None
+            self._connected = False
+            raise ValueError("No %s found with pk %s" % (self.__class__.__name__, pk))
+
+    @classmethod
+    def lazy_connect(cls, pk):
+        """
+        Create an object, setting its primary key without testing it. So the
+        instance is not connected
+        """
+        instance = cls()
+        instance._pk = instance.pk.normalize(pk)
+        instance._connected = False
+        return instance
+
+    @property
+    def connected(self):
+        """
+        A property to check if the model is connected to redis (ie if it as a
+        primary key checked for existence)
+        """
+        return self._connected
 
     @classmethod
     def use_database(cls, database):
@@ -248,14 +275,13 @@ class RedisModel(RedisProxyCommand):
         """
         if not hasattr(self, '_pk'):
             raise DoesNotExist("The current object doesn't exists anymore")
+
         if not self._pk:
             self.pk.set(None)
+            self._connected = True
             # Default must be set only at first initialization
             self._set_defaults()
-        elif self._update_running and self._exist_test_skipped:
-            if not self.pk.exists():
-                raise ValueError("No %s found with pk %s" % (self.__class__.__name__, self._pk))
-            self._exist_test_skipped = False
+
         return self._pk
 
     def _set_defaults(self):
@@ -377,26 +403,16 @@ class RedisModel(RedisProxyCommand):
             "hash",
         )
 
-    def hmget(self, *keys):
+    def hmget(self, *args):
         """
         This command on the model allow getting many hashable fields with only
         one redis call. You should pass hash name to retrieve as arguments.
         Try to get values from local cache if possible.
         """
-
-        # manage arguments: redis-py waits for a list, but it's not concistent
-        # with the rest of the api, so we accept a list as a single argument,
-        # or a list as *keys
-        if len(keys) == 1 and isinstance(keys[0], (list, tuple)):
-            keys = keys[0]
-
-        # use all hashable fields if no arguments
-        elif len(keys) == 0:
-            keys = self._hashable_fields
-
-        # check that each field is a HashableField
+        if len(args) == 0:
+            args = self._hashable_fields
         else:
-            if not any(key in self._hashable_fields for key in keys):
+            if not any(arg in self._hashable_fields for arg in args):
                 raise ValueError("Only hashable fields can be used here.")
 
         # get values from cache if we can
@@ -406,7 +422,7 @@ class RedisModel(RedisProxyCommand):
         if self.cacheable:
             # we do the cache stuff only if the object is cacheable, to avoid
             # useless computations if not
-            for field_name in keys:
+            for field_name in args:
                 field = getattr(self, field_name)
                 if field.cacheable and field.has_cache():
                     field_cache = field.get_cache()
@@ -418,7 +434,7 @@ class RedisModel(RedisProxyCommand):
                 to_retrieve.append(field_name)
         else:
             # object not cacheable, retrieve all fields
-            to_retrieve = keys
+            to_retrieve = args
 
         retrieved_dict = {}
         if to_retrieve:
@@ -439,7 +455,7 @@ class RedisModel(RedisProxyCommand):
         if cached:
             # we have some fields cached, return the values in the right order
             retrieved = []
-            for field_name in keys:
+            for field_name in args:
                 if field_name in cached:
                     retrieved.append(cached[field_name])
                 else:
@@ -447,24 +463,14 @@ class RedisModel(RedisProxyCommand):
 
         return retrieved
 
-    def hmset(self, mapping=None, **kwargs):
+    def hmset(self, **kwargs):
         """
         This command on the model allow setting many hashable fields with only
         one redis call. You should pass kwargs with field names as keys, with
         their value.
         Index and cache are managed for indexable and/or cacheable fields.
         """
-
-        # manage arguments: redis-py waits for a dict, but it's not concistent
-        # with the rest of the api, so we accept a dict as a single argument,
-        # or a dict as **kwargs
-        if kwargs:
-            if mapping:
-                raise ValueError('hmset accepts either a dict as unique '
-                                 'argument (mapping), OR as **kwargs, not both')
-            mapping = kwargs
-
-        if not any(mapping in self._hashable_fields for mapping in mapping.keys()):
+        if not any(kwarg in self._hashable_fields for kwarg in kwargs.keys()):
             raise ValueError("Only hashable fields can be used here.")
 
         indexed = []
@@ -473,7 +479,7 @@ class RedisModel(RedisProxyCommand):
         try:
 
             # Set indexes for indexable fields.
-            for field_name, value in mapping.items():
+            for field_name, value in kwargs.items():
                 field = getattr(self, field_name)
                 if field.indexable:
                     field.deindex()
@@ -481,11 +487,11 @@ class RedisModel(RedisProxyCommand):
                     indexed.append((field, value))
 
             # Call redis (waits for a dict)
-            result = self._call_command('hmset', mapping)
+            result = self._call_command('hmset', kwargs)
 
             # Clear the cache for each cacheable field
             if self.cacheable:
-                for field_name, value in mapping.items():
+                for field_name, value in kwargs.items():
                     field = getattr(self, field_name)
                     if not field.cacheable or not field.has_cache():
                         continue

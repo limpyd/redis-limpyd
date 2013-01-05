@@ -197,8 +197,8 @@ class CollectionManager(object):
         """
         # we want instances, so create an object for each pk, without
         # checking for pk existence if asked
-        return [self.cls(pk, _skip_exist_test=self._instances_skip_exist_test)
-                                                           for pk in pks]
+        meth = self.cls.lazy_connect if self._instances_skip_exist_test else self.cls
+        return [meth(pk) for pk in pks]
 
     def _prepare_results(self, results):
         """
