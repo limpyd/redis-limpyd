@@ -84,11 +84,14 @@ class MetaRedisModel(MetaRedisProxy):
 
         # Loop on new fields to prepare them
         for field in own_fields:
+            # remove the original field from the class
+            if field.name in attrs:
+                delattr(it, field.name)
+            # and attach it to the model with its prefixed name
             field._attach_to_model(it)
             _fields.append(field.name)
             setattr(it, "_redis_attr_%s" % field.name, field)
-            if field.name in attrs:
-                delattr(it, field.name)
+            # save HashableFields in a special list
             if isinstance(field, HashableField):
                 _hashable_fields.append(field.name)
 
@@ -145,9 +148,6 @@ class RedisModel(RedisProxyCommand):
             # Copy it, to avoid sharing fields between model instances
             newattr = copy(attr)
             newattr._attach_to_instance(self)
-            # Force field.cacheable and lockable to False if it's False for the model
-            newattr.cacheable = newattr.cacheable and self.cacheable
-            newattr.lockable = newattr.lockable and self.lockable
             setattr(self, attr_name, newattr)
 
         # The `pk` field always exists, even if the real pk has another name
