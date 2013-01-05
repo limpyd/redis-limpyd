@@ -35,12 +35,16 @@ class MetaRedisProxy(type):
     def __new__(mcs, name, base, dct):
         it = super(MetaRedisProxy, mcs).__new__(mcs, name, base, dct)
 
-        for attr in ('available_getters', 'available_full_modifiers', 'available_partial_modifiers'):
-            if not hasattr(it, attr):
-                setattr(it, attr, ())
+        # make sure we have a set for each list of type of command
+        for attr in ('available_getters', 'no_cache_getters', 'available_full_modifiers', 'available_partial_modifiers'):
+            setattr(it, attr, set(getattr(it, attr, ())))
 
-        it.available_modifiers = tuple(set(it.available_full_modifiers + it.available_partial_modifiers))
-        it.available_commands = tuple(set(tuple(it.available_getters) + tuple(it.available_modifiers)))
+        # add simplest set: getters, modidiers, all
+        it.available_getters.update(it.no_cache_getters)
+        it.available_modifiers = it.available_full_modifiers.union(it.available_partial_modifiers)
+        it.available_commands = it.available_getters.union(it.available_modifiers)
+
+        # create a method for each command
         for command_name in it.available_commands:
             if not hasattr(it, command_name):
                 setattr(it, command_name, it._make_command_method(command_name))
@@ -51,9 +55,16 @@ class RedisProxyCommand(object):
 
     __metaclass__ = MetaRedisProxy
 
-    available_getters = ()
-    available_full_modifiers = ()
-    available_partial_modifiers = ()
+    # Commands allowed for an object, by type, each attribute is a list/typle.
+    # If an attribute is not defined, the one from its parent class is used.
+    # Here the different attributes:
+    # - available_getters: commands that get data from redis
+    # - no_cache_getters: idem as getters but result will never be locally cached
+    # - available_full_modifiers: commands that set data in redis, for which we
+    # know the final content of the field
+    # - available_partial_modifiers: idem as full_modifiers, but we don't know
+    # the final content of the field without
+    # getting it after the call
 
     @classmethod
     def _make_command_method(cls, command_name):
@@ -807,7 +818,6 @@ class PKField(RedisField):
 
     available_getters = ('get',)
     available_full_modifiers = ('set',)
-    available_partial_modifiers = ()
 
     name = 'pk'  # Default name ok the pk, can be changed by declaring a new PKField
     indexable = False  # Not an `indexable` field...

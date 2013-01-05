@@ -117,6 +117,9 @@ class RedisModel(RedisProxyCommand):
     abstract = True
     DoesNotExist = DoesNotExist
 
+    no_cache_getters = ('hmget', )
+    available_full_modifiers = ('hmset', )
+
     def __init__(self, *args, **kwargs):
         """
         Init or retrieve an object storage in Redis.
@@ -214,15 +217,17 @@ class RedisModel(RedisProxyCommand):
     def init_cache(self):
         """
         Call it to init or clear the command cache.
+        the "__self__" if used to store cache for the model, other keys are for
+        its fields.
         """
         if self.cacheable:
-            self._cache = {}
+            self._cache = {'__self__': {}}
 
     def get_cache(self):
         """
         Return the local cache dict.
         """
-        return self._cache[self.name]
+        return self._cache['__self__']
 
     def get_pk(self):
         """
@@ -386,13 +391,24 @@ class RedisModel(RedisProxyCommand):
             # object not cacheable, retrieve all fields
             to_retrieve = args
 
+        retrieved_dict = {}
         if to_retrieve:
             # call redis if some keys are not cached
-            retrieved = self.connection.hmget(self.key, to_retrieve)
+            retrieved = self._traverse_command('hmget', to_retrieve)
+            retrieved_dict = dict(zip(to_retrieve, retrieved))
+
+            if self.cacheable:
+                for field_name, value in retrieved_dict.iteritems():
+                    # set cache for the field with new retrieved value
+                    field = getattr(self, field_name)
+                    if not field.has_cache():
+                        field.init_cache()
+                    cache = field.get_cache()
+                    haxh = make_cache_key('hget', field_name)
+                    cache[haxh] = retrieved_dict[field_name]
 
         if cached:
             # we have some fields cached, return the values in the right order
-            retrieved_dict = dict(zip(to_retrieve, retrieved))
             retrieved = []
             for field_name in args:
                 if field_name in cached:
@@ -426,7 +442,7 @@ class RedisModel(RedisProxyCommand):
                     indexed.append((field, value))
 
             # Call redis (from kwargs to one dict arg)
-            result = self.connection.hmset(self.key, kwargs)
+            result = self._traverse_command('hmset', kwargs)
 
             # Clear the cache for each cacheable field
             if self.cacheable:
@@ -438,14 +454,14 @@ class RedisModel(RedisProxyCommand):
                     field_cache.clear()
             return result
 
-        except Exception, e:
+        except:
             # We revert indexes previously set if we have an exception, then
             # really raise the error
             for field, new_value in indexed:
                 old_value = field.hget()
                 field.deindex_value(new_value)
                 field.hset(old_value)
-            raise e
+            raise
 
     def delete(self):
         """

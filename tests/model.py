@@ -911,9 +911,7 @@ class HMTest(LimpydBaseTest):
         self.assertEqual(set(self.HMTestModel.collection(bar='BAR')), set())
 
     def test_hmget_should_get_values_from_cache(self):
-        obj = self.HMTestModel()
-        # set some values
-        obj.hmset(foo='FOO', bar='BAR')
+        obj = self.HMTestModel(foo='FOO', bar='BAR')
         # fill the cache
         obj.foo.hget()
 
@@ -930,6 +928,21 @@ class HMTest(LimpydBaseTest):
         hits_after = self.connection.info()['keyspace_hits']
         # hmget should have hit redis to get bar
         self.assertEqual(hits_before + 1, hits_after)
+
+    def test_hmget_should_cache_retrieved_values_for_hget(self):
+        obj = self.HMTestModel(foo='FOO', bar='BAR', baz='BAZ')
+        obj.hmget('foo', 'bar')
+        with self.assertNumCommands(0):
+            foo = obj.foo.hget()
+            self.assertEqual(foo, 'FOO')
+
+    def test_hmget_result_is_not_cached_itself(self):
+        obj = self.HMTestModel(foo='FOO', bar='BAR')
+        obj.hmget()
+        obj.foo.hset('FOO2')
+        with self.assertNumCommands(1):
+            data = obj.hmget()
+            self.assertEqual(data, ['FOO2', 'BAR', None])
 
 
 class ConnectionTest(LimpydBaseTest):
