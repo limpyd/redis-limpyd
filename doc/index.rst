@@ -1,12 +1,16 @@
-======
-Limpyd
-======
+.. redis-limpyd documentation master file, created by
+   sphinx-quickstart on Sat Jan  5 11:56:18 2013.
+   You can adapt this file completely to your liking, but it should at least
+   contain the root `toctree` directive.
 
-Idea is to provide an **easy** way to store objects in `Redis <http://redis.io/>`_, 
+Welcome to redis-limpyd's documentation!
+========================================
+
+Idea is to provide an **easy** way to store objects in Redis_, 
 **without losing the power and the control of the Redis API**, in a *limpid* way. So, scope is to 
 provide just as abstraction as needed.
 
-For example:
+Featuring:
 
 - Don't care about keys, `limpyd` do it for you
 - Retrieve objects from some of their attributes
@@ -14,7 +18,8 @@ For example:
 - CRUD abstraction
 - Keep the power of all the `Redis data types <http://redis.io/topics/data-types>`_ in your own code
 
-**This is full R&D, so *do not* try to use it in production right now!**
+Show me some code!
+------------------
 
 Example of configuration::
 
@@ -59,3 +64,29 @@ So you can use it like this::
     True
     >>> tricycle.hmget('color')
     ['yellow']
+
+
+Contents
+========
+
+.. toctree::
+   :maxdepth: 6
+
+   about
+   database
+   models
+   fields
+   collections
+   cache
+   contrib
+
+
+Indices and tables
+==================
+
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`
+
+
+.. _Redis: http://redis.io
