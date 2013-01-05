@@ -137,8 +137,6 @@ class RedisModel(RedisProxyCommand):
 
         # set to True when the instance's PK will be tested for existence in redis
         self._connected = False
-        # set to True when trying to update a field, to connect if not connected
-        self._update_running = False
 
         # --- Meta stuff
         # Put back the fields with the original names
@@ -205,12 +203,17 @@ class RedisModel(RedisProxyCommand):
 
         # --- Instanciate from DB
         if len(args) == 1:
-            value = args[0]
-            if self.exists(pk=value):
-                self._pk = self.pk.normalize(value)
-                self._connected = True
-            else:
-                raise ValueError("No %s found with pk %s" % (self.__class__.__name__, value))
+            self._pk = self.pk.normalize(args[0])
+            self.connect()
+
+    def connect(self):
+        pk = self._pk
+        if self.exists(pk=pk):
+            self._connected = True
+        else:
+            self._pk = None
+            self._connected = False
+            raise ValueError("No %s found with pk %s" % (self.__class__.__name__, pk))
 
     @classmethod
     def lazy_connect(cls, pk):
@@ -266,15 +269,13 @@ class RedisModel(RedisProxyCommand):
         """
         if not hasattr(self, '_pk'):
             raise DoesNotExist("The current object doesn't exists anymore")
+
         if not self._pk:
             self.pk.set(None)
             self._connected = True
             # Default must be set only at first initialization
             self._set_defaults()
-        elif self._update_running and not self.connected:
-            if not self.pk.exists():
-                raise ValueError("No %s found with pk %s" % (self.__class__.__name__, self._pk))
-            self._connected = True
+
         return self._pk
 
     def _set_defaults(self):
