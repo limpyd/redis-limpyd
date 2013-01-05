@@ -29,7 +29,7 @@ class MetaRedisProxy(type):
     This metaclass create the class normally, then takes a list of redis
     commands found in the "available_*" class attributes, and for each one
     create the corresponding method if it not exists yet. Created methods simply
-    call _traverse_command.
+    call _call_command.
     """
 
     def __new__(mcs, name, base, dct):
@@ -48,6 +48,7 @@ class MetaRedisProxy(type):
         for command_name in it.available_commands:
             if not hasattr(it, command_name):
                 setattr(it, command_name, it._make_command_method(command_name))
+
         return it
 
 
@@ -58,23 +59,38 @@ class RedisProxyCommand(object):
     # Commands allowed for an object, by type, each attribute is a list/typle.
     # If an attribute is not defined, the one from its parent class is used.
     # Here the different attributes:
-    # - available_getters: commands that get data from redis
-    # - no_cache_getters: idem as getters but result will never be locally cached
-    # - available_full_modifiers: commands that set data in redis, for which we
-    # know the final content of the field
-    # - available_partial_modifiers: idem as full_modifiers, but we don't know
-    # the final content of the field without
-    # getting it after the call
+    #  - available_getters:  commands that get data from redis
+    #  - no_cache_getters: idem as getters but result will never be locally cached
+    #  - available_full_modifiers: commands that set data in redis, for which we
+    #                              know the final content of the field
+    #  - available_partial_modifiers: idem as full_modifiers, but we don't know
+    #                                 the final content of the field without
+    #                                 getting it after the call
 
     @classmethod
     def _make_command_method(cls, command_name):
         """
-        Return a function which call _traverse_command for the given name.
+        Return a function which call _call_command for the given name.
         Used to bind redis commands to our own calls
         """
         def func(self, *args, **kwargs):
-            return self._traverse_command(command_name, *args, **kwargs)
+            return self._call_command(command_name, *args, **kwargs)
         return func
+
+    def _call_command(self, name, *args, **kwargs):
+        """
+        Check if the command to be executed is a modifier, to connect the object.
+        Then call _traverse_command.
+        """
+        obj = getattr(self, '_instance', self)  # _instance if a field, self if an instance
+
+        # Bhe object may not be already connected, so if we want to update a
+        # field, connect it before.
+        # If the object as no PK yet, let the object create itself
+        if name in self.available_modifiers and obj._pk and not obj.connected:
+            obj.connect()
+
+        return self._traverse_command(name, *args, **kwargs)
 
     @memoize_command()
     def _traverse_command(self, name, *args, **kwargs):
@@ -304,7 +320,7 @@ class RedisField(RedisProxyCommand):
         """
         Delete the field from redis.
         """
-        return self._traverse_command('delete', _to_index=[])
+        return self._call_command('delete', _to_index=[])
 
     def post_command(self, sender, name, result, args, kwargs):
         """
@@ -495,7 +511,15 @@ class RedisField(RedisProxyCommand):
         )
 
 
-class StringField(RedisField):
+class SingleValueField(RedisField):
+    """
+    A simple parent class for StringField, HashableField and PKField, all field
+    types handling a single value.
+    """
+    pass
+
+
+class StringField(SingleValueField):
 
     proxy_getter = "get"
     proxy_setter = "set"
@@ -614,7 +638,7 @@ class SortedSetField(MultiValuesField):
             - in *args, with score followed by the value, 0+ times (to respect
               the redis order)
             - in **kwargs, with value as key and score as value
-        Example: zadd('my-key', 1.1, 'name1', 2.2, 'name2', name3=3.3, name4=4.4)
+        Example: zadd(1.1, 'my-key', 2.2, 'name1', 'name2', name3=3.3, name4=4.4)
         """
         keys = []
         if args:
@@ -624,14 +648,14 @@ class SortedSetField(MultiValuesField):
             keys.extend(args[1::2])
         for pair in kwargs.iteritems():
             keys.append(pair[0])
-        return self._traverse_command('zadd', *args, _to_index=keys, _to_deindex=[], **kwargs)
+        return self._call_command('zadd', *args, _to_index=keys, _to_deindex=[], **kwargs)
 
     def zincrby(self, value, amount=1):
         """
         This command update a score of a given value. But it can be a new value
         of the sorted set, so we index it.
         """
-        return self._traverse_command('zincrby', value, amount, _to_index=[value], _to_deindex=[])
+        return self._call_command('zincrby', value, amount, _to_index=[value], _to_deindex=[])
 
 
 class SetField(MultiValuesField):
@@ -691,7 +715,7 @@ class ListField(MultiValuesField):
         return self.lrange(0, -1)
 
     def linsert(self, where, refvalue, value):
-        return self._traverse_command('linsert', where, refvalue, value, _to_index=[value], _to_deindex=[])
+        return self._call_command('linsert', where, refvalue, value, _to_index=[value], _to_deindex=[])
 
     def _pushx(self, command, *args, **kwargs):
         """
@@ -725,7 +749,7 @@ class ListField(MultiValuesField):
         if not count:
             to_index = []
             to_deindex = [value]
-        return self._traverse_command('lrem', count, value, _to_index=to_index, _to_deindex=to_deindex)
+        return self._call_command('lrem', count, value, _to_index=to_index, _to_deindex=to_deindex)
 
     def lset(self, index, value):
         """
@@ -737,10 +761,10 @@ class ListField(MultiValuesField):
         old_value = self.lindex(index)
         if old_value is not None:
             to_deindex = [old_value]
-        return self._traverse_command('lset', index, value, _to_index=[value], _to_deindex=to_deindex)
+        return self._call_command('lset', index, value, _to_index=[value], _to_deindex=to_deindex)
 
 
-class HashableField(RedisField):
+class HashableField(SingleValueField):
     """Field stored in the parent object hash."""
 
     proxy_getter = "hget"
@@ -772,7 +796,7 @@ class HashableField(RedisField):
         """
         Delete the field from redis, only the hash entry
         """
-        return self._traverse_command('hdel', _to_index=[])
+        return self._call_command('hdel', _to_index=[])
     hdel = delete
 
     def hexists(self):
@@ -803,7 +827,7 @@ class HashableField(RedisField):
         return (args, kwargs, {'_to_index': [value], '_to_deindex': None})
 
 
-class PKField(RedisField):
+class PKField(SingleValueField):
     """
     This type of field is used as a primary key.
     There must be one, and only one instance of this field (or a subclass) on a

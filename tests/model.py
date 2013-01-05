@@ -99,6 +99,39 @@ class InitTest(LimpydBaseTest):
         motorbike = MotorBike()
         self.assertEqual(motorbike._fields, ['pk', 'name', 'wheels', 'passengers', 'power'])
 
+    def test_lazy_connect_should_not_connect_to_redis(self):
+        bike = Bike(name="rosalie", wheels=4)
+        self.assertTrue(bike.connected)
+
+        # get an object with an existing pk
+        with self.assertNumCommands(0):
+            bike2 = Bike.lazy_connect(bike._pk)
+        self.assertFalse(bike2.connected)
+
+        # test a field
+        self.assertEqual(bike2.name.get(), 'rosalie')
+        self.assertFalse(bike2.connected)
+
+        # set a field
+        bike2.name.set('velocipede')
+        self.assertTrue(bike2.connected)
+
+        # test if the value was correctly set
+        with self.assertNumCommands(1):
+            bike3 = Bike(bike._pk)
+        self.assertEqual(bike3.name.get(), 'velocipede')
+
+        # get an object with a non-existing pk
+        with self.assertNumCommands(0):
+            bike4 = Bike.lazy_connect(1000)
+        # set a field: we check pk for the first update if skipped the existence test
+        with self.assertRaises(ValueError):
+            bike4.name.set('monocycle')
+        self.assertFalse(bike4.connected)
+
+        # but we can get a field, no test is done here (simply return None if not exists)
+        self.assertEqual(bike4.name.get(), None)
+
 
 class DatabaseTest(LimpydBaseTest):
 
@@ -330,6 +363,12 @@ class GetTest(LimpydBaseTest):
         boat3 = Boat.get(name="Pen Duick I", power="sail")
         self.assertEqual(boat1.get_pk(), boat3.get_pk())
         self.assertEqual(boat1.name.get(), boat3.name.get())
+
+    def test_should_accepte_a_simple_pk_as_kwargs(self):
+        boat1 = Boat(name="Pen Duick I", length=15.1)
+        with self.assertNumCommands(1):  # only a sismember
+            boat2 = Boat.get(pk=boat1.get_pk())
+        self.assertEqual(boat1.get_pk(), boat2.get_pk())
 
     def test_should_raise_if_more_than_one_match(self):
         boat1 = Boat(name="Pen Duick I")

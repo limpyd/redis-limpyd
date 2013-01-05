@@ -65,6 +65,7 @@ class memoize_command(object):
                 self.init_cache()
             cache = self.get_cache()
             # Warning: Some commands are both setter and modifiers (getset)
+
             command_name = args[0]
             if command_name in self.available_modifiers:
                 # clear cache each time a modifier affects the field

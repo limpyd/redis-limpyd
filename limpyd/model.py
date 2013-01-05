@@ -15,6 +15,7 @@ __all__ = ['RedisModel', ]
 log = getLogger(__name__)
 threadlocal = threading.local()
 
+
 class MetaRedisModel(MetaRedisProxy):
     """
     We make invisible for user that fields were class properties
@@ -115,6 +116,7 @@ class RedisModel(RedisProxyCommand):
     cacheable = True
     lockable = True
     abstract = True
+    collection_manager = CollectionManager
     DoesNotExist = DoesNotExist
 
     no_cache_getters = ('hmget', )
@@ -132,6 +134,9 @@ class RedisModel(RedisProxyCommand):
         """
         self.cacheable = self.__class__.cacheable
         self.lockable = self.__class__.lockable
+
+        # set to True when the instance's PK will be tested for existence in redis
+        self._connected = False
 
         # --- Meta stuff
         # Put back the fields with the original names
@@ -161,7 +166,7 @@ class RedisModel(RedisProxyCommand):
 
         # save name of fields given when creating the instance, to avoid setting
         # them in the `_set_default` method
-        self._init_fields= set()
+        self._init_fields = set()
 
         # --- Instanciate new from kwargs
         if len(kwargs) > 0:
@@ -198,11 +203,42 @@ class RedisModel(RedisProxyCommand):
 
         # --- Instanciate from DB
         if len(args) == 1:
-            value = args[0]
-            if self.exists(pk=value):
-                self._pk = self.pk.normalize(value)
-            else:
-                raise ValueError("No %s found with pk %s" % (self.__class__.__name__, value))
+            self._pk = self.pk.normalize(args[0])
+            self.connect()
+
+    def connect(self):
+        """
+        Connect the instance to redis by checking the existence of its primary
+        key. Do nothing if already connected.
+        """
+        if self.connected:
+            return
+        pk = self._pk
+        if self.exists(pk=pk):
+            self._connected = True
+        else:
+            self._pk = None
+            self._connected = False
+            raise ValueError("No %s found with pk %s" % (self.__class__.__name__, pk))
+
+    @classmethod
+    def lazy_connect(cls, pk):
+        """
+        Create an object, setting its primary key without testing it. So the
+        instance is not connected
+        """
+        instance = cls()
+        instance._pk = instance.pk.normalize(pk)
+        instance._connected = False
+        return instance
+
+    @property
+    def connected(self):
+        """
+        A property to check if the model is connected to redis (ie if it as a
+        primary key checked for existence)
+        """
+        return self._connected
 
     @classmethod
     def use_database(cls, database):
@@ -239,10 +275,13 @@ class RedisModel(RedisProxyCommand):
         """
         if not hasattr(self, '_pk'):
             raise DoesNotExist("The current object doesn't exists anymore")
+
         if not self._pk:
             self.pk.set(None)
+            self._connected = True
             # Default must be set only at first initialization
             self._set_defaults()
+
         return self._pk
 
     def _set_defaults(self):
@@ -259,8 +298,10 @@ class RedisModel(RedisProxyCommand):
         delattr(self, '_init_fields')
 
     @classmethod
-    def collection(cls, **filters):
-        collection = CollectionManager(cls)
+    def collection(cls, manager=None, **filters):
+        if not manager:
+            manager = cls.collection_manager
+        collection = manager(cls)
         return collection(**filters)
 
     @classmethod
@@ -308,13 +349,17 @@ class RedisModel(RedisProxyCommand):
         if len(args) == 1:  # Guess it's a pk
             pk = args[0]
         elif kwargs:
-            result = cls.collection(**kwargs)
-            if len(result) == 0:
-                raise DoesNotExist(u"No object matching filter: %s" % kwargs)
-            elif len(result) > 1:
-                raise ValueError(u"More than one object matching filter: %s" % kwargs)
-            else:
-                pk = result.pop()
+            # special case to check for a simple pk
+            if len(kwargs) == 1 and cls._field_is_pk(kwargs.keys()[0]):
+                pk = kwargs.values()[0]
+            else:  # case with many filters
+                result = cls.collection(**kwargs).sort(by='nosort')
+                if len(result) == 0:
+                    raise DoesNotExist(u"No object matching filter: %s" % kwargs)
+                elif len(result) > 1:
+                    raise ValueError(u"More than one object matching filter: %s" % kwargs)
+                else:
+                    pk = result[0]
         else:
             raise ValueError("Invalid `get` usage with args %s and kwargs %s" % (args, kwargs))
         return cls(pk)
@@ -393,8 +438,8 @@ class RedisModel(RedisProxyCommand):
 
         retrieved_dict = {}
         if to_retrieve:
-            # call redis if some keys are not cached
-            retrieved = self._traverse_command('hmget', to_retrieve)
+            # call redis if some keys are not cached (waits for a list)
+            retrieved = self._call_command('hmget', to_retrieve)
             retrieved_dict = dict(zip(to_retrieve, retrieved))
 
             if self.cacheable:
@@ -441,8 +486,8 @@ class RedisModel(RedisProxyCommand):
                     field.index_value(value)
                     indexed.append((field, value))
 
-            # Call redis (from kwargs to one dict arg)
-            result = self._traverse_command('hmset', kwargs)
+            # Call redis (waits for a dict)
+            result = self._call_command('hmset', kwargs)
 
             # Clear the cache for each cacheable field
             if self.cacheable:
@@ -504,4 +549,3 @@ class RedisModel(RedisProxyCommand):
     @classmethod
     def _is_field_locked(cls, field):
         return field.name in cls._thread_lock_storage()
-
