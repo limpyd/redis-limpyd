@@ -207,6 +207,12 @@ class RedisModel(RedisProxyCommand):
             self.connect()
 
     def connect(self):
+        """
+        Connect the instance to redis by checking the existence of its primary
+        key. Do nothing if already connected.
+        """
+        if self.connected:
+            return
         pk = self._pk
         if self.exists(pk=pk):
             self._connected = True
