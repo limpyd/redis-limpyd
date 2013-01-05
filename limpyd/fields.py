@@ -392,6 +392,9 @@ class RedisField(RedisProxyCommand):
         do something when an instance is set
         """
         self._instance = instance
+        # Force field.cacheable and lockable to False if it's False for the model
+        self.cacheable = self.cacheable and instance.cacheable
+        self.lockable = self.lockable and instance.lockable
 
     def _traverse_command(self, name, *args, **kwargs):
         """

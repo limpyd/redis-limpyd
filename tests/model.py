@@ -132,6 +132,13 @@ class InitTest(LimpydBaseTest):
         # but we can get a field, no test is done here (simply return None if not exists)
         self.assertEqual(bike4.name.get(), None)
 
+    def test_get_field_should_work_with_class_or_instance(self):
+        self.assertEqual(Bike.get_field('name'), Bike._redis_attr_name)
+        self.assertEqual(Bike.get_field('pk'), Bike._redis_attr_pk)
+        bike = Bike()
+        self.assertEqual(bike.get_field('name'), bike.name)
+        self.assertEqual(bike.get_field('pk'), bike.pk)
+
 
 class DatabaseTest(LimpydBaseTest):
 

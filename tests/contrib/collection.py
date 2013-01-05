@@ -336,7 +336,7 @@ class IntersectTest(BaseTest):
         self.assertEqual(self.last_interstore_call['command'], 'zinterstore')
         # check the intersection is done with the sorted set AND the whole
         # collection, because we have no filters
-        self.assertIn(Group._redis_attr_pk.collection_key,
+        self.assertIn(Group.get_field('pk').collection_key,
                       self.last_interstore_call['sets'])
         self.assertEqual(result, ['1', '2'])
 
@@ -348,7 +348,7 @@ class IntersectTest(BaseTest):
         self.assertEqual(self.last_interstore_call['command'], 'zinterstore')
         # check the intersection is not done with the whole collection, but
         # only the sorted set and the set from the filter
-        self.assertNotIn(Group._redis_attr_pk.collection_key,
+        self.assertNotIn(Group.get_field('pk').collection_key,
                          self.last_interstore_call['sets'])
         self.assertEqual(result, ['1', ])
 
@@ -358,11 +358,11 @@ class IntersectTest(BaseTest):
             Group.collection().intersect({})
         # unbound MultiValuesField
         with self.assertRaises(ValueError):
-            Group.collection().intersect(GroupsContainer._redis_attr_groups_set)
+            Group.collection().intersect(GroupsContainer.get_field('groups_set'))
         with self.assertRaises(ValueError):
-            Group.collection().intersect(GroupsContainer._redis_attr_groups_list)
+            Group.collection().intersect(GroupsContainer.get_field('groups_list'))
         with self.assertRaises(ValueError):
-            Group.collection().intersect(GroupsContainer._redis_attr_groups_sortedset)
+            Group.collection().intersect(GroupsContainer.get_field('groups_sortedset'))
 
     def test_intersect_can_be_called_many_times(self):
         collection = set(Group.collection().intersect([1, 2, 3, 10]).intersect([2, 3, 50]))

@@ -130,7 +130,7 @@ class ExtendedCollectionManager(CollectionManager):
                 # We have a RedisModel and we'll use its pk, or a RedisField
                 # (single value) and we'll use its value
                 field_name, value = set_
-                field = getattr(self.cls, "_redis_attr_%s" % field_name)
+                field = self.cls.get_field(field_name)
                 if isinstance(value, RedisModel):
                     val = value.get_pk()
                 elif isinstance(value, SingleValueField):
@@ -506,7 +506,7 @@ class ExtendedCollectionManager(CollectionManager):
             sets = sets.copy()
             sets.update(self._lazy_collection['intersects'])
             if not self._lazy_collection['sets'] and not self.stored_key:
-                sets.add(self.cls._redis_attr_pk.collection_key)
+                sets.add(self.cls.get_field('pk').collection_key)
 
         final_set, keys_to_delete_later = super(ExtendedCollectionManager,
                                     self)._get_final_set(sets, pk, sort_options)
@@ -614,17 +614,15 @@ class ExtendedCollectionManager(CollectionManager):
                 final_fields['names'].append(field_name)
                 final_fields['keys'].append('#')
             else:
-                try:
-                    field = getattr(self.cls, "_redis_attr_%s" % field_name)
-                except AttributeError:
+                if not self.cls.has_field(field_name):
                     raise ValueError("%s if not a valid field to get from collection"
                                      " for %s" % (field_name, self.cls.__name__))
-                else:
-                    if isinstance(field, MultiValuesField):
-                        raise ValueError("It's not possible to get a MultiValuesField"
-                                         " from a collection (asked: %s" % field_name)
-                    final_fields['names'].append(field_name)
-                    final_fields['keys'].append(field.sort_wildcard)
+                field = self.cls.get_field(field_name)
+                if isinstance(field, MultiValuesField):
+                    raise ValueError("It's not possible to get a MultiValuesField"
+                                     " from a collection (asked: %s" % field_name)
+                final_fields['names'].append(field_name)
+                final_fields['keys'].append(field.sort_wildcard)
 
         if sorted_score_pos is not None:
             final_fields['names'].insert(sorted_score_pos, SORTED_SCORE)

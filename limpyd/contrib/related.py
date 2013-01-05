@@ -98,6 +98,7 @@ class RelatedModel(model.RedisModel):
     """
 
     abstract = True
+    collection_manager = ExtendedCollectionManager
 
     def __init__(self, *args, **kwargs):
         """
@@ -113,7 +114,7 @@ class RelatedModel(model.RedisModel):
             # get the related field
             model_name, field_name, _ = relation
             related_model = self.database._models[model_name]
-            related_field = getattr(related_model, '_redis_attr_%s' % field_name)
+            related_field = related_model.get_field(field_name)
 
             # add the collection
             collection = related_field.related_collection_class(self, related_field)
@@ -167,7 +168,7 @@ class RelatedModel(model.RedisModel):
                 # if the related model name is already used as a relation, check
                 # if it's not already used with the related_name of the relation
                 if related_model_name in database._relations:
-                    field = getattr(model, '_redis_attr_%s' % relation[1])
+                    field = model.get_field(relation[1])
                     field._assert_relation_does_not_exists()
                 # move the relation from the original database to the new
                 original_database._relations[related_model_name].remove(relation)
@@ -218,7 +219,6 @@ class RelatedFieldMixin(object):
     _commands_with_single_value_from_python = []
     _commands_with_many_values_from_python = []
 
-    collection_manager = ExtendedCollectionManager
     related_collection_class = RelatedCollection
 
     def __init__(self, to, *args, **kwargs):
@@ -473,7 +473,7 @@ class MultiValuesRelatedFieldMixin(RelatedFieldMixin):
         "intersected" with the members of the current field.
         """
         model = self.database._models[self.related_to]
-        collection = self.collection_manager(model)
+        collection = model.collection_manager(model)
         return collection(**filters).intersect(self)
 
     # calling obj.field.collection() is the same as calling obj.field()
