@@ -135,8 +135,10 @@ class RedisModel(RedisProxyCommand):
         self.cacheable = self.__class__.cacheable
         self.lockable = self.__class__.lockable
 
+        # set to True when the instance's PK will be tested for existence in redis
+        self._connected = False
+        # set to True when trying to update a field, to connect if not connected
         self._update_running = False
-        self._exist_test_skipped = False
 
         # --- Meta stuff
         # Put back the fields with the original names
@@ -159,9 +161,6 @@ class RedisModel(RedisProxyCommand):
 
         # Prepare command internal caching
         self.init_cache()
-
-        # Get specific params and remove them from kwargs
-        params = dict((key, kwargs.pop(key, None)) for key in ('_skip_exist_test',))
 
         # Validate arguments
         if len(args) > 0 and len(kwargs) > 0:
@@ -207,11 +206,30 @@ class RedisModel(RedisProxyCommand):
         # --- Instanciate from DB
         if len(args) == 1:
             value = args[0]
-            if params['_skip_exist_test'] or self.exists(pk=value):
+            if self.exists(pk=value):
                 self._pk = self.pk.normalize(value)
-                self._exist_test_skipped = bool(params['_skip_exist_test'])
+                self._connected = True
             else:
                 raise ValueError("No %s found with pk %s" % (self.__class__.__name__, value))
+
+    @classmethod
+    def lazy_connect(cls, pk):
+        """
+        Create an object, setting its primary key without testing it. So the
+        instance is not connected
+        """
+        instance = cls()
+        instance._pk = instance.pk.normalize(pk)
+        instance._connected = False
+        return instance
+
+    @property
+    def connected(self):
+        """
+        A property to check if the model is connected to redis (ie if it as a
+        primary key checked for existence)
+        """
+        return self._connected
 
     @classmethod
     def use_database(cls, database):
@@ -250,12 +268,13 @@ class RedisModel(RedisProxyCommand):
             raise DoesNotExist("The current object doesn't exists anymore")
         if not self._pk:
             self.pk.set(None)
+            self._connected = True
             # Default must be set only at first initialization
             self._set_defaults()
-        elif self._update_running and self._exist_test_skipped:
+        elif self._update_running and not self.connected:
             if not self.pk.exists():
                 raise ValueError("No %s found with pk %s" % (self.__class__.__name__, self._pk))
-            self._exist_test_skipped = False
+            self._connected = True
         return self._pk
 
     def _set_defaults(self):

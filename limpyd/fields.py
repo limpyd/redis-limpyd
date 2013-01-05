@@ -88,11 +88,12 @@ class RedisProxyCommand(object):
         try:
             result = self._traverse_command(name, *args, **kwargs)
         except:
-            obj._update_running = False
             raise  # raise the original exception
         else:
-            obj._update_running = False
             return result
+        finally:
+            if name in self.available_modifiers:
+                obj._update_running = False
 
     @memoize_command()
     def _traverse_command(self, name, *args, **kwargs):

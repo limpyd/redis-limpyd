@@ -99,15 +99,23 @@ class InitTest(LimpydBaseTest):
         motorbike = MotorBike()
         self.assertEqual(motorbike._fields, ['pk', 'name', 'wheels', 'passengers', 'power'])
 
-    def test_skip_paramter_should_skip_existence_check(self):
+    def test_lazy_connect_should_not_connect_to_redis(self):
         bike = Bike(name="rosalie", wheels=4)
+        self.assertTrue(bike.connected)
+
         # get an object with an existing pk
         with self.assertNumCommands(0):
-            bike2 = Bike(bike._pk, _skip_exist_test=True)
+            bike2 = Bike.lazy_connect(bike._pk)
+        self.assertFalse(bike2.connected)
+
         # test a field
         self.assertEqual(bike2.name.get(), 'rosalie')
+        self.assertFalse(bike2.connected)
+
         # set a field
         bike2.name.set('velocipede')
+        self.assertTrue(bike2.connected)
+
         # test if the value was correctly set
         with self.assertNumCommands(1):
             bike3 = Bike(bike._pk)
@@ -115,10 +123,12 @@ class InitTest(LimpydBaseTest):
 
         # get an object with a non-existing pk
         with self.assertNumCommands(0):
-            bike4 = Bike(1000, _skip_exist_test=True)
+            bike4 = Bike.lazy_connect(1000)
         # set a field: we check pk for the first update if skipped the existence test
         with self.assertRaises(ValueError):
             bike4.name.set('monocycle')
+        self.assertFalse(bike4.connected)
+
         # but we can get a field, no test is done here (simply return None if not exists)
         self.assertEqual(bike4.name.get(), None)
 
