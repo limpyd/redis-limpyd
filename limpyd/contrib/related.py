@@ -114,7 +114,7 @@ class RelatedModel(model.RedisModel):
             # get the related field
             model_name, field_name, _ = relation
             related_model = self.database._models[model_name]
-            related_field = getattr(related_model, '_redis_attr_%s' % field_name)
+            related_field = related_model.get_field(field_name)
 
             # add the collection
             collection = related_field.related_collection_class(self, related_field)
@@ -168,7 +168,7 @@ class RelatedModel(model.RedisModel):
                 # if the related model name is already used as a relation, check
                 # if it's not already used with the related_name of the relation
                 if related_model_name in database._relations:
-                    field = getattr(model, '_redis_attr_%s' % relation[1])
+                    field = model.get_field(relation[1])
                     field._assert_relation_does_not_exists()
                 # move the relation from the original database to the new
                 original_database._relations[related_model_name].remove(relation)

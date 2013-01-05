@@ -45,7 +45,7 @@ class RelatedToTest(LimpydBaseTest):
             namespace = 'related-to-model'
             foo = FKStringField(Foo)
 
-        self.assertEqual(Bar._redis_attr_foo.related_to, 'related-to-model:foo')
+        self.assertEqual(Bar.get_field('foo').related_to, 'related-to-model:foo')
 
     def test_to_as_model_name_should_be_converted(self):
         class Foo(TestRedisModel):
@@ -55,7 +55,7 @@ class RelatedToTest(LimpydBaseTest):
             namespace = 'related-to-name'
             foo = FKStringField('Foo')
 
-        self.assertEqual(Bar._redis_attr_foo.related_to, 'related-to-name:foo')
+        self.assertEqual(Bar.get_field('foo').related_to, 'related-to-name:foo')
 
     def test_to_as_full_name_should_be_kept(self):
         class Foo(TestRedisModel):
@@ -65,14 +65,14 @@ class RelatedToTest(LimpydBaseTest):
             namespace = 'related-to-full'
             foo = FKStringField('related-to-full:Foo')
 
-        self.assertEqual(Bar._redis_attr_foo.related_to, 'related-to-full:foo')
+        self.assertEqual(Bar.get_field('foo').related_to, 'related-to-full:foo')
 
     def test_to_as_self_should_be_converted(self):
         class Foo(TestRedisModel):
             namespace = 'related-to-self'
             myself = FKStringField('self')
 
-        self.assertEqual(Foo._redis_attr_myself.related_to, 'related-to-self:foo')
+        self.assertEqual(Foo.get_field('myself').related_to, 'related-to-self:foo')
 
 
 class RelatedNameTest(LimpydBaseTest):

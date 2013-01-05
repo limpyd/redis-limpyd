@@ -23,10 +23,9 @@ class MetaRedisModel(MetaRedisProxy):
     def __new__(mcs, name, base, attrs):
 
         it = super(MetaRedisModel, mcs).__new__(mcs, name, base, attrs)
-        is_abstract = attrs.get('abstract', False)
-        setattr(it, "abstract", is_abstract)
+        it.abstract = attrs.get('abstract', False)
 
-        if not is_abstract:
+        if not it.abstract:
             if not hasattr(it, 'database') or not isinstance(it.database, RedisDatabase):
                 raise ImplementationError(
                     'You must define a database for the model %s' % name)
@@ -100,10 +99,10 @@ class MetaRedisModel(MetaRedisProxy):
         _fields.insert(0, pk_field.name)
 
         # Save usefull attributes on the final model
-        setattr(it, "_fields", _fields)
-        setattr(it, "_hashable_fields", _hashable_fields)
+        it._fields = _fields
+        it._hashable_fields = _hashable_fields
         if pk_field.name != 'pk':
-            setattr(it, "_redis_attr_pk", getattr(it, "_redis_attr_%s" % pk_field.name))
+            it._redis_attr_pk = getattr(it, "_redis_attr_%s" % pk_field.name)
 
         return it
 
@@ -153,9 +152,13 @@ class RedisModel(RedisProxyCommand):
         # The `pk` field always exists, even if the real pk has another name
         pk_field_name = getattr(self, "_redis_attr_pk").name
         if pk_field_name != 'pk':
-            setattr(self, 'pk', getattr(self, pk_field_name))
+            self.pk = getattr(self, pk_field_name)
         # Cache of the pk value
         self._pk = None
+
+        # change the get_field method to use the instance related one instead
+        # of the classmethod
+        self.get_field = self.get_instance_field
 
         # Prepare command internal caching
         self.init_cache()
@@ -183,10 +186,10 @@ class RedisModel(RedisProxyCommand):
                     kwargs_pk_field_name = field_name
                     # always use the real field name, not always pk
                     field_name = pk_field_name
-                if field_name not in self._fields:
+                if not self.has_field(field_name):
                     raise ValueError(u"`%s` is not a valid field name "
                                       "for `%s`." % (field_name, self.__class__.__name__))
-                field = getattr(self, field_name)
+                field = self.get_field(field_name)
                 if field.unique and self.exists(**{field_name: value}):
                     raise UniquenessError(u"Field `%s` must be unique. "
                                            "Value `%s` yet indexed." % (field.name, value))
@@ -198,7 +201,7 @@ class RedisModel(RedisProxyCommand):
             for field_name in self._fields:
                 if field_name not in kwargs or self._field_is_pk(field_name):
                     continue
-                field = getattr(self, field_name)
+                field = self.get_field(field_name)
                 field.proxy_set(kwargs[field_name])
 
         # --- Instanciate from DB
@@ -265,6 +268,41 @@ class RedisModel(RedisProxyCommand):
         """
         return self._cache['__self__']
 
+    @classmethod
+    def has_field(cls, field_name):
+        """
+        Return True if the given field name is an allowed field for this model
+        """
+        return field_name == 'pk' or field_name in cls._fields
+
+    @classmethod
+    def get_class_field(cls, field_name):
+        """
+        Return the field object with the given name (for the class, the fields
+        are in the "_redis_attr_%s" form)
+        """
+        if not cls.has_field(field_name):
+            raise AttributeError('"%s" is not a field for the model "%s"' % (field_name, cls.__name__))
+
+        field = getattr(cls, '_redis_attr_%s' % field_name)
+
+        return field
+
+    # at the class level, we use get_class_field to get a field
+    # but in __init__, we update it to use get_instance_field
+    get_field = get_class_field
+
+    def get_instance_field(self, field_name):
+        """
+        Return the field object with the given name (works for a bound instance)
+        """
+        if not self.has_field(field_name):
+            raise AttributeError('"%s" is not a field for the model "%s"' % (field_name, self.__class__.__name__))
+
+        field = getattr(self, field_name)
+
+        return field
+
     def get_pk(self):
         """
         Return the primary key of the instance.
@@ -292,7 +330,7 @@ class RedisModel(RedisProxyCommand):
         for field_name in self._fields:
             if field_name in self._init_fields:
                 continue
-            field = getattr(self, field_name)
+            field = self.get_field(field_name)
             if hasattr(field, "default"):
                 field.proxy_set(field.default)
         delattr(self, '_init_fields')
@@ -315,7 +353,7 @@ class RedisModel(RedisProxyCommand):
         Check if the given field is the one from the primary key.
         It can be the plain "pk" name, or the real pk field name
         """
-        return name in ('pk', cls._redis_attr_pk.name)
+        return name in ('pk', cls.get_field('pk').name)
 
     @classmethod
     def exists(cls, **kwargs):
@@ -329,7 +367,7 @@ class RedisModel(RedisProxyCommand):
 
         # special case to check for a simple pk
         if len(kwargs) == 1 and cls._field_is_pk(kwargs.keys()[0]):
-            return cls._redis_attr_pk.exists(kwargs.values()[0])
+            return cls.get_field('pk').exists(kwargs.values()[0])
 
         # get only the first element of the unsorted collection (the fastest)
         try:
@@ -423,7 +461,7 @@ class RedisModel(RedisProxyCommand):
             # we do the cache stuff only if the object is cacheable, to avoid
             # useless computations if not
             for field_name in args:
-                field = getattr(self, field_name)
+                field = self.get_field(field_name)
                 if field.cacheable and field.has_cache():
                     field_cache = field.get_cache()
                     haxh = make_cache_key('hget', field_name)
@@ -445,7 +483,7 @@ class RedisModel(RedisProxyCommand):
             if self.cacheable:
                 for field_name, value in retrieved_dict.iteritems():
                     # set cache for the field with new retrieved value
-                    field = getattr(self, field_name)
+                    field = self.get_field(field_name)
                     if not field.has_cache():
                         field.init_cache()
                     cache = field.get_cache()
@@ -480,7 +518,7 @@ class RedisModel(RedisProxyCommand):
 
             # Set indexes for indexable fields.
             for field_name, value in kwargs.items():
-                field = getattr(self, field_name)
+                field = self.get_field(field_name)
                 if field.indexable:
                     field.deindex()
                     field.index_value(value)
@@ -492,7 +530,7 @@ class RedisModel(RedisProxyCommand):
             # Clear the cache for each cacheable field
             if self.cacheable:
                 for field_name, value in kwargs.items():
-                    field = getattr(self, field_name)
+                    field = self.get_field(field_name)
                     if not field.cacheable or not field.has_cache():
                         continue
                     field_cache = field.get_cache()
@@ -514,12 +552,12 @@ class RedisModel(RedisProxyCommand):
         """
         # Delete each field
         for field_name in self._fields:
-            field = getattr(self, field_name)
+            field = self.get_field(field_name)
             if not isinstance(field, PKField):
                 # pk has no stored key
                 field.delete()
         # Remove the pk from the model collection
-        self.connection.srem(self._redis_attr_pk.collection_key, self._pk)
+        self.connection.srem(self.get_field('pk').collection_key, self._pk)
         # Deactivate the instance
         delattr(self, "_pk")
 

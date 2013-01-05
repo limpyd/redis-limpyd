@@ -126,7 +126,7 @@ class CollectionManager(object):
             except ValueError:
                 return []
             else:
-                if pk is not None and not self.cls._redis_attr_pk.exists(pk):
+                if pk is not None and not self.cls.get_field('pk').exists(pk):
                     return []
 
             # Prepare options and final set to get/sort
@@ -253,7 +253,7 @@ class CollectionManager(object):
 
         else:
             # no sets or pk, use the whole collection instead
-            all_sets.add(self.cls._redis_attr_pk.collection_key)
+            all_sets.add(self.cls.get_field('pk').collection_key)
 
         if len(all_sets) == 1:
             # if we have only one set, we  delete the set after calling
@@ -292,10 +292,10 @@ class CollectionManager(object):
         """Define self._lazy_collection according to filters."""
         for field_name, value in filters.iteritems():
             if self.cls._field_is_pk(field_name):
-                pk = self.cls._redis_attr_pk.normalize(value)
+                pk = self.cls.get_field('pk').normalize(value)
                 self._lazy_collection['pks'].add(pk)
             else:
-                field = getattr(self.cls, "_redis_attr_%s" % field_name)
+                field = self.cls.get_field(field_name)
                 self._lazy_collection['sets'].add(field.index_key(value))
 
         return self
@@ -331,7 +331,7 @@ class CollectionManager(object):
         """
         fields = []
         for field_name in self.cls._fields:
-            field = getattr(self.cls, "_redis_attr_%s" % field_name)
+            field = self.cls.get_field(field_name)
             if not isinstance(field, MultiValuesField):
                 fields.append(field_name)
         return fields
@@ -359,13 +359,9 @@ class CollectionManager(object):
             if by.startswith('-'):
                 parameters['desc'] = True
                 by = by[1:]
-            try:
-                # Is it a field name?
-                field = getattr(self.cls, "_redis_attr_%s" % by)
-            except AttributeError:
-                # It's not a field, so keep the original string
-                pass
-            else:
+            if self.cls.has_field(by):
+                # if we have a field, use its redis wildcard form
+                field = self.cls.get_field(by)
                 parameters['by'] = field.sort_wildcard
         return parameters
 
