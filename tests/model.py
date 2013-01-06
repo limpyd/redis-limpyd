@@ -551,12 +551,8 @@ class MetaRedisProxyTest(LimpydBaseTest):
         def check_available_commands(cls):
             for command in cls.available_getters:
                 self.assertTrue(command in cls.available_commands)
-            for command in cls.available_full_modifiers:
+            for command in cls.available_modifiers:
                 self.assertTrue(command in cls.available_commands)
-                self.assertTrue(command in cls.available_modifiers)
-            for command in cls.available_partial_modifiers:
-                self.assertTrue(command in cls.available_commands)
-                self.assertTrue(command in cls.available_modifiers)
         check_available_commands(fields.StringField)
         check_available_commands(fields.InstanceHashField)
         check_available_commands(fields.SortedSetField)

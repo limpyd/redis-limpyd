@@ -64,12 +64,11 @@ class MetaRedisProxy(type):
         if any([mcs.class_can_have_commands(one_base) for one_base in base]):
 
             # make sure we have a set for each list of type of command
-            for attr in ('available_getters', 'no_cache_getters', 'available_full_modifiers', 'available_partial_modifiers'):
+            for attr in ('available_getters', 'no_cache_getters', 'available_modifiers', ):
                 setattr(it, attr, set(getattr(it, attr, ())))
 
             # add simplest set: getters, modidiers, all
             it.available_getters.update(it.no_cache_getters)
-            it.available_modifiers = it.available_full_modifiers.union(it.available_partial_modifiers)
             it.available_commands = it.available_getters.union(it.available_modifiers)
 
             # create a method for each command
@@ -89,11 +88,7 @@ class RedisProxyCommand(object):
     # Here the different attributes:
     #  - available_getters:  commands that get data from redis
     #  - no_cache_getters: idem as getters but result will never be locally cached
-    #  - available_full_modifiers: commands that set data in redis, for which we
-    #                              know the final content of the field
-    #  - available_partial_modifiers: idem as full_modifiers, but we don't know
-    #                                 the final content of the field without
-    #                                 getting it after the call
+    #  - available_modifiers: commands that set data in redis
 
     @classmethod
     def _make_command_method(cls, command_name):
@@ -546,8 +541,9 @@ class StringField(SingleValueField):
     proxy_setter = "set"
 
     available_getters = ('get', 'getbit', 'getrange', 'strlen', )
-    available_full_modifiers = ('delete', 'getset', 'set', )
-    available_partial_modifiers = ('append', 'decr', 'decrby', 'incr', 'incrby', 'incrbyfloat', 'setbit', 'setex', 'setnx', 'setrange', )
+    available_modifiers = ('delete', 'getset', 'set', 'append', 'decr',
+                           'decrby', 'incr', 'incrby', 'incrbyfloat',
+                           'setbit', 'setex', 'setnx', 'setrange', )
 
     _call_getset = SingleValueField._call_set
 
@@ -631,9 +627,11 @@ class SortedSetField(MultiValuesField):
     proxy_getter = "zmembers"
     proxy_setter = "zadd"
 
-    available_getters = ('zcard', 'zcount', 'zrange', 'zrangebyscore', 'zrank', 'zrevrange', 'zrevrangebyscore', 'zrevrank', 'zscore', )
-    available_full_modifiers = ('delete', 'zadd', 'zincrby', 'zrem', )
-    available_partial_modifiers = ('zremrangebyrank', 'zremrangebyscore', )
+    available_getters = ('zcard', 'zcount', 'zrange', 'zrangebyscore',
+                         'zrank', 'zrevrange', 'zrevrangebyscore',
+                         'zrevrank', 'zscore', )
+    available_modifiers = ('delete', 'zadd', 'zincrby', 'zrem',
+                           'zremrangebyrank', 'zremrangebyscore', )
 
     _call_zrem = MultiValuesField._rem
     _call_zremrangebyscore = _call_zremrangebyrank = RedisField._reset
@@ -720,8 +718,7 @@ class SetField(MultiValuesField):
     proxy_setter = "sadd"
 
     available_getters = ('scard', 'sismember', 'smembers', 'srandmember', )
-    available_full_modifiers = ('delete', 'sadd', 'srem', )
-    available_partial_modifiers = ('spop', )
+    available_modifiers = ('delete', 'sadd', 'srem', 'spop', )
 
     _call_sadd = MultiValuesField._add
     _call_srem = MultiValuesField._rem
@@ -744,8 +741,9 @@ class ListField(MultiValuesField):
     proxy_setter = "lpush"
 
     available_getters = ('lindex', 'llen', 'lrange', )
-    available_full_modifiers = ('delete', 'linsert', 'lpop', 'lpush', 'lpushx', 'lrem', 'rpop', 'rpush', 'rpushx', )
-    available_partial_modifiers = ('lset', 'ltrim', )
+    available_modifiers = ('delete', 'linsert', 'lpop', 'lpush', 'lpushx',
+                           'lrem', 'rpop', 'rpush', 'rpushx', 'lset',
+                           'ltrim', )
 
     _call_lpop = _call_rpop = MultiValuesField._pop
     _call_lpush = _call_rpush = _call_linsert = MultiValuesField._add
@@ -801,8 +799,8 @@ class HashField(MultiValuesField):
     proxy_setter = "hmset"
 
     available_getters = ('hget', 'hgetall', )
-    available_full_modifiers = ('hdel', 'hmset', 'hsetnx', 'hset', )
-    available_partial_modifiers = ('hincrby', 'hincrbyfloat', )
+    available_modifiers = ('hdel', 'hmset', 'hsetnx', 'hset', 'hincrby',
+                           'hincrbyfloat', )
 
     def _call_hmset(self, command, *args, **kwargs):
         if self.indexable:
@@ -888,8 +886,8 @@ class InstanceHashField(SingleValueField):
     proxy_setter = "hset"
 
     available_getters = ('hget', )
-    available_full_modifiers = ('hdel', 'hset', 'hsetnx', )
-    available_partial_modifiers = ('hincrby', 'hincrbyfloat', )
+    available_modifiers = ('hdel', 'hset', 'hsetnx', 'hincrby',
+                           'hincrbyfloat', )
 
     _call_hset = SingleValueField._call_set
     _call_hdel = RedisField._del
@@ -947,7 +945,7 @@ class PKField(SingleValueField):
     proxy_setter = "set"
 
     available_getters = ('get',)
-    available_full_modifiers = ('set',)
+    available_modifiers = ('set',)
 
     name = 'pk'  # Default name ok the pk, can be changed by declaring a new PKField
     indexable = False  # Not an `indexable` field...
