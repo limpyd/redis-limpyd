@@ -22,6 +22,7 @@ __all__ = [
     'SetField',
     'PKField',
     'AutoPKField',
+    'HashField',
 ]
 
 
