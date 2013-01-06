@@ -12,7 +12,7 @@ from limpyd.exceptions import *
 log = getLogger(__name__)
 
 __all__ = [
-    'HashableField',
+    'InstanceHashField',
     'RedisField',
     'RedisProxyCommand',
     'MetaRedisProxy',
@@ -514,7 +514,7 @@ class RedisField(RedisProxyCommand):
 
 class SingleValueField(RedisField):
     """
-    A simple parent class for StringField, HashableField and PKField, all field
+    A simple parent class for StringField, InstanceHashField and PKField, all field
     types handling a single value.
     """
 
@@ -873,7 +873,7 @@ class HashField(MultiValuesField):
             self._to_deindex = None
 
 
-class HashableField(SingleValueField):
+class InstanceHashField(SingleValueField):
     """Field stored in the parent object hash."""
 
     proxy_getter = "hget"
@@ -898,7 +898,7 @@ class HashableField(SingleValueField):
         """Add key AND the hash field to the args, and call the Redis command."""
         args = list(args)
         args.insert(0, self.name)
-        return super(HashableField, self)._traverse_command(name, *args, **kwargs)
+        return super(InstanceHashField, self)._traverse_command(name, *args, **kwargs)
 
     def delete(self):
         """

@@ -432,8 +432,8 @@ class FKStringField(SimpleValueRelatedFieldMixin, fields.StringField):
     _commands_with_single_value_from_python = ['set', 'setnx', 'getset', ]
 
 
-class FKHashableField(SimpleValueRelatedFieldMixin, fields.HashableField):
-    """ Related field based on a HashableField, acting as a Foreign Key """
+class FKInstanceHashField(SimpleValueRelatedFieldMixin, fields.InstanceHashField):
+    """ Related field based on a InstanceHashField, acting as a Foreign Key """
     _commands_with_single_value_from_python = ['hset', 'hsetnx', ]
 
 

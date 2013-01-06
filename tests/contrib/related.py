@@ -3,7 +3,7 @@
 from limpyd import model, fields
 from limpyd.exceptions import *
 from limpyd.contrib.related import (RelatedModel, RelatedCollection,
-                                    FKStringField, FKHashableField, M2MSetField,
+                                    FKStringField, FKInstanceHashField, M2MSetField,
                                     M2MListField, M2MSortedSetField)
 from limpyd.contrib.collection import ExtendedCollectionManager
 
@@ -29,7 +29,7 @@ class Person(TestRedisModel):
 class Group(TestRedisModel):
     name = fields.PKField()
     status = fields.StringField(indexable=True)
-    owner = FKHashableField(Person, related_name='owned_groups')
+    owner = FKInstanceHashField(Person, related_name='owned_groups')
     parent = FKStringField('self', related_name='children')
     members = M2MSetField(Person, related_name='membership')
 
@@ -140,26 +140,26 @@ class RelatedNameTest(LimpydBaseTest):
         with self.assertRaises(ImplementationError):
             class Foo(TestRedisModel):
                 namespace = 'related-name-uniq'
-                father = FKHashableField('self')
-                mother = FKHashableField('self')
+                father = FKInstanceHashField('self')
+                mother = FKInstanceHashField('self')
 
         with self.assertRaises(ImplementationError):
             class Foo(TestRedisModel):
                 namespace = 'related-name-uniq'
-                father = FKHashableField('self', related_name='parent')
-                mother = FKHashableField('self', related_name='parent')
+                father = FKInstanceHashField('self', related_name='parent')
+                mother = FKInstanceHashField('self', related_name='parent')
 
         with self.assertRaises(ImplementationError):
             class Foo(TestRedisModel):
                 namespace = 'related-name-uniq'
-                father = FKHashableField('self', related_name='%(namespace)s_%(model)s_set')
-                mother = FKHashableField('self', related_name='%(namespace)s_%(model)s_set')
+                father = FKInstanceHashField('self', related_name='%(namespace)s_%(model)s_set')
+                mother = FKInstanceHashField('self', related_name='%(namespace)s_%(model)s_set')
 
         with self.assertRaises(ImplementationError):
             class Foo(TestRedisModel):
                 namespace = 'related-name-uniq'
-                father = FKHashableField('Bar')
-                mother = FKHashableField('Bar')
+                father = FKInstanceHashField('Bar')
+                mother = FKInstanceHashField('Bar')
 
             class Bar(TestRedisModel):
                 namespace = 'related-name-uniq'
@@ -319,7 +319,7 @@ class FKTest(LimpydBaseTest):
         core_devs = Group(name='limpyd core devs')
         ybon = Person(name='ybon')
 
-        # test with FKHashableField
+        # test with FKInstanceHashField
         core_devs.owner.hset(ybon)
         self.assertEqual(core_devs.owner.hget(), ybon._pk)
         self.assertEqual(set(ybon.owned_groups()), set([core_devs._pk]))
@@ -378,7 +378,7 @@ class FKTest(LimpydBaseTest):
         owner = core_devs.owner.instance()
         self.assertEqual(owner._pk, twidi._pk)
         self.assertTrue(isinstance(owner, Person))
-        # test FKHashableField
+        # test FKInstanceHashField
         parent = core_devs.parent.instance()
         self.assertEqual(parent._pk, main_group._pk)
         self.assertTrue(isinstance(parent, Group))

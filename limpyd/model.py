@@ -36,7 +36,7 @@ class MetaRedisModel(MetaRedisProxy):
 
         # init (or get from parents) lists of redis fields
         _fields = list(it._fields) if hasattr(it, '_fields') else []
-        _hashable_fields = list(it._hashable_fields) if hasattr(it, '_hashable_fields') else []
+        _instancehash_fields = list(it._instancehash_fields) if hasattr(it, '_instancehash_fields') else []
 
         # Did we have already pk field ?
         pk_field = getattr(it, '_redis_attr_pk', None)
@@ -90,9 +90,9 @@ class MetaRedisModel(MetaRedisProxy):
             field._attach_to_model(it)
             _fields.append(field.name)
             setattr(it, "_redis_attr_%s" % field.name, field)
-            # save HashableFields in a special list
-            if isinstance(field, HashableField):
-                _hashable_fields.append(field.name)
+            # save InstanceHashFields in a special list
+            if isinstance(field, InstanceHashField):
+                _instancehash_fields.append(field.name)
 
         # keep the pk as first field
         _fields.remove(pk_field.name)
@@ -100,7 +100,7 @@ class MetaRedisModel(MetaRedisProxy):
 
         # Save usefull attributes on the final model
         it._fields = _fields
-        it._hashable_fields = _hashable_fields
+        it._instancehash_fields = _instancehash_fields
         if pk_field.name != 'pk':
             it._redis_attr_pk = getattr(it, "_redis_attr_%s" % pk_field.name)
 
@@ -443,15 +443,15 @@ class RedisModel(RedisProxyCommand):
 
     def hmget(self, *args):
         """
-        This command on the model allow getting many hashable fields with only
+        This command on the model allow getting many instancehash fields with only
         one redis call. You should pass hash name to retrieve as arguments.
         Try to get values from local cache if possible.
         """
         if len(args) == 0:
-            args = self._hashable_fields
+            args = self._instancehash_fields
         else:
-            if not any(arg in self._hashable_fields for arg in args):
-                raise ValueError("Only hashable fields can be used here.")
+            if not any(arg in self._instancehash_fields for arg in args):
+                raise ValueError("Only InstanceHashField can be used here.")
 
         # get values from cache if we can
         cached = {}
@@ -503,13 +503,13 @@ class RedisModel(RedisProxyCommand):
 
     def hmset(self, **kwargs):
         """
-        This command on the model allow setting many hashable fields with only
+        This command on the model allow setting many instancehash fields with only
         one redis call. You should pass kwargs with field names as keys, with
         their value.
         Index and cache are managed for indexable and/or cacheable fields.
         """
-        if not any(kwarg in self._hashable_fields for kwarg in kwargs.keys()):
-            raise ValueError("Only hashable fields can be used here.")
+        if not any(kwarg in self._instancehash_fields for kwarg in kwargs.keys()):
+            raise ValueError("Only InstanceHashField can be used here.")
 
         indexed = []
 

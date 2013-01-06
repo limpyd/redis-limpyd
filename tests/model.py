@@ -34,12 +34,12 @@ class MotorBike(Bike):
 
 class Boat(TestRedisModel):
     """
-    Use also HashableField.
+    Use also InstanceHashField.
     """
     cacheable = False
 
     name = fields.StringField(unique=True)
-    power = fields.HashableField(indexable=True, default="sail")
+    power = fields.InstanceHashField(indexable=True, default="sail")
     launched = fields.StringField(indexable=True)
     length = fields.StringField()
 
@@ -558,7 +558,7 @@ class MetaRedisProxyTest(LimpydBaseTest):
                 self.assertTrue(command in cls.available_commands)
                 self.assertTrue(command in cls.available_modifiers)
         check_available_commands(fields.StringField)
-        check_available_commands(fields.HashableField)
+        check_available_commands(fields.InstanceHashField)
         check_available_commands(fields.SortedSetField)
         check_available_commands(fields.SetField)
         check_available_commands(fields.ListField)
@@ -569,8 +569,8 @@ class MetaRedisProxyTest(LimpydBaseTest):
 class PostCommandTest(LimpydBaseTest):
 
     class MyModel(TestRedisModel):
-        name = fields.HashableField()
-        last_modification_date = fields.HashableField()
+        name = fields.InstanceHashField()
+        last_modification_date = fields.InstanceHashField()
 
         def post_command(self, sender, name, result, args, kwargs):
             if isinstance(sender, fields.RedisField) and sender.name == "name":
@@ -813,13 +813,13 @@ class DeleteTest(LimpydBaseTest):
         self.assertEqual(len(self.connection.keys()), 8)
         self.assertEqual(len(Train.collection(kind="Corail")), 1)
 
-    def test_hashablefield_keys_are_deleted(self):
+    def test_instancehashfield_keys_are_deleted(self):
 
         class Train(TestRedisModel):
-            namespace = "test_hashablefield_keys_are_deleted"
-            name = fields.HashableField(unique=True)
-            kind = fields.HashableField(indexable=True)
-            wagons = fields.HashableField(default=10)
+            namespace = "test_instancehashfield_keys_are_deleted"
+            name = fields.InstanceHashField(unique=True)
+            kind = fields.InstanceHashField(indexable=True)
+            wagons = fields.InstanceHashField(default=10)
 
         # Check that db is empty
         self.assertEqual(len(self.connection.keys()), 0)
@@ -859,7 +859,7 @@ class DeleteTest(LimpydBaseTest):
 
         class Train(TestRedisModel):
             namespace = "test_pkfield_cannot_be_deleted"
-            name = fields.HashableField(unique=True)
+            name = fields.InstanceHashField(unique=True)
 
         train = Train(name="TGV")
         with self.assertRaises(ImplementationError):
@@ -869,9 +869,9 @@ class DeleteTest(LimpydBaseTest):
 
         class Train(TestRedisModel):
             namespace = "test_model_delete"
-            name = fields.HashableField(unique=True)
+            name = fields.InstanceHashField(unique=True)
             kind = fields.StringField(indexable=True)
-            wagons = fields.HashableField(default=10)
+            wagons = fields.InstanceHashField(default=10)
 
         # Check that db is empty
         self.assertEqual(len(self.connection.keys()), 0)
@@ -909,9 +909,9 @@ class HMTest(LimpydBaseTest):
     """
 
     class HMTestModel(TestRedisModel):
-        foo = fields.HashableField()
-        bar = fields.HashableField(indexable=True)
-        baz = fields.HashableField(unique=True)
+        foo = fields.InstanceHashField()
+        bar = fields.InstanceHashField(indexable=True)
+        baz = fields.InstanceHashField(unique=True)
 
     def test_hmset_should_set_all_values(self):
         obj = self.HMTestModel()
@@ -1033,13 +1033,13 @@ class FieldExistenceTest(LimpydBaseTest):
         # test value manually set (StringField)
         boat.length.set(1)
         self.assertTrue(boat.length.exists())
-        # test value manually set (HashableField)
+        # test value manually set (InstanceHashField)
         boat.power.hset('engine')
         self.assertTrue(boat.power.exists())
 
     def test_deleted_field_does_not_exist(self):
         boat = Boat(name="Pen Duick I")
-        # test HashableField
+        # test InstanceHashField
         boat.power.delete()
         self.assertFalse(boat.power.exists())
         # test StringField
@@ -1050,7 +1050,7 @@ class FieldExistenceTest(LimpydBaseTest):
     def test_field_of_deleted_object_does_not_exist(self):
         boat = Boat(name="Pen Duick I")
         boat.delete()
-        # test HashableField
+        # test InstanceHashField
         self.assertFalse(boat.power.exists())
         # test StringField
         self.assertFalse(boat.length.exists())

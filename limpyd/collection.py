@@ -330,7 +330,7 @@ class CollectionManager(object):
     def _get_simple_fields(self):
         """
         Return a list of the names of all fields that handle simple values
-        (StringField or HashableField), that redis can use to return values via
+        (StringField or InstanceHashField), that redis can use to return values via
         the sort command (so, exclude all fields based on MultiValuesField)
         """
         fields = []
