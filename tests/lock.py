@@ -6,9 +6,36 @@ import threading
 import time
 
 from limpyd.utils import make_key
+from limpyd import fields
 
 from base import LimpydBaseTest
-from model import Bike
+from model import TestRedisModel
+
+
+class HookedStringField(fields.StringField):
+    """
+    Implement hooks for testing locks.
+    """
+
+    def _call_set(self, command, *args, **kwargs):
+        _pre_callback = kwargs.pop('_pre_callback', None)
+        _post_callback = kwargs.pop('_post_callback', None)
+        if _pre_callback is not None:
+            _pre_callback(command, *args, **kwargs)
+
+        result = super(HookedStringField, self)._call_set(command, *args, **kwargs)
+
+        if _post_callback is not None:
+            _post_callback(result)
+
+        return result
+
+
+class Bike(TestRedisModel):
+    namespace = "test-lock"
+    name = HookedStringField(indexable=True)
+    wheels = HookedStringField(default=2)
+    passengers = HookedStringField(default=1, cacheable=False)
 
 
 class LockTest(LimpydBaseTest):
