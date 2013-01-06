@@ -13,7 +13,7 @@ class Bike(model.RedisModel):
 
     name = fields.StringField(indexable=True)
     wheels = fields.StringField(default=2)
-    passengers = fields.StringField(default=1, cacheable=False)
+    passengers = fields.StringField(default=1)
 
 
 class PipelineTest(LimpydBaseTest):

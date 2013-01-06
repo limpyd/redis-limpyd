@@ -25,7 +25,7 @@ class TestRedisModel(model.RedisModel):
 class Bike(TestRedisModel):
     name = fields.StringField(indexable=True)
     wheels = fields.StringField(default=2)
-    passengers = fields.StringField(default=1, cacheable=False)
+    passengers = fields.StringField(default=1)
 
 
 class MotorBike(Bike):
@@ -36,7 +36,6 @@ class Boat(TestRedisModel):
     """
     Use also InstanceHashField.
     """
-    cacheable = False
 
     name = fields.StringField(unique=True)
     power = fields.InstanceHashField(indexable=True, default="sail")
@@ -455,93 +454,6 @@ class ExistsTest(LimpydBaseTest):
             Boat.exists()
 
 
-class CommandCacheTest(LimpydBaseTest):
-
-    def test_should_not_hit_redis_when_cached(self):
-        # Not sure the connection.info() is thread safe...
-        bike = Bike(name="randonneuse")
-        # First get
-        name = bike.name.get()
-        hits_before = self.connection.info()['keyspace_hits']
-        # Get again
-        name = bike.name.get()
-        hits_after = self.connection.info()['keyspace_hits']
-        self.assertEqual(name, "randonneuse")
-        self.assertEqual(hits_before, hits_after)
-        # Flush all cache from instance
-        bike.init_cache()
-        name = bike.name.get()
-        hits_after = self.connection.info()['keyspace_hits']
-        self.assertEqual(name, "randonneuse")
-        self.assertNotEqual(hits_before, hits_after)
-
-    def test_should_flush_if_modifiers_command_is_called(self):
-        bike = Bike(name="draisienne")
-        name = bike.name.get()
-        self.assertEqual(name, "draisienne")
-        bike.name.set('tandem')
-        name = bike.name.get()
-        self.assertEqual(name, "tandem")
-
-    def test_should_not_hit_cache_when_flushed_for_field(self):
-        bike = Bike(name="randonneuse", wheels=4)
-        # First get
-        name = bike.name.get()
-        wheels = bike.wheels.get()
-        hits_before = self.connection.info()['keyspace_hits']
-        # Get again
-        name = bike.name.get()
-        wheels = bike.wheels.get()
-        hits_after = self.connection.info()['keyspace_hits']
-        self.assertEqual(name, "randonneuse")
-        self.assertEqual(wheels, "4")
-        self.assertEqual(hits_before, hits_after)
-        # Flush cache for field `name`
-        bike.name.init_cache()
-        name = bike.name.get()
-        hits_after_flush = self.connection.info()['keyspace_hits']
-        self.assertEqual(name, "randonneuse")
-        self.assertNotEqual(hits_before, hits_after_flush)
-        # Getting again the wheels must hit cache
-        wheels = bike.wheels.get()
-        hits_after_getting_wheels = self.connection.info()['keyspace_hits']
-        self.assertEqual(wheels, "4")
-        self.assertEqual(hits_after_flush, hits_after_getting_wheels)
-
-    def test_not_cached_field_should_not_hit_cache(self):
-        bike = Bike(name="tandem", wheels=2, passengers=2)
-        # First get
-        name = bike.name.get()
-        passengers = bike.passengers.get()
-        hits_before = self.connection.info()['keyspace_hits']
-        # Get again
-        name = bike.name.get()
-        passengers = bike.passengers.get()
-        hits_after = self.connection.info()['keyspace_hits']
-        self.assertEqual(name, "tandem")
-        self.assertEqual(passengers, "2")
-        hits_attended = hits_before + 1  # one field, `passengers`, should miss cache
-        self.assertEqual(hits_after, hits_attended)
-
-    def test_not_cached_model_should_not_hit_cache(self):
-        boat = Boat(name="Pen Duick I", length=15.1, launched=1898)
-        # First get
-        name = boat.name.get()
-        length = boat.length.get()
-        launched = boat.launched.get()
-        hits_before = self.connection.info()['keyspace_hits']
-        # Get again
-        name = boat.name.get()
-        length = boat.length.get()
-        launched = boat.launched.get()
-        hits_after = self.connection.info()['keyspace_hits']
-        self.assertEqual(name, "Pen Duick I")
-        self.assertEqual(length, "15.1")
-        self.assertEqual(launched, "1898")
-        hits_attended = hits_before + 3  # the 3 fields should miss cache
-        self.assertEqual(hits_after, hits_attended)
-
-
 class MetaRedisProxyTest(LimpydBaseTest):
 
     def test_available_commands(self):
@@ -932,15 +844,6 @@ class HMTest(LimpydBaseTest):
         self.assertEqual(set(self.HMTestModel.collection(bar='BAR')), set([obj._pk]))
         self.assertEqual(set(self.HMTestModel.collection(baz='BAZ')), set([obj._pk]))
 
-    def test_hmset_should_clear_cache_for_fields(self):
-        obj = self.HMTestModel()
-        obj.foo.hget()  # set the cache
-        obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
-        hits_before = self.connection.info()['keyspace_hits']
-        obj.foo.hget()  # should miss the cache and hit redis
-        hits_after = self.connection.info()['keyspace_hits']
-        self.assertEqual(hits_before + 1, hits_after)
-
     def test_hmset_should_not_index_if_an_error_occurs(self):
         self.HMTestModel(baz="BAZ")
         test_obj = self.HMTestModel()
@@ -955,32 +858,6 @@ class HMTest(LimpydBaseTest):
         # We must not have an entry in the bar index with the BAR value because
         # the hmset must have raise an exception and revert index already set.
         self.assertEqual(set(self.HMTestModel.collection(bar='BAR')), set())
-
-    def test_hmget_should_get_values_from_cache(self):
-        obj = self.HMTestModel(foo='FOO', bar='BAR')
-        # fill the cache
-        obj.foo.hget()
-
-        # get it from cache
-        hits_before = self.connection.info()['keyspace_hits']
-        obj.hmget('foo')
-        hits_after = self.connection.info()['keyspace_hits']
-        # hmget should not have hit redis
-        self.assertEqual(hits_before, hits_after)
-
-        # get one from cache, one from redis
-        hits_before = self.connection.info()['keyspace_hits']
-        obj.hmget('foo', 'bar')
-        hits_after = self.connection.info()['keyspace_hits']
-        # hmget should have hit redis to get bar
-        self.assertEqual(hits_before + 1, hits_after)
-
-    def test_hmget_should_cache_retrieved_values_for_hget(self):
-        obj = self.HMTestModel(foo='FOO', bar='BAR', baz='BAZ')
-        obj.hmget('foo', 'bar')
-        with self.assertNumCommands(0):
-            foo = obj.foo.hget()
-            self.assertEqual(foo, 'FOO')
 
     def test_hmget_result_is_not_cached_itself(self):
         obj = self.HMTestModel(foo='FOO', bar='BAR')

@@ -6,7 +6,7 @@ from itertools import izip
 from redis.exceptions import RedisError
 from redis.client import Lock
 
-from limpyd.utils import make_key, memoize_command
+from limpyd.utils import make_key
 from limpyd.exceptions import *
 
 log = getLogger(__name__)
@@ -64,11 +64,10 @@ class MetaRedisProxy(type):
         if any([mcs.class_can_have_commands(one_base) for one_base in base]):
 
             # make sure we have a set for each list of type of command
-            for attr in ('available_getters', 'no_cache_getters', 'available_full_modifiers', 'available_partial_modifiers'):
+            for attr in ('available_getters', 'available_full_modifiers', 'available_partial_modifiers'):
                 setattr(it, attr, set(getattr(it, attr, ())))
 
             # add simplest set: getters, modidiers, all
-            it.available_getters.update(it.no_cache_getters)
             it.available_modifiers = it.available_full_modifiers.union(it.available_partial_modifiers)
             it.available_commands = it.available_getters.union(it.available_modifiers)
 
@@ -88,7 +87,6 @@ class RedisProxyCommand(object):
     # If an attribute is not defined, the one from its parent class is used.
     # Here the different attributes:
     #  - available_getters:  commands that get data from redis
-    #  - no_cache_getters: idem as getters but result will never be locally cached
     #  - available_full_modifiers: commands that set data in redis, for which we
     #                              know the final content of the field
     #  - available_partial_modifiers: idem as full_modifiers, but we don't know
@@ -122,12 +120,10 @@ class RedisProxyCommand(object):
         meth = getattr(self, '_call_%s' % name, self._traverse_command)
         return meth(name, *args, **kwargs)
 
-    @memoize_command()
     def _traverse_command(self, name, *args, **kwargs):
         """
         Add the key to the args and call the Redis command.
         """
-        # TODO: implement instance level cache
         if not name in self.available_commands:
             raise AttributeError("%s is not an available command for %s" % (name, self.__class__.__name__))
         attr = getattr(self.connection, "%s" % name)
@@ -165,29 +161,6 @@ class RedisProxyCommand(object):
         """
         return self.get_connection()
 
-    def init_cache(self):
-        """
-        Initialize the cache Must be implemented in fields and models.
-        """
-        pass
-
-    def get_cache(self):
-        """
-        Retrieve the cache Must be implemented in fields and models.
-        """
-        pass
-
-    def has_cache(self):
-        """
-        Is the cache already initialized?
-        """
-        try:
-            self.get_cache()
-        except (KeyError, AttributeError):
-            return False
-        else:
-            return True
-
 
 class RedisField(RedisProxyCommand):
     """
@@ -206,7 +179,7 @@ class RedisField(RedisProxyCommand):
     unique = False
     _copy_conf = {
         'args': [],
-        'kwargs': ['cacheable', 'lockable', 'default'],
+        'kwargs': ['lockable', 'default'],
         'attrs': ['name', '_instance', '_model', 'indexable', 'unique']
     }
 
@@ -217,7 +190,6 @@ class RedisField(RedisProxyCommand):
         self._to_index = None
         self._to_deindex = None
         self.indexable = False
-        self.cacheable = kwargs.get('cacheable', True)
         self.lockable = kwargs.get('lockable', True)
         if "default" in kwargs:
             self.default = kwargs["default"]
@@ -246,19 +218,6 @@ class RedisField(RedisProxyCommand):
         """
         setter = getattr(self, self.proxy_setter)
         return setter(value)
-
-    def init_cache(self):
-        """
-        Create the field cache key, or flush it if it already exists.
-        """
-        if self.cacheable:
-            self._instance._cache[self.name] = {}
-
-    def get_cache(self):
-        """
-        Return the local cache dict.
-        """
-        return self._instance._cache[self.name]
 
     @property
     def key(self):
@@ -397,8 +356,6 @@ class RedisField(RedisProxyCommand):
         do something when an instance is set
         """
         self._instance = instance
-        # Force field.cacheable and lockable to False if it's False for the model
-        self.cacheable = self.cacheable and instance.cacheable
         self.lockable = self.lockable and instance.lockable
 
     def _call_command(self, name, *args, **kwargs):

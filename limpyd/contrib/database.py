@@ -80,14 +80,12 @@ class _Pipeline(StrictPipeline):
     def __init__(self, database, transaction=True):
         self._database = database
         self._original_connection = database._connection
-        self._original_discard_cache = database.discard_cache
         super(_Pipeline, self).__init__(
             connection_pool=database._connection.connection_pool,
             response_callbacks=database._connection.response_callbacks,
             transaction=transaction,
             shard_hint=None)
         database._connection = self
-        database.discard_cache = True
 
     def watch(self, *names):
         """
@@ -104,5 +102,4 @@ class _Pipeline(StrictPipeline):
 
     def __exit__(self, exc_type, exc_value, traceback):
         self._database._connection = self._original_connection
-        self._database.discard_cache = self._original_discard_cache
         super(_Pipeline, self).__exit__(exc_type, exc_value, traceback)
