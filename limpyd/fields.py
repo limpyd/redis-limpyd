@@ -499,18 +499,25 @@ class RedisField(RedisProxyCommand):
     def mark_for_deindexing(self, value=None):
         self._to_deindex = value if value is not None else self.proxy_get()
 
-    def _reset(self, *args, **kwargs):
+    def _reset(self, command, *args, **kwargs):
         """
         Shortcut for commands that reset values of the field.
         All will be deindexed and reindexed if needed.
         """
         self.mark_for_deindexing()
-        result = self._traverse_command(*args, **kwargs)
-        if result:
-            self.mark_for_indexing()
-            self.index()
+        result = self._traverse_command(command, *args, **kwargs)
+        self.mark_for_indexing()
+        self.index()
         return result
-    _call_delete = _reset
+
+    def _del(self, command, *args, **kwargs):
+        """
+        Shortcut for commands that remove all values of the field.
+        All will be deindexed and reindexed if needed.
+        """
+        self.mark_for_deindexing()
+        return self._traverse_command(command, *args, **kwargs)
+    _call_delete = _del
 
 
 class SingleValueField(RedisField):
@@ -885,7 +892,7 @@ class InstanceHashField(SingleValueField):
     available_partial_modifiers = ('hincrby', 'hincrbyfloat', )
 
     _call_hset = SingleValueField._call_set
-    _call_hdel = RedisField._reset
+    _call_hdel = RedisField._del
 
     @property
     def key(self):
