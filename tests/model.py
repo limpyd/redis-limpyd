@@ -1137,7 +1137,7 @@ class IndexableSortedSetFieldTest(LimpydBaseTest):
         # check that the previous value was not deindexed
         self.assertEqual(set(self.SortedSetModel.collection(field='ignorable')), set([obj._pk]))
 
-    def test_zremrange_reindex_all_vaues(self):
+    def test_zremrange_reindex_all_values(self):
         obj = self.SortedSetModel()
 
         obj.field.zadd(foo=1, bar=2, baz=3)
