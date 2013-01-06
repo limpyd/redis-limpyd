@@ -521,7 +521,8 @@ class RedisModel(RedisProxyCommand):
                 field = self.get_field(field_name)
                 if field.indexable:
                     field.deindex()
-                    field.index_value(value)
+                    field.mark_for_indexing(value)
+                    field.index()
                     indexed.append((field, value))
 
             # Call redis (waits for a dict)
@@ -542,7 +543,8 @@ class RedisModel(RedisProxyCommand):
             # really raise the error
             for field, new_value in indexed:
                 old_value = field.hget()
-                field.deindex_value(new_value)
+                field.mark_for_deindexing(new_value)
+                field.deindex()
                 field.hset(old_value)
             raise
 

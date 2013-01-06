@@ -422,9 +422,9 @@ class RedisField(RedisProxyCommand):
             self.index()
         return result
 
-    def index_value(self, value):
+    def add_index(self, key):
         """
-        index a specific value for this field.
+        Create an index key => instance.pk.
         Has traverse_commande is blind, and can't infer the final value from
         commands like ``append`` or ``setrange``, we let the command process
         then check the result, and raise before modifying the indexes if the
@@ -432,7 +432,6 @@ class RedisField(RedisProxyCommand):
         We should try a better algo because we can lose data if the
         UniquenessError is raised.
         """
-        key = self.index_key(value)
         if self.unique:
             # Lets check if the index key already exist for another instance
             index = self.connection.smembers(key)
@@ -451,26 +450,23 @@ class RedisField(RedisProxyCommand):
 
     def index(self):
         """
-        Handle index process.
+        Handle field index process.
         """
         if self._to_index is not None and self.indexable:
-            self.index_value(self._to_index)
+            key = self.index_key(self._to_index)
+            self.add_index(key)
             self._to_index = None
 
-    def deindex_value(self, value):
-        """
-        Remove stored index if needed.
-        """
-        if value:
-            key = self.index_key(value)
-            self.connection.srem(key, self._instance.get_pk())
+    def remove_index(self, key):
+        self.connection.srem(key, self._instance.get_pk())
 
     def deindex(self):
         """
-        Deindex a value.
+        Run process of deindexing field value(s).
         """
         if self._to_deindex is not None and self.indexable:
-            self.deindex_value(self._to_deindex)
+            key = self.index_key(self._to_deindex)
+            self.remove_index(key)
             self._to_deindex = None
 
     def index_key(self, value, *args):
@@ -481,13 +477,20 @@ class RedisField(RedisProxyCommand):
         # Ex. bikemodel:name:{bikename}
         if not self.indexable:
             raise ValueError("Field %s is not indexable, cannot ask its index_key" % self.name)
-        if value and isinstance(value, str):
-            value = value.decode('utf-8')
+        value = self.from_python(value)
         return self.make_key(
             self._model._name,
             self.name,
             value,
         )
+
+    def from_python(self, value):
+        """
+        Coerce a value before using it in Redis.
+        """
+        if value and isinstance(value, str):
+            value = value.decode('utf-8')
+        return value
 
     def mark_for_indexing(self, value=None):
         self._to_index = value if value is not None else self.proxy_get()
@@ -592,7 +595,8 @@ class MultiValuesField(RedisField):
         """
         if self._to_index is not None and self.indexable:
             for value in self._to_index:
-                self.index_value(value)
+                key = self.index_key(value)
+                self.add_index(key)
             self._to_index = None
 
     def deindex(self):
@@ -601,7 +605,8 @@ class MultiValuesField(RedisField):
         """
         if self._to_deindex is not None and self.indexable:
             for value in self._to_deindex:
-                self.deindex_value(value)
+                key = self.index_key(value)
+                self.remove_index(key)
             self._to_deindex = None
 
 
@@ -780,6 +785,92 @@ class ListField(MultiValuesField):
             self.mark_for_deindexing([old_value])
         self.mark_for_indexing([value])
         return self._traverse_command(command, index, value, *args, **kwargs)
+
+
+class HashField(MultiValuesField):
+
+    proxy_getter = "hgetall"
+    proxy_setter = "hmset"
+
+    available_getters = ('hget', 'hgetall', )
+    available_full_modifiers = ('hdel', 'hmset', 'hsetnx', 'hset', )
+    available_partial_modifiers = ('hincrby', 'hincrbyfloat', )
+
+    def _call_hmset(self, command, *args, **kwargs):
+        if self.indexable:
+            current = self.proxy_get()
+            _to_deindex = dict((k, current[k]) for k in kwargs.iterkeys() if k in current)
+            self.mark_for_deindexing(_to_deindex)
+            self.mark_for_indexing(kwargs)
+        return self._traverse_command(command, kwargs)
+
+    def _call_hset(self, command, key, value):
+        if self.indexable:
+            current = self.proxy_get()
+            if value != current.get(key, None):
+                if key in current:
+                    self.mark_for_deindexing({key: current[key]})
+                self.mark_for_indexing({key: value})
+        return self._traverse_command(command, key, value)
+
+    def _call_hincrby(self, command, key, amount):
+        if self.indexable:
+            current = self.proxy_get()
+            if key in current:
+                self.mark_for_deindexing({key: current[key]})
+        result = self._traverse_command(command, key, amount)
+        if self.indexable:
+            self.mark_for_indexing({key: result})
+            self.index()
+    _call_hincrbyfloat = _call_hincrby
+
+    def _call_hdel(self, command, *args):
+        if self.indexable:
+            current = self.proxy_get()
+            self.mark_for_deindexing(dict((k, current[k]) for k in args))
+        return self._traverse_command(command, *args)
+
+    def _call_hsetnx(self, command, key, value):
+        result = self._traverse_command(command, key, value)
+        if result:
+            # hsetnx returns 1 if key has been set
+            self.mark_for_indexing({key: value})
+            self.index()
+
+    def index_key(self, value, field_name):
+        """
+        Manage hash->field_name in the final key.
+        """
+        # Ex. email:headers:content_type:{content_type}
+        if not self.indexable:
+            raise ValueError("HashField %s is not indexable, cannot ask its index_key" % self.name)
+        value = self.from_python(value)
+        return self.make_key(
+            self._model._name,
+            self.name,
+            field_name,
+            value,
+        )
+
+    def index(self):
+        """
+        Deal with dicts and field names.
+        """
+        if self._to_index is not None and self.indexable:
+            for field_name, value in self._to_index.iteritems():
+                key = self.index_key(value, field_name)
+                self.add_index(key)
+            self._to_index = None
+
+    def deindex(self):
+        """
+        Deal with dicts and field names.
+        """
+        if self._to_deindex is not None and self.indexable:
+            for field_name, value in self._to_deindex.iteritems():
+                key = self.index_key(value, field_name)
+                self.remove_index(key)
+            self._to_deindex = None
 
 
 class HashableField(SingleValueField):
