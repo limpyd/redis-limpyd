@@ -426,7 +426,7 @@ class RedisField(RedisProxyCommand):
     def add_index(self, key):
         """
         Create an index key => instance.pk.
-        Has traverse_commande is blind, and can't infer the final value from
+        As traverse_commande is blind, and can't infer the final value from
         commands like ``append`` or ``setrange``, we let the command process
         then check the result, and raise before modifying the indexes if the
         value was not unique, and then remove the key.
