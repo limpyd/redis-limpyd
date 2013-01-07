@@ -837,7 +837,7 @@ class HashField(MultiValuesField):
     def _call_hdel(self, command, *args):
         if self.indexable:
             current = self.proxy_get()
-            self.mark_for_deindexing(dict((k, current[k]) for k in args))
+            self.mark_for_deindexing(dict((k, current[k]) for k in args if k in current))
         return self._traverse_command(command, *args)
 
     def _call_hsetnx(self, command, key, value):

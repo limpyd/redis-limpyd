@@ -1422,6 +1422,10 @@ class HashFieldTest(LimpydBaseTest):
         self.assertEqual(obj.headers.hget('from'), None)
         self.assertEqual(set(self.EmailTestModel.collection(headers__from='foo@bar.com')), set())
 
+        # Do not raise if we try to del a key that does not exist
+        # (follow redis usage)
+        obj.headers.hdel('a key that does not exist')
+
     def test_hsetnx_should_index_only_if_value_is_new(self):
         obj = self.EmailTestModel()
         obj.headers.hset('to', 'two@three.org')
