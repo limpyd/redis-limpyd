@@ -1340,6 +1340,25 @@ class IndexableListFieldTest(LimpydBaseTest):
         self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
         self.assertEqual(set(self.ListModel.collection(field='baz')), set())
 
+    def test_linsert_should_only_index_its_value(self):
+
+        obj = self.ListModel()
+
+        obj.field.lpush('foo')
+        self.assertEqual(obj.field.proxy_get(), ['foo'])
+        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
+
+        nb_key_before = len(self.connection.keys())
+        obj.field.linsert('before', 'foo', 'thevalue')
+        # It should only have add one key for the new index
+        nb_key_after = len(self.connection.keys())
+        self.assertEqual(nb_key_after, nb_key_before + 1)
+
+        self.assertEqual(obj.field.proxy_get(), ['thevalue', 'foo'])
+        # Foo may still be indexed
+        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
+        self.assertEqual(set(self.ListModel.collection(field='thevalue')), set([obj._pk]))
+
 
 class HashFieldTest(LimpydBaseTest):
 

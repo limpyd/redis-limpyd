@@ -746,7 +746,7 @@ class ListField(MultiValuesField):
                            'ltrim', )
 
     _call_lpop = _call_rpop = MultiValuesField._pop
-    _call_lpush = _call_rpush = _call_linsert = MultiValuesField._add
+    _call_lpush = _call_rpush = MultiValuesField._add
 
     def lmembers(self):
         """
@@ -791,6 +791,10 @@ class ListField(MultiValuesField):
             self.mark_for_deindexing([old_value])
         self.mark_for_indexing([value])
         return self._traverse_command(command, index, value, *args, **kwargs)
+
+    def _call_linsert(self, command, where, refvalue, value):
+        self.mark_for_indexing([value])
+        return self._traverse_command(command, where, refvalue, value)
 
 
 class HashField(MultiValuesField):
