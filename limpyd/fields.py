@@ -508,7 +508,7 @@ class RedisField(RedisProxyCommand):
     def _del(self, command, *args, **kwargs):
         """
         Shortcut for commands that remove all values of the field.
-        All will be deindexed and reindexed if needed.
+        All will be deindexed.
         """
         self.mark_for_deindexing()
         return self._traverse_command(command, *args, **kwargs)
