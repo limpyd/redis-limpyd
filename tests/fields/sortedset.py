@@ -42,7 +42,7 @@ class IndexableSortedSetFieldTest(BaseModelTest):
         self.assertCollection([], field='foo')
         self.assertCollection([], field='bar')
 
-    def test_zincr_should_correctly_index_only_its_own_value(self):
+    def test_zincrby_should_correctly_index_only_its_own_value(self):
         obj = self.model()
 
         # add a value, to check that its index is not updated
@@ -79,3 +79,43 @@ class IndexableSortedSetFieldTest(BaseModelTest):
         self.assertCollection([], field='foo')
         self.assertCollection([], field='bar')
         self.assertCollection([obj._pk], field='baz')
+
+    def test_zremrangebyrank_reindex_all_values(self):
+        obj = self.model()
+
+        obj.field.zadd(foo=1, bar=2, baz=3, faz=4)
+
+        # we remove two values
+        with self.assertNumCommands(12):
+            # check that we had 10 commands:
+            # - 1 to get all existing values to deindex
+            # - 4 to deindex all values
+            # - 1 for the zremrangebyrank
+            # - 1 to get all remaining values to index
+            # - 2 to index the remaining values
+            # - 3 for the lock (set at the biginning, check/unset at the end))
+            obj.field.zremrangebyrank(1, 2)
+
+        # check that all values are correctly indexed/deindexed
+        self.assertCollection([obj._pk], field='foo')
+        self.assertCollection([], field='bar')
+        self.assertCollection([], field='baz')
+        self.assertCollection([obj._pk], field='faz')
+
+    def test_delete_should_deindex(self):
+        obj = self.model()
+
+        obj.field.zadd(foo=22, bar=34)
+        self.assertCollection([obj._pk], field='foo')
+
+        # we remove two values
+        with self.assertNumCommands(7):
+            # check that we had 10 commands:
+            # - 3 for the lock (set at the biginning, check/unset at the end))
+            # - 1 to get all existing values to deindex
+            # - 2 to deindex all values
+            # - 1 for the delete
+            obj.field.delete()
+
+        # check that all values are correctly indexed/deindexed
+        self.assertCollection([], field='foo')
