@@ -774,6 +774,7 @@ class ListField(MultiValuesField):
 
     _call_lpop = _call_rpop = MultiValuesField._pop
     _call_lpush = _call_rpush = MultiValuesField._add
+    _call_ltrim = RedisField._reset
 
     def lmembers(self):
         """

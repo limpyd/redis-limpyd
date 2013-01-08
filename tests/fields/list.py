@@ -164,3 +164,20 @@ class IndexableListFieldTest(BaseModelTest):
         # Foo may still be indexed
         self.assertCollection([obj._pk], field="foo")
         self.assertCollection([obj._pk], field="thevalue")
+
+    def test_ltrim_should_deindex_and_reindex(self):
+        obj = self.model()
+        obj.field.rpush("foo", "bar", "baz", "faz")
+        with self.assertNumCommands(12):
+            # 3 for lock
+            # 1 for getting all values to deindex
+            # 4 for deindexing all values
+            # 1 for command
+            # 1 for getting remaining values
+            # 2 for indexing remaining values
+            obj.field.ltrim(1, 2)  # keep bar and baz, remove others
+        self.assertEqual(obj.field.proxy_get(), ["bar", "baz"])
+        self.assertCollection([], field="foo")
+        self.assertCollection([obj._pk], field="bar")
+        self.assertCollection([obj._pk], field="baz")
+        self.assertCollection([], field="faz")
