@@ -9,6 +9,58 @@ class Vegetable(TestRedisModel):
     pip = fields.StringField(indexable=True)
 
 
+class StringFieldTest(BaseModelTest):
+
+    model = Vegetable
+
+    def test_set_should_not_make_index_calls(self):
+        vegetable = self.model(name="aubergine")
+        with self.assertNumCommands(1):
+            vegetable.color.set('plum')
+
+    def test_setnx_should_not_make_index_calls(self):
+        vegetable = self.model(name="aubergine")
+        with self.assertNumCommands(1):
+            vegetable.color.set('plum')
+        # Try again now that is set
+        with self.assertNumCommands(1):
+            vegetable.color.set('plum')
+
+    def test_setrange_should_not_make_index_calls(self):
+        vegetable = self.model(name="aubergine", color="dark green")
+        with self.assertNumCommands(1):
+            vegetable.color.setrange(5, 'blue')
+        self.assertEqual(vegetable.color.get(), "dark bluen")
+
+    def test_delete_should_not_make_index_calls(self):
+        vegetable = self.model(name="aubergine")
+        vegetable.color.set('plum')
+        with self.assertNumCommands(1):
+            vegetable.color.delete()
+
+    def test_incr_should_not_make_index_calls(self):
+        vegetable = self.model(name="aubergine")
+        with self.assertNumCommands(1):
+            vegetable.color.incr()
+
+    def test_decr_should_not_make_index_calls(self):
+        vegetable = self.model(name="aubergine")
+        with self.assertNumCommands(1):
+            vegetable.color.decr()
+
+    def test_getset_should_not_make_index_calls(self):
+        vegetable = self.model(name="aubergine", color="green")
+        with self.assertNumCommands(1):
+            color = vegetable.color.getset("plum")
+        self.assertEqual(color, "green")
+
+    def test_append_should_not_make_index_calls(self):
+        vegetable = self.model(name="aubergine", color="dark")
+        with self.assertNumCommands(1):
+            vegetable.color.append(" green")
+        self.assertEqual(vegetable.color.get(), "dark green")
+
+
 class IndexableStringFieldTest(BaseModelTest):
 
     model = Vegetable

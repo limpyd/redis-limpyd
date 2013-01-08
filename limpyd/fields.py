@@ -489,10 +489,12 @@ class RedisField(RedisProxyCommand):
         return value
 
     def mark_for_indexing(self, value=None):
-        self._to_index = value if value is not None else self.proxy_get()
+        if self.indexable:
+            self._to_index = value if value is not None else self.proxy_get()
 
     def mark_for_deindexing(self, value=None):
-        self._to_deindex = value if value is not None else self.proxy_get()
+        if self.indexable:
+            self._to_deindex = value if value is not None else self.proxy_get()
 
     def _reset(self, command, *args, **kwargs):
         """
