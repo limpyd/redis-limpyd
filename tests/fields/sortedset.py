@@ -1,21 +1,23 @@
 from limpyd import fields
 
-from ..base import LimpydBaseTest
-from ..model import TestRedisModel
+from ..model import TestRedisModel, BaseModelTest
 
 
-class IndexableSortedSetFieldTest(LimpydBaseTest):
+class SortedSetModel(TestRedisModel):
+    field = fields.SortedSetField(indexable=True)
 
-    class SortedSetModel(TestRedisModel):
-        field = fields.SortedSetField(indexable=True)
+
+class IndexableSortedSetFieldTest(BaseModelTest):
+
+    model = SortedSetModel
 
     def test_indexable_sorted_sets_are_indexed(self):
-        obj = self.SortedSetModel()
+        obj = self.model()
 
         # add one value
         obj.field.zadd(1.0, 'foo')
-        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set([obj._pk]))
-        self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set())
+        self.assertCollection([obj._pk], field='foo')
+        self.assertCollection([], field='bar')
 
         # add another value
         with self.assertNumCommands(5):
@@ -23,8 +25,8 @@ class IndexableSortedSetFieldTest(LimpydBaseTest):
             # + 3 for the lock (set at the biginning, check/unset at the end))
             obj.field.zadd(2.0, 'bar')
         # check collections
-        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set([obj._pk]))
-        self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set([obj._pk]))
+        self.assertCollection([obj._pk], field='foo')
+        self.assertCollection([obj._pk], field='bar')
 
         # remove a value
         with self.assertNumCommands(5):
@@ -32,16 +34,16 @@ class IndexableSortedSetFieldTest(LimpydBaseTest):
             # + 3 for the lock (set at the biginning, check/unset at the end))
             obj.field.zrem('foo')
         # check collections
-        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set())
-        self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set([obj._pk]))
+        self.assertCollection([], field='foo')
+        self.assertCollection([obj._pk], field='bar')
 
         # remove the object
         obj.delete()
-        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set())
-        self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set())
+        self.assertCollection([], field='foo')
+        self.assertCollection([], field='bar')
 
     def test_zincr_should_correctly_index_only_its_own_value(self):
-        obj = self.SortedSetModel()
+        obj = self.model()
 
         # add a value, to check that its index is not updated
         obj.field.zadd(ignorable=1)
@@ -52,13 +54,13 @@ class IndexableSortedSetFieldTest(LimpydBaseTest):
             obj.field.zincrby('foo', 5.0)
 
         # check that the new value is indexed
-        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set([obj._pk]))
+        self.assertCollection([obj._pk], field='foo')
 
         # check that the previous value was not deindexed
-        self.assertEqual(set(self.SortedSetModel.collection(field='ignorable')), set([obj._pk]))
+        self.assertCollection([obj._pk], field='ignorable')
 
     def test_zremrange_reindex_all_values(self):
-        obj = self.SortedSetModel()
+        obj = self.model()
 
         obj.field.zadd(foo=1, bar=2, baz=3)
 
@@ -74,6 +76,6 @@ class IndexableSortedSetFieldTest(LimpydBaseTest):
             obj.field.zremrangebyscore(1, 2)
 
         # check that all values are correctly indexed/deindexed
-        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set())
-        self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set())
-        self.assertEqual(set(self.SortedSetModel.collection(field='baz')), set([obj._pk]))
+        self.assertCollection([], field='foo')
+        self.assertCollection([], field='bar')
+        self.assertCollection([obj._pk], field='baz')
