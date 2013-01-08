@@ -4,45 +4,47 @@ from redis.exceptions import RedisError
 
 from limpyd import fields
 
-from ..base import LimpydBaseTest
-from ..model import TestRedisModel
+from ..model import TestRedisModel, BaseModelTest
 
 
-class IndexableListFieldTest(LimpydBaseTest):
+class ListModel(TestRedisModel):
+    field = fields.ListField(indexable=True)
 
-    class ListModel(TestRedisModel):
-        field = fields.ListField(indexable=True)
+
+class IndexableListFieldTest(BaseModelTest):
+
+    model = ListModel
 
     def test_indexable_lists_are_indexed(self):
-        obj = self.ListModel()
+        obj = self.model()
 
         # add one value
         obj.field.lpush('foo')
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
-        self.assertEqual(set(self.ListModel.collection(field='bar')), set())
+        self.assertCollection([obj._pk], field="foo")
+        self.assertCollection([], field="bar")
 
         # add another value
         obj.field.lpush('bar')
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
-        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
+        self.assertCollection([obj._pk], field="foo")
+        self.assertCollection([obj._pk], field="bar")
 
         # remove a value
         obj.field.rpop()  # will remove foo
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set())
-        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
+        self.assertCollection([], field="foo")
+        self.assertCollection([obj._pk], field="bar")
 
         obj.delete()
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set())
-        self.assertEqual(set(self.ListModel.collection(field='bar')), set())
+        self.assertCollection([], field="foo")
+        self.assertCollection([], field="bar")
 
         # test we can add many values at the same time
-        obj = self.ListModel()
+        obj = self.model()
         obj.field.rpush('foo', 'bar')
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
-        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
+        self.assertCollection([obj._pk], field="foo")
+        self.assertCollection([obj._pk], field="bar")
 
     def test_pop_commands_should_correctly_deindex_one_value(self):
-        obj = self.ListModel()
+        obj = self.model()
 
         obj.field.lpush('foo', 'bar')
 
@@ -52,16 +54,16 @@ class IndexableListFieldTest(LimpydBaseTest):
             bar = obj.field.lpop()
 
         self.assertEqual(bar, 'bar')
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
-        self.assertEqual(set(self.ListModel.collection(field='bar')), set())
+        self.assertCollection([obj._pk], field="foo")
+        self.assertCollection([], field="bar")
 
     def test_pushx_commands_should_correctly_index_only_its_values(self):
-        obj = self.ListModel()
+        obj = self.model()
 
         # check that pushx on an empty list does nothing
         obj.field.lpushx('foo')
         self.assertEqual(obj.field.proxy_get(), [])
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set())
+        self.assertCollection([], field="foo")
 
         # add a value to really test pushx
         obj.field.lpush('foo')
@@ -73,10 +75,10 @@ class IndexableListFieldTest(LimpydBaseTest):
 
         # test list and collection, to be sure
         self.assertEqual(obj.field.proxy_get(), ['foo', 'bar'])
-        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
+        self.assertCollection([obj._pk], field="bar")
 
     def test_lrem_command_should_correctly_deindex_only_its_value_when_possible(self):
-        obj = self.ListModel()
+        obj = self.model()
 
         obj.field.lpush('foo', 'bar', 'foo',)
 
@@ -88,8 +90,8 @@ class IndexableListFieldTest(LimpydBaseTest):
 
         # no more foo in the list
         self.assertEqual(obj.field.proxy_get(), ['bar'])
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set())
-        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
+        self.assertCollection([], field="foo")
+        self.assertCollection([obj._pk], field="bar")
 
         # add more foos to test lrem with another count parameter
         obj.field.lpush('foo')
@@ -108,10 +110,10 @@ class IndexableListFieldTest(LimpydBaseTest):
 
         # still a foo in the list
         self.assertEqual(obj.field.proxy_get(), ['bar', 'foo'])
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
+        self.assertCollection([obj._pk], field="foo")
 
     def test_lset_command_should_correctly_deindex_and_index_its_value(self):
-        obj = self.ListModel()
+        obj = self.model()
 
         obj.field.lpush('foo')
 
@@ -127,8 +129,8 @@ class IndexableListFieldTest(LimpydBaseTest):
 
         # check collections
         self.assertEqual(obj.field.proxy_get(), ['bar'])
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set())
-        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
+        self.assertCollection([], field="foo")
+        self.assertCollection([obj._pk], field="bar")
 
         # replace an inexisting value will raise, without (de)indexing anything)
         with self.assertNumCommands(5):
@@ -142,16 +144,15 @@ class IndexableListFieldTest(LimpydBaseTest):
 
         # check collections are not modified
         self.assertEqual(obj.field.proxy_get(), ['bar'])
-        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
-        self.assertEqual(set(self.ListModel.collection(field='baz')), set())
+        self.assertCollection([obj._pk], field="bar")
+        self.assertCollection([], field="baz")
 
     def test_linsert_should_only_index_its_value(self):
-
-        obj = self.ListModel()
+        obj = self.model()
 
         obj.field.lpush('foo')
         self.assertEqual(obj.field.proxy_get(), ['foo'])
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
+        self.assertCollection([obj._pk], field="foo")
 
         nb_key_before = len(self.connection.keys())
         obj.field.linsert('before', 'foo', 'thevalue')
@@ -161,5 +162,5 @@ class IndexableListFieldTest(LimpydBaseTest):
 
         self.assertEqual(obj.field.proxy_get(), ['thevalue', 'foo'])
         # Foo may still be indexed
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
-        self.assertEqual(set(self.ListModel.collection(field='thevalue')), set([obj._pk]))
+        self.assertCollection([obj._pk], field="foo")
+        self.assertCollection([obj._pk], field="thevalue")
