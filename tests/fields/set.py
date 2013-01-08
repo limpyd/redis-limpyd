@@ -1,41 +1,43 @@
 from limpyd import fields
 
-from ..base import LimpydBaseTest
-from ..model import TestRedisModel
+from ..model import TestRedisModel, BaseModelTest
 
 
-class IndexableSetFieldTest(LimpydBaseTest):
+class SetModel(TestRedisModel):
+    field = fields.SetField(indexable=True)
 
-    class SetModel(TestRedisModel):
-        field = fields.SetField(indexable=True)
+
+class IndexableSetFieldTest(BaseModelTest):
+
+    model = SetModel
 
     def test_indexable_sets_are_indexed(self):
-        obj = self.SetModel()
+        obj = self.model()
 
         # add one value
         obj.field.sadd('foo')
-        self.assertEqual(set(self.SetModel.collection(field='foo')), set([obj._pk]))
-        self.assertEqual(set(self.SetModel.collection(field='bar')), set())
+        self.assertCollection([obj._pk], field="foo")
+        self.assertCollection([], field="bar")
 
         # add another value
         obj.field.sadd('bar')
-        self.assertEqual(set(self.SetModel.collection(field='foo')), set([obj._pk]))
-        self.assertEqual(set(self.SetModel.collection(field='bar')), set([obj._pk]))
+        self.assertCollection([obj._pk], field="foo")
+        self.assertCollection([obj._pk], field="bar")
 
         # remove a value
         obj.field.srem('foo')
-        self.assertEqual(set(self.SetModel.collection(field='foo')), set())
-        self.assertEqual(set(self.SetModel.collection(field='bar')), set([obj._pk]))
+        self.assertCollection([], field="foo")
+        self.assertCollection([obj._pk], field="bar")
 
         # remove the object
         obj.delete()
-        self.assertEqual(set(self.SetModel.collection(field='foo')), set())
-        self.assertEqual(set(self.SetModel.collection(field='bar')), set())
+        self.assertCollection([], field="foo")
+        self.assertCollection([], field="bar")
 
     def test_spop_command_should_correctly_deindex_one_value(self):
         # spop remove and return a random value from the set, we don't know which one
 
-        obj = self.SetModel()
+        obj = self.model()
 
         values = ['foo', 'bar']
 
@@ -48,5 +50,5 @@ class IndexableSetFieldTest(LimpydBaseTest):
 
         values.remove(poped_value)
         self.assertEqual(obj.field.proxy_get(), set(values))
-        self.assertEqual(set(self.SetModel.collection(field=values[0])), set([obj._pk]))
-        self.assertEqual(set(self.SetModel.collection(field=poped_value)), set())
+        self.assertCollection([obj._pk], field=values[0])
+        self.assertCollection([], field=poped_value)
