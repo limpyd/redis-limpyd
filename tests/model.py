@@ -43,6 +43,17 @@ class Boat(TestRedisModel):
     length = fields.StringField()
 
 
+class BaseModelTest(LimpydBaseTest):
+
+    model = None
+
+    def assertCollection(self, expected, **filters):
+        self.assertEqual(
+            set(self.model.collection(**filters)),
+            set(expected)
+        )
+
+
 class InitTest(LimpydBaseTest):
 
     def test_instanciation_should_no_connect(self):

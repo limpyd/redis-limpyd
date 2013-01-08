@@ -497,11 +497,22 @@ class RedisField(RedisProxyCommand):
     def _reset(self, command, *args, **kwargs):
         """
         Shortcut for commands that reset values of the field.
-        All will be deindexed and reindexed if needed.
+        All will be deindexed and reindexed.
         """
         self.mark_for_deindexing()
         result = self._traverse_command(command, *args, **kwargs)
         self.mark_for_indexing()
+        self.index()
+        return result
+
+    def _reindex_from_result(self, command, *args, **kwargs):
+        """
+        Same as _reset, but uses Redis return value to reindex, to
+        save one query.
+        """
+        self.mark_for_deindexing()
+        result = self._traverse_command(command, *args, **kwargs)
+        self.mark_for_indexing(result)
         self.index()
         return result
 
@@ -546,6 +557,20 @@ class StringField(SingleValueField):
                            'setbit', 'setex', 'setnx', 'setrange', )
 
     _call_getset = SingleValueField._call_set
+    _call_append = SingleValueField._reset
+    _call_decr = SingleValueField._reindex_from_result
+    _call_incr = SingleValueField._reindex_from_result
+    _call_incrbyfloat = SingleValueField._reindex_from_result
+    _call_setrange = SingleValueField._reset
+
+    def _call_setnx(self, command, value):
+        """
+        Index only if value has been set.
+        """
+        result = self._traverse_command(command, value)
+        if result:
+            self.mark_for_indexing(value)
+            self.index()
 
 
 class MultiValuesField(RedisField):
