@@ -191,3 +191,48 @@ class IndexableListFieldTest(BaseModelTest):
         self.assertCollection([obj._pk], field="bar")
         self.assertCollection([obj._pk], field="baz")
         self.assertCollection([], field="faz")
+
+
+class Menu(TestRedisModel):
+    dishes = fields.ListField(unique=True)
+
+
+class UniqueListFieldTest(BaseModelTest):
+
+    model = Menu
+
+    def test_unique_listfield_should_be_settable_twice_at_init(self):
+        menu1 = self.model(dishes=['pasta', 'ravioli'])
+        self.assertCollection([menu1._pk], dishes="pasta")
+        with self.assertRaises(UniquenessError):
+            self.model(dishes=['pardule', 'pasta'])
+        self.assertCollection([menu1._pk], dishes="pasta")
+
+    def test_rpush_should_hit_the_uniqueness_check(self):
+        menu1 = self.model()
+        menu1.dishes.rpush('pasta', 'ravioli')
+        self.assertCollection([menu1._pk], dishes="pasta")
+        menu2 = self.model(dishes=['gniocchi', 'spaghetti'])
+        with self.assertRaises(UniquenessError):
+            menu2.dishes.rpush('pardule', 'pasta')
+        self.assertCollection([menu1._pk], dishes="pasta")
+        self.assertCollection([menu2._pk], dishes="gniocchi")
+        self.assertCollection([menu2._pk], dishes="spaghetti")
+
+    def test_linsert_should_hit_the_uniqueness_check(self):
+        menu1 = self.model(dishes=['pasta', 'ravioli'])
+        self.assertCollection([menu1._pk], dishes="pasta")
+        menu2 = self.model(dishes=['gniocchi', 'spaghetti'])
+        with self.assertRaises(UniquenessError):
+            menu2.dishes.rpush('before', 'spaghetti', 'pasta')
+        self.assertCollection([menu1._pk], dishes="pasta")
+        self.assertCollection([menu2._pk], dishes="gniocchi")
+
+    def test_lset_should_hit_the_uniqueness_check(self):
+        menu1 = self.model(dishes=['pasta', 'ravioli'])
+        self.assertCollection([menu1._pk], dishes="pasta")
+        menu2 = self.model(dishes=['gniocchi', 'spaghetti'])
+        with self.assertRaises(UniquenessError):
+            menu2.dishes.lset(0, 'pasta')
+        self.assertCollection([menu1._pk], dishes="pasta")
+        self.assertCollection([menu2._pk], dishes="gniocchi")
