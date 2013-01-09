@@ -1,4 +1,7 @@
+# -*- coding:utf-8 -*-
+
 from limpyd import fields
+from limpyd.exceptions import UniquenessError
 
 from ..model import TestRedisModel, BaseModelTest
 
@@ -166,3 +169,67 @@ class IndexableStringFieldTest(BaseModelTest):
         self.assertEqual(vegetable.name.get(), 'augerbine')
         self.assertCollection([], name='aubergine')
         self.assertCollection([vegetable._pk], name='augerbine')
+
+
+class Ferry(TestRedisModel):
+    name = fields.StringField(unique=True)
+
+
+class UniqueStringFieldTest(BaseModelTest):
+
+    model = Ferry
+
+    def test_unique_stringfield_should_be_settable_twice_at_init(self):
+        ferry1 = self.model(name=u"Napoléon Bonaparte")
+        self.assertCollection([ferry1._pk], name=u"Napoléon Bonaparte")
+        with self.assertRaises(UniquenessError):
+            self.model(name=u"Napoléon Bonaparte")
+        self.assertCollection([ferry1._pk], name=u"Napoléon Bonaparte")
+
+    def test_set_should_hit_uniqueness_check(self):
+        ferry1 = self.model(name=u"Napoléon Bonaparte")
+        ferry2 = self.model(name=u"Danièle Casanova")
+        with self.assertRaises(UniquenessError):
+            ferry2.name.set(u"Napoléon Bonaparte")
+        self.assertCollection([ferry1._pk], name=u"Napoléon Bonaparte")
+        self.assertCollection([ferry2._pk], name=u"Danièle Casanova")
+
+    def test_getset_should_hit_uniqueness_test(self):
+        ferry1 = self.model(name=u"Napoléon Bonaparte")
+        ferry2 = self.model(name=u"Danièle Casanova")
+        with self.assertRaises(UniquenessError):
+            ferry2.name.getset(u"Napoléon Bonaparte")
+        self.assertCollection([ferry1._pk], name=u"Napoléon Bonaparte")
+        self.assertCollection([ferry2._pk], name=u"Danièle Casanova")
+
+    def test_append_should_hit_uniqueness_test(self):
+        ferry1 = self.model(name=u"Napoléon Bonaparte")
+        ferry2 = self.model(name=u"Napoléon")
+        with self.assertRaises(UniquenessError):
+            ferry2.name.append(u" Bonaparte")
+        self.assertCollection([ferry1._pk], name=u"Napoléon Bonaparte")
+        self.assertCollection([ferry2._pk], name=u"Napoléon")
+
+    def test_decr_should_hit_uniqueness_test(self):
+        ferry1 = self.model(name=1)
+        ferry2 = self.model(name=2)
+        with self.assertRaises(UniquenessError):
+            ferry2.name.decr()
+        self.assertCollection([ferry1._pk], name=1)
+        self.assertCollection([ferry2._pk], name=2)
+
+    def test_incr_should_hit_uniqueness_test(self):
+        ferry1 = self.model(name=2)
+        ferry2 = self.model(name=1)
+        with self.assertRaises(UniquenessError):
+            ferry2.name.incr()
+        self.assertCollection([ferry1._pk], name=2)
+        self.assertCollection([ferry2._pk], name=1)
+
+    def test_setrange_should_hit_uniqueness_test(self):
+        ferry1 = self.model(name="Kalliste")
+        ferry2 = self.model(name="Kammiste")
+        with self.assertRaises(UniquenessError):
+            ferry2.name.setrange(2, "ll")
+        self.assertCollection([ferry1._pk], name="Kalliste")
+        self.assertCollection([ferry2._pk], name="Kammiste")

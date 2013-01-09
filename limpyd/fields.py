@@ -209,6 +209,10 @@ class RedisField(RedisProxyCommand):
         """
         Manage all field attributes
         """
+        # Store indexed/deindexed keys during process
+        # to be able to revert them in case of exception
+        self._indexed_keys = set()
+        self._deindexed_keys = set()
         self.indexable = False
         self.cacheable = kwargs.get('cacheable', True)
         self.lockable = kwargs.get('lockable', True)
@@ -401,7 +405,19 @@ class RedisField(RedisProxyCommand):
         meth = super(RedisField, self)._call_command
         if self.indexable and name in self.available_modifiers:
             with FieldLock(self):
-                return meth(name, *args, **kwargs)
+                try:
+                    result = meth(name, *args, **kwargs)
+                except:
+                    for key in self._indexed_keys:
+                        self.remove_index(key)
+                    for key in self._deindexed_keys:
+                        self.add_index(key)
+                    raise
+                else:
+                    return result
+                finally:
+                    self._indexed_keys = set()
+                    self._deindexed_keys = set()
         else:
             return meth(name, *args, **kwargs)
 
@@ -429,7 +445,9 @@ class RedisField(RedisProxyCommand):
         # Do index => create a key to be able to retrieve parent pk with
         # current field value
         log.debug("indexing %s with key %s" % (key, self._instance.get_pk()))
-        return self.connection.sadd(key, self._instance.get_pk())
+        result = self.connection.sadd(key, self._instance.get_pk())
+        self._indexed_keys.add(key)
+        return result
 
     def index(self, value=None):
         """
@@ -443,6 +461,7 @@ class RedisField(RedisProxyCommand):
 
     def remove_index(self, key):
         self.connection.srem(key, self._instance.get_pk())
+        self._deindexed_keys.add(key)
 
     def deindex(self, value=None):
         """
