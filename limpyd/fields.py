@@ -242,7 +242,13 @@ class RedisField(RedisProxyCommand):
         A helper to easily call the proxy_setter of the field
         """
         setter = getattr(self, self.proxy_setter)
-        return setter(value)
+        if isinstance(value, (list, tuple, set)):
+            result = setter(*value)
+        elif isinstance(value, dict):
+            result = setter(**value)
+        else:
+            result = setter(value)
+        return result
 
     def init_cache(self):
         """
@@ -763,7 +769,7 @@ class ListField(MultiValuesField):
     """
 
     proxy_getter = "lmembers"
-    proxy_setter = "lpush"
+    proxy_setter = "rpush"
 
     available_getters = ('lindex', 'llen', 'lrange', )
     available_modifiers = ('delete', 'linsert', 'lpop', 'lpush', 'lpushx',

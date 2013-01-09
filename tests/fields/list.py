@@ -3,6 +3,7 @@
 from redis.exceptions import RedisError
 
 from limpyd import fields
+from limpyd.exceptions import UniquenessError
 
 from ..model import TestRedisModel, BaseModelTest
 
@@ -14,6 +15,15 @@ class ListModel(TestRedisModel):
 class IndexableListFieldTest(BaseModelTest):
 
     model = ListModel
+
+    def test_listfield_is_settable_at_init(self):
+        obj = self.model(field=['foo', 'bar'])
+        self.assertEqual(
+            obj.field.proxy_get(),
+            ['foo', 'bar']
+        )
+        self.assertCollection([obj._pk], field="foo")
+        self.assertCollection([obj._pk], field="bar")
 
     def test_indexable_lists_are_indexed(self):
         obj = self.model()

@@ -14,6 +14,15 @@ class HashFieldTest(BaseModelTest):
 
     model = EmailTestModel
 
+    def test_hashfield_can_be_set_at_init(self):
+        headers = {
+            'from': 'foo@bar.com',
+            'to': 'me@world.org'
+        }
+        obj = self.model(headers=headers)
+        self.assertEqual(obj.headers.hget('from'), 'foo@bar.com')
+        self.assertEqual(obj.headers.hget('to'), 'me@world.org')
+
     def test_hmset_should_set_values(self):
         obj = self.model()
         headers = {
