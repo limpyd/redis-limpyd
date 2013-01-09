@@ -209,8 +209,6 @@ class RedisField(RedisProxyCommand):
         """
         Manage all field attributes
         """
-        self._to_index = None
-        self._to_deindex = None
         self.indexable = False
         self.cacheable = kwargs.get('cacheable', True)
         self.lockable = kwargs.get('lockable', True)
@@ -407,17 +405,6 @@ class RedisField(RedisProxyCommand):
         else:
             return meth(name, *args, **kwargs)
 
-    def _traverse_command(self, name, *args, **kwargs):
-        """
-        Add index/deindex hook and call parent _traverse_command.
-        """
-        if self.indexable and name in self.available_modifiers:
-            self.deindex()
-        result = super(RedisField, self)._traverse_command(name, *args, **kwargs)
-        if self.indexable and name in self.available_modifiers:
-            self.index()
-        return result
-
     def add_index(self, key):
         """
         Create an index key => instance.pk.
@@ -444,26 +431,28 @@ class RedisField(RedisProxyCommand):
         log.debug("indexing %s with key %s" % (key, self._instance.get_pk()))
         return self.connection.sadd(key, self._instance.get_pk())
 
-    def index(self):
+    def index(self, value=None):
         """
         Handle field index process.
         """
-        if self._to_index is not None and self.indexable:
-            key = self.index_key(self._to_index)
+        if self.indexable:
+            if value is None:
+                value = self.proxy_get()
+            key = self.index_key(value)
             self.add_index(key)
-            self._to_index = None
 
     def remove_index(self, key):
         self.connection.srem(key, self._instance.get_pk())
 
-    def deindex(self):
+    def deindex(self, value=None):
         """
         Run process of deindexing field value(s).
         """
-        if self._to_deindex is not None and self.indexable:
-            key = self.index_key(self._to_deindex)
+        if self.indexable:
+            if value is None:
+                value = self.proxy_get()
+            key = self.index_key(value)
             self.remove_index(key)
-            self._to_deindex = None
 
     def index_key(self, value, *args):
         """
@@ -488,22 +477,13 @@ class RedisField(RedisProxyCommand):
             value = value.decode('utf-8')
         return value
 
-    def mark_for_indexing(self, value=None):
-        if self.indexable:
-            self._to_index = value if value is not None else self.proxy_get()
-
-    def mark_for_deindexing(self, value=None):
-        if self.indexable:
-            self._to_deindex = value if value is not None else self.proxy_get()
-
     def _reset(self, command, *args, **kwargs):
         """
         Shortcut for commands that reset values of the field.
         All will be deindexed and reindexed.
         """
-        self.mark_for_deindexing()
+        self.deindex()
         result = self._traverse_command(command, *args, **kwargs)
-        self.mark_for_indexing()
         self.index()
         return result
 
@@ -512,10 +492,9 @@ class RedisField(RedisProxyCommand):
         Same as _reset, but uses Redis return value to reindex, to
         save one query.
         """
-        self.mark_for_deindexing()
+        self.deindex()
         result = self._traverse_command(command, *args, **kwargs)
-        self.mark_for_indexing(result)
-        self.index()
+        self.index(result)
         return result
 
     def _del(self, command, *args, **kwargs):
@@ -523,7 +502,7 @@ class RedisField(RedisProxyCommand):
         Shortcut for commands that remove all values of the field.
         All will be deindexed.
         """
-        self.mark_for_deindexing()
+        self.deindex()
         return self._traverse_command(command, *args, **kwargs)
     _call_delete = _del
 
@@ -534,18 +513,17 @@ class SingleValueField(RedisField):
     types handling a single value.
     """
 
-    def _call_set(self, command, *args, **kwargs):
+    def _call_set(self, command, value, *args, **kwargs):
         """
         Helper for commands that only set a value to the field.
         The value is either in the kwargs, or as the first argument of the args.
         """
         if self.indexable:
-            value = kwargs.get('value', args[0])
             current = self.proxy_get()
             if current != value:
-                self.mark_for_deindexing(current)
-                self.mark_for_indexing(value)
-        return self._traverse_command(command, *args, **kwargs)
+                self.deindex(current)
+            self.index(value)
+        return self._traverse_command(command, value, *args, **kwargs)
 
 
 class StringField(SingleValueField):
@@ -571,8 +549,8 @@ class StringField(SingleValueField):
         """
         result = self._traverse_command(command, value)
         if result:
-            self.mark_for_indexing(value)
-            self.index()
+            self.index(value)
+        return result
 
 
 class MultiValuesField(RedisField):
@@ -598,7 +576,7 @@ class MultiValuesField(RedisField):
         Shortcut for commands that only add values to the field.
         Added values will be indexed.
         """
-        self.mark_for_indexing(args)
+        self.index(args)
         return self._traverse_command(command, *args, **kwargs)
 
     def _rem(self, command, *args, **kwargs):
@@ -606,7 +584,7 @@ class MultiValuesField(RedisField):
         Shortcut for commands that only remove values from the field.
         Removed values will be deindexed.
         """
-        self.mark_for_deindexing(args)
+        self.deindex(args)
         return self._traverse_command(command, *args, **kwargs)
 
     def _pop(self, command, *args, **kwargs):
@@ -616,29 +594,30 @@ class MultiValuesField(RedisField):
         The returned value will be deindexed
         """
         result = self._traverse_command(command, *args, **kwargs)
-        self.mark_for_deindexing([result])
-        self.deindex()
+        self.deindex([result])
         return result
 
-    def index(self):
+    def index(self, values=None):
         """
         Index all values stored in the field, or only given ones if any.
         """
-        if self._to_index is not None and self.indexable:
-            for value in self._to_index:
+        if self.indexable:
+            if values is None:
+                values = self.proxy_get()
+            for value in values:
                 key = self.index_key(value)
                 self.add_index(key)
-            self._to_index = None
 
-    def deindex(self):
+    def deindex(self, values=None):
         """
         Deindex all values stored in the field, or only given ones if any.
         """
-        if self._to_deindex is not None and self.indexable:
-            for value in self._to_deindex:
+        if self.indexable:
+            if not values:
+                values = self.proxy_get()
+            for value in values:
                 key = self.index_key(value)
                 self.remove_index(key)
-            self._to_deindex = None
 
 
 class SortedSetField(MultiValuesField):
@@ -687,7 +666,7 @@ class SortedSetField(MultiValuesField):
             keys.extend(args[1::2])
         for pair in kwargs.iteritems():
             keys.append(pair[0])
-        self.mark_for_indexing(keys)
+        self.index(keys)
         return self._traverse_command(command, *args, **kwargs)
 
     def _call_zincrby(self, command, value, *args, **kwargs):
@@ -695,7 +674,7 @@ class SortedSetField(MultiValuesField):
         This command update a score of a given value. But it can be a new value
         of the sorted set, so we index it.
         """
-        self.mark_for_indexing([value])
+        self.index([value])
         return self._traverse_command(command, value, *args, **kwargs)
 
     @staticmethod
@@ -789,8 +768,7 @@ class ListField(MultiValuesField):
         """
         result = self._traverse_command(command, *args, **kwargs)
         if result:
-            self.mark_for_indexing(args)
-            self.index()
+            self.index(args)
         return result
     _call_lpushx = _pushx
     _call_rpushx = _pushx
@@ -803,7 +781,7 @@ class ListField(MultiValuesField):
         deindex/reindex. So do it carefuly.
         """
         if not count:
-            self.mark_for_deindexing([value])
+            self.deindex([value])
             return self._traverse_command(command, count, value, *args, **kwargs)
         else:
             return self._reset(command, count, value, *args, **kwargs)
@@ -816,12 +794,13 @@ class ListField(MultiValuesField):
         """
         old_value = self.lindex(index)
         if old_value is not None:
-            self.mark_for_deindexing([old_value])
-        self.mark_for_indexing([value])
-        return self._traverse_command(command, index, value, *args, **kwargs)
+            self.deindex([old_value])
+        result = self._traverse_command(command, index, value, *args, **kwargs)
+        self.index([value])
+        return result
 
     def _call_linsert(self, command, where, refvalue, value):
-        self.mark_for_indexing([value])
+        self.index([value])
         return self._traverse_command(command, where, refvalue, value)
 
 
@@ -838,8 +817,8 @@ class HashField(MultiValuesField):
         if self.indexable:
             current = self.proxy_get()
             _to_deindex = dict((k, current[k]) for k in kwargs.iterkeys() if k in current)
-            self.mark_for_deindexing(_to_deindex)
-            self.mark_for_indexing(kwargs)
+            self.deindex(_to_deindex)
+            self.index(kwargs)
         return self._traverse_command(command, kwargs)
 
     def _call_hset(self, command, key, value):
@@ -847,33 +826,32 @@ class HashField(MultiValuesField):
             current = self.proxy_get()
             if value != current.get(key, None):
                 if key in current:
-                    self.mark_for_deindexing({key: current[key]})
-                self.mark_for_indexing({key: value})
+                    self.deindex({key: current[key]})
+                self.index({key: value})
         return self._traverse_command(command, key, value)
 
     def _call_hincrby(self, command, key, amount):
         if self.indexable:
             current = self.proxy_get()
             if key in current:
-                self.mark_for_deindexing({key: current[key]})
+                self.deindex({key: current[key]})
         result = self._traverse_command(command, key, amount)
-        if self.indexable:
-            self.mark_for_indexing({key: result})
-            self.index()
+        self.index({key: result})
+        return result
     _call_hincrbyfloat = _call_hincrby
 
     def _call_hdel(self, command, *args):
         if self.indexable:
             current = self.proxy_get()
-            self.mark_for_deindexing(dict((k, current[k]) for k in args if k in current))
+            self.deindex(dict((k, current[k]) for k in args if k in current))
         return self._traverse_command(command, *args)
 
     def _call_hsetnx(self, command, key, value):
         result = self._traverse_command(command, key, value)
         if result:
             # hsetnx returns 1 if key has been set
-            self.mark_for_indexing({key: value})
-            self.index()
+            self.index({key: value})
+        return result
 
     def index_key(self, value, field_name):
         """
@@ -890,25 +868,27 @@ class HashField(MultiValuesField):
             value,
         )
 
-    def index(self):
+    def index(self, values=None):
         """
         Deal with dicts and field names.
         """
-        if self._to_index is not None and self.indexable:
-            for field_name, value in self._to_index.iteritems():
+        if self.indexable:
+            if values is None:
+                values = self.proxy_get()
+            for field_name, value in values.iteritems():
                 key = self.index_key(value, field_name)
                 self.add_index(key)
-            self._to_index = None
 
-    def deindex(self):
+    def deindex(self, values=None):
         """
         Deal with dicts and field names.
         """
-        if self._to_deindex is not None and self.indexable:
-            for field_name, value in self._to_deindex.iteritems():
+        if self.indexable:
+            if values is None:
+                values = self.proxy_get()
+            for field_name, value in values.iteritems():
                 key = self.index_key(value, field_name)
                 self.remove_index(key)
-            self._to_deindex = None
 
 
 class InstanceHashField(SingleValueField):
@@ -1109,7 +1089,7 @@ class FieldLock(Lock):
     Only one lock is done on a specific field for a specific model. If during
     lock, another one is asked in the same thread, we assume that it's a
     operation that must be done during the main lock and we don't wait for
-    relase.
+    release.
     """
 
     def __init__(self, field, timeout=5, sleep=0.1):
