@@ -11,6 +11,12 @@ class IndexableSetFieldTest(BaseModelTest):
 
     model = SetModel
 
+    def test_set_can_be_set_at_init(self):
+        obj = self.model(field=[1, 2, 3])
+        self.assertCollection([obj._pk], field=1)
+        self.assertCollection([obj._pk], field=2)
+        self.assertCollection([obj._pk], field=3)
+
     def test_indexable_sets_are_indexed(self):
         obj = self.model()
 
