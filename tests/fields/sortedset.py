@@ -11,6 +11,16 @@ class IndexableSortedSetFieldTest(BaseModelTest):
 
     model = SortedSetModel
 
+    def test_sortedset_can_be_set_at_init_from_a_dict(self):
+        obj = self.model(field={'foo': 1, 'bar': 2})
+        self.assertCollection([obj._pk], field='foo')
+        self.assertCollection([obj._pk], field='bar')
+
+    def test_sortedset_can_be_set_at_init_from_a_list(self):
+        obj = self.model(field=[1, 'foo', 2, 'bar'])
+        self.assertCollection([obj._pk], field='foo')
+        self.assertCollection([obj._pk], field='bar')
+
     def test_indexable_sorted_sets_are_indexed(self):
         obj = self.model()
 
