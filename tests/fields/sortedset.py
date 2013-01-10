@@ -1,7 +1,7 @@
 from limpyd import fields
+from limpyd.exceptions import UniquenessError
 
 from ..model import TestRedisModel, BaseModelTest
-from limpyd.exceptions import UniquenessError
 
 
 class SortedSetModel(TestRedisModel):

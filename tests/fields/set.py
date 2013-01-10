@@ -1,4 +1,5 @@
 from limpyd import fields
+from limpyd.exceptions import UniquenessError
 
 from ..model import TestRedisModel, BaseModelTest
 
@@ -58,3 +59,31 @@ class IndexableSetFieldTest(BaseModelTest):
         self.assertEqual(obj.field.proxy_get(), set(values))
         self.assertCollection([obj._pk], field=values[0])
         self.assertCollection([], field=poped_value)
+
+
+class Crew(TestRedisModel):
+    members = fields.SetField(unique=True)
+
+
+class UniquenessSetFieldTest(BaseModelTest):
+
+    model = Crew
+
+    def test_unique_setfield_should_not_be_settable_twice_at_init(self):
+        crew = self.model(members=['Giovanni', 'Paolo'])
+        self.assertCollection([crew._pk], members="Giovanni")
+        with self.assertRaises(UniquenessError):
+            self.model(members=['Giuseppe', 'Giovanni'])
+        self.assertCollection([crew._pk], members="Giovanni")
+        self.assertCollection([], members="Giuseppe")
+
+    def test_sadd_should_hit_uniqueness_check(self):
+        crew1 = self.model(members=['Giovanni', 'Paolo'])
+        self.assertCollection([crew1._pk], members="Giovanni")
+        crew2 = self.model(members=['Giuseppe', 'Salvatore'])
+        with self.assertRaises(UniquenessError):
+            crew2.members.sadd('Norberto', 'Giovanni')
+        self.assertCollection([crew1._pk], members="Giovanni")
+        self.assertCollection([crew2._pk], members="Giuseppe")
+        self.assertCollection([crew2._pk], members="Salvatore")
+        self.assertCollection([], members="Norberto")
