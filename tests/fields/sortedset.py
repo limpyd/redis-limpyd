@@ -1,6 +1,7 @@
 from limpyd import fields
 
 from ..model import TestRedisModel, BaseModelTest
+from limpyd.exceptions import UniquenessError
 
 
 class SortedSetModel(TestRedisModel):
@@ -129,3 +130,31 @@ class IndexableSortedSetFieldTest(BaseModelTest):
 
         # check that all values are correctly indexed/deindexed
         self.assertCollection([], field='foo')
+
+
+class Student(TestRedisModel):
+    exams = fields.SortedSetField(unique=True)
+
+
+class UniquenessSortedSetFieldTest(BaseModelTest):
+
+    model = Student
+
+    def test_unique_sortedsetfield_should_not_be_settable_twice_at_init(self):
+        student1 = self.model(exams={"math": 9, "sport": 7})
+        self.assertCollection([student1._pk], exams="math")
+        with self.assertRaises(UniquenessError):
+            self.model(exams={"biology": 8, "sport": 7})
+        self.assertCollection([student1._pk], exams="math")
+        self.assertCollection([], exams="biology")
+
+    def test_zadd_should_hit_uniqueness_check(self):
+        student1 = self.model()
+        student1.exams.zadd(math=9, sport=7)
+        self.assertCollection([student1._pk], exams="math")
+        student2 = self.model(exams={"philosophy": 9})
+        with self.assertRaises(UniquenessError):
+            student2.exams.zadd(biology=8, sport=7)
+        self.assertCollection([student1._pk], exams="math")
+        self.assertCollection([], exams="biology")
+        self.assertCollection([student2._pk], exams="philosophy")
