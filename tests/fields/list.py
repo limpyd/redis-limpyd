@@ -201,12 +201,13 @@ class UniqueListFieldTest(BaseModelTest):
 
     model = Menu
 
-    def test_unique_listfield_should_be_settable_twice_at_init(self):
+    def test_unique_listfield_should_not_be_settable_twice_at_init(self):
         menu1 = self.model(dishes=['pasta', 'ravioli'])
         self.assertCollection([menu1._pk], dishes="pasta")
         with self.assertRaises(UniquenessError):
             self.model(dishes=['pardule', 'pasta'])
         self.assertCollection([menu1._pk], dishes="pasta")
+        self.assertCollection([], dishes="pardule")
 
     def test_rpush_should_hit_the_uniqueness_check(self):
         menu1 = self.model()
@@ -218,6 +219,7 @@ class UniqueListFieldTest(BaseModelTest):
         self.assertCollection([menu1._pk], dishes="pasta")
         self.assertCollection([menu2._pk], dishes="gniocchi")
         self.assertCollection([menu2._pk], dishes="spaghetti")
+        self.assertCollection([], dishes="pardule")
 
     def test_linsert_should_hit_the_uniqueness_check(self):
         menu1 = self.model(dishes=['pasta', 'ravioli'])

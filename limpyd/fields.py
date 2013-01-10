@@ -414,9 +414,12 @@ class RedisField(RedisProxyCommand):
                 try:
                     result = meth(name, *args, **kwargs)
                 except:
-                    for key in self._indexed_keys:
+                    # Prevent from reprocessing further index/deindex
+                    _indexed_keys = set(self._indexed_keys)
+                    _deindexed_keys = set(self._deindexed_keys)
+                    for key in _indexed_keys:
                         self.remove_index(key)
-                    for key in self._deindexed_keys:
+                    for key in _deindexed_keys:
                         self.add_index(key)
                     raise
                 else:

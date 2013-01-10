@@ -179,7 +179,7 @@ class UniqueStringFieldTest(BaseModelTest):
 
     model = Ferry
 
-    def test_unique_stringfield_should_be_settable_twice_at_init(self):
+    def test_unique_stringfield_should_not_be_settable_twice_at_init(self):
         ferry1 = self.model(name=u"Napoléon Bonaparte")
         self.assertCollection([ferry1._pk], name=u"Napoléon Bonaparte")
         with self.assertRaises(UniquenessError):
