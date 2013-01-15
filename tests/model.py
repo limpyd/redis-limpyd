@@ -570,6 +570,7 @@ class MetaRedisProxyTest(LimpydBaseTest):
         check_available_commands(fields.ListField)
         check_available_commands(fields.PKField)
         check_available_commands(fields.AutoPKField)
+        check_available_commands(fields.HashField)
 
 
 class PostCommandTest(LimpydBaseTest):
