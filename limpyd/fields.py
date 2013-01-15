@@ -544,7 +544,6 @@ class SingleValueField(RedisField):
     def _call_set(self, command, value, *args, **kwargs):
         """
         Helper for commands that only set a value to the field.
-        The value is either in the kwargs, or as the first argument of the args.
         """
         if self.indexable:
             current = self.proxy_get()
