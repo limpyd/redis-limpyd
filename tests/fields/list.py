@@ -175,6 +175,13 @@ class IndexableListFieldTest(BaseModelTest):
         self.assertCollection([obj._pk], field="foo")
         self.assertCollection([obj._pk], field="thevalue")
 
+    def test_linsert_should_not_be_indexed_if_pivot_is_not_found(self):
+        obj = self.model(field=['foo', 'bar'])
+        obj.field.linsert('before', 'nonexistingvalue', 'valuetoinsert')
+        self.assertCollection([obj._pk], field="foo")
+        self.assertCollection([obj._pk], field="bar")
+        self.assertCollection([], field="valuetoinsert")
+
     def test_ltrim_should_deindex_and_reindex(self):
         obj = self.model()
         obj.field.rpush("foo", "bar", "baz", "faz")

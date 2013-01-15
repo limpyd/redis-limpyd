@@ -828,8 +828,10 @@ class ListField(MultiValuesField):
         return result
 
     def _call_linsert(self, command, where, refvalue, value):
-        self.index([value])
-        return self._traverse_command(command, where, refvalue, value)
+        result = self._traverse_command(command, where, refvalue, value)
+        if result != -1:
+            self.index([value])
+        return result
 
 
 class HashField(MultiValuesField):
