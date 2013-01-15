@@ -149,3 +149,13 @@ class HashFieldTest(BaseModelTest):
             set(obj.headers.hvals()),
             set(['foo@bar.com', 'me@world.org'])
         )
+
+    def test_hexists_should_check_if_key_exists(self):
+        headers = {
+            'from': 'foo@bar.com',
+            'to': 'me@world.org',
+        }
+        obj = self.model(headers=headers)
+        self.assertEqual(obj.headers.hexists('from'), True)
+        self.assertEqual(obj.headers.hexists('to'), True)
+        self.assertEqual(obj.headers.hexists('cc'), False)
