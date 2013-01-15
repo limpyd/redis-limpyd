@@ -159,3 +159,13 @@ class HashFieldTest(BaseModelTest):
         self.assertEqual(obj.headers.hexists('from'), True)
         self.assertEqual(obj.headers.hexists('to'), True)
         self.assertEqual(obj.headers.hexists('cc'), False)
+
+    def test_hlen_should_return_number_of_keys(self):
+        headers = {
+            'from': 'foo@bar.com',
+            'to': 'me@world.org',
+        }
+        obj = self.model()
+        self.assertEqual(obj.headers.hlen(), 0)
+        obj.headers.hmset(**headers)
+        self.assertEqual(obj.headers.hlen(), 2)

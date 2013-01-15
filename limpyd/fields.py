@@ -840,7 +840,7 @@ class HashField(MultiValuesField):
     proxy_setter = "hmset"
 
     available_getters = ('hget', 'hgetall', 'hmget', 'hkeys', 'hvals',
-                         'hexists', )
+                         'hexists', 'hlen', )
     available_modifiers = ('hdel', 'hmset', 'hsetnx', 'hset', 'hincrby',
                            'hincrbyfloat', )
 
