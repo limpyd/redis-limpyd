@@ -138,3 +138,14 @@ class HashFieldTest(BaseModelTest):
             set(obj.headers.hkeys()),
             set(['from', 'to'])
         )
+
+    def test_hvals_should_return_all_values(self):
+        headers = {
+            'from': 'foo@bar.com',
+            'to': 'me@world.org',
+        }
+        obj = self.model(headers=headers)
+        self.assertEqual(
+            set(obj.headers.hvals()),
+            set(['foo@bar.com', 'me@world.org'])
+        )
