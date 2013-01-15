@@ -115,3 +115,15 @@ class HashFieldTest(BaseModelTest):
             obj.headers.hgetall(),
             headers
         )
+
+    def test_hmget_should_return_requested_values(self):
+        headers = {
+            'from': 'foo@bar.com',
+            'to': 'me@world.org',
+            'cc': 'someone@else.org',
+        }
+        obj = self.model(headers=headers)
+        self.assertEqual(
+            obj.headers.hmget('to', 'from'),
+            ['me@world.org', 'foo@bar.com']
+        )

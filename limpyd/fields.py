@@ -839,7 +839,7 @@ class HashField(MultiValuesField):
     proxy_getter = "hgetall"
     proxy_setter = "hmset"
 
-    available_getters = ('hget', 'hgetall', )
+    available_getters = ('hget', 'hgetall', 'hmget' )
     available_modifiers = ('hdel', 'hmset', 'hsetnx', 'hset', 'hincrby',
                            'hincrbyfloat', )
 
@@ -882,6 +882,10 @@ class HashField(MultiValuesField):
             # hsetnx returns 1 if key has been set
             self.index({key: value})
         return result
+
+    def _call_hmget(self, command, *args):
+        # redispy needs a list, not args
+        return self._traverse_command(command, args)
 
     def index_key(self, value, field_name):
         """
