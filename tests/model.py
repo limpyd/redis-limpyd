@@ -5,7 +5,6 @@ import unittest
 import threading
 import time
 from datetime import datetime
-from redis.exceptions import RedisError
 
 from limpyd import model
 from limpyd import fields
@@ -34,14 +33,25 @@ class MotorBike(Bike):
 
 class Boat(TestRedisModel):
     """
-    Use also HashableField.
+    Use also InstanceHashField.
     """
     cacheable = False
 
     name = fields.StringField(unique=True)
-    power = fields.HashableField(indexable=True, default="sail")
+    power = fields.InstanceHashField(indexable=True, default="sail")
     launched = fields.StringField(indexable=True)
     length = fields.StringField()
+
+
+class BaseModelTest(LimpydBaseTest):
+
+    model = None
+
+    def assertCollection(self, expected, **filters):
+        self.assertEqual(
+            set(self.model.collection(**filters)),
+            set(expected)
+        )
 
 
 class InitTest(LimpydBaseTest):
@@ -551,26 +561,23 @@ class MetaRedisProxyTest(LimpydBaseTest):
         def check_available_commands(cls):
             for command in cls.available_getters:
                 self.assertTrue(command in cls.available_commands)
-            for command in cls.available_full_modifiers:
+            for command in cls.available_modifiers:
                 self.assertTrue(command in cls.available_commands)
-                self.assertTrue(command in cls.available_modifiers)
-            for command in cls.available_partial_modifiers:
-                self.assertTrue(command in cls.available_commands)
-                self.assertTrue(command in cls.available_modifiers)
         check_available_commands(fields.StringField)
-        check_available_commands(fields.HashableField)
+        check_available_commands(fields.InstanceHashField)
         check_available_commands(fields.SortedSetField)
         check_available_commands(fields.SetField)
         check_available_commands(fields.ListField)
         check_available_commands(fields.PKField)
         check_available_commands(fields.AutoPKField)
+        check_available_commands(fields.HashField)
 
 
 class PostCommandTest(LimpydBaseTest):
 
     class MyModel(TestRedisModel):
-        name = fields.HashableField()
-        last_modification_date = fields.HashableField()
+        name = fields.InstanceHashField()
+        last_modification_date = fields.InstanceHashField()
 
         def post_command(self, sender, name, result, args, kwargs):
             if isinstance(sender, fields.RedisField) and sender.name == "name":
@@ -634,144 +641,6 @@ class InheritanceTest(LimpydBaseTest):
         self.assertEqual(len(MotorBike.collection(name="davidson")), 1)
 
 
-class PKFieldTest(LimpydBaseTest):
-
-    class AutoPkModel(TestRedisModel):
-        name = fields.StringField(indexable=True)
-
-    class RedefinedAutoPkModel(AutoPkModel):
-        id = fields.AutoPKField()
-
-    class NotAutoPkModel(TestRedisModel):
-        pk = fields.PKField()
-        name = fields.StringField(indexable=True)
-
-    class ExtendedNotAutoPkField(NotAutoPkModel):
-        pass
-
-    class RedefinedNotAutoPkField(AutoPkModel):
-        id = fields.PKField()
-
-    def test_pk_value_for_default_pk_field(self):
-        obj = self.AutoPkModel(name="foo")
-        self.assertEqual(obj._pk, '1')
-        self.assertEqual(obj.get_pk(), obj._pk)
-        self.assertEqual(obj.pk.get(), obj._pk)
-        same_obj = self.AutoPkModel.get(obj._pk)
-        self.assertEqual(same_obj._pk, obj._pk)
-        always_same_obj = self.AutoPkModel.get(pk=obj._pk)
-        self.assertEqual(always_same_obj._pk, obj._pk)
-        obj2 = self.AutoPkModel(name="bar")
-        self.assertEqual(obj2._pk, '2')
-
-    def test_pk_value_for_redefined_auto_pk_field(self):
-        obj = self.RedefinedAutoPkModel(name="foo")
-        self.assertEqual(obj._pk, '1')
-        self.assertEqual(obj.get_pk(), obj._pk)
-        self.assertEqual(obj.pk.get(), obj._pk)
-        self.assertEqual(obj.id.get(), obj._pk)
-        same_obj = self.RedefinedAutoPkModel.get(obj._pk)
-        self.assertEqual(same_obj._pk, obj._pk)
-        always_same_obj = self.RedefinedAutoPkModel.get(pk=obj._pk)
-        self.assertEqual(always_same_obj._pk, obj._pk)
-        obj2 = self.RedefinedAutoPkModel(name="bar")
-        self.assertEqual(obj2._pk, '2')
-
-    def test_pk_value_for_not_auto_increment_pk_field(self):
-        obj = self.NotAutoPkModel(name="evil", pk=666)
-        self.assertEqual(obj._pk, '666')
-        self.assertEqual(obj.get_pk(), obj._pk)
-        self.assertEqual(obj.pk.get(), obj._pk)
-        # test with real string
-        obj2 = self.NotAutoPkModel(name="foo", pk="bar")
-        self.assertEqual(obj2._pk, "bar")
-        self.assertEqual(obj2.pk.get(), obj2._pk)
-        same_obj2 = self.NotAutoPkModel.get("bar")
-        self.assertEqual(obj2._pk, same_obj2.pk.get())
-        # test uniqueness
-        with self.assertRaises(UniquenessError):
-            self.NotAutoPkModel(name="baz", pk="666")
-
-    def test_cannot_define_already_user_defined_pk_field(self):
-        with self.assertRaises(ImplementationError):
-            class InvalidAutoPkModel(self.RedefinedAutoPkModel):
-                uid = fields.AutoPKField()
-
-    def test_cannot_set_pk_for_auto_increment_pk_field(self):
-        with self.assertRaises(ValueError):
-            self.AutoPkModel(name="foo", pk=1)
-        with self.assertRaises(ValueError):
-            self.RedefinedAutoPkModel(name="bar", pk=2)
-
-    def test_forced_to_set_pk_for_not_auto_increment_pk_field(self):
-        with self.assertRaises(ValueError):
-            self.NotAutoPkModel(name="foo")
-        with self.assertRaises(ValueError):
-            self.ExtendedNotAutoPkField(name="foo")
-
-    def test_no_collision_between_pk(self):
-        self.NotAutoPkModel(name="foo", pk=1000)
-        # same model, same pk
-        with self.assertRaises(UniquenessError):
-            self.NotAutoPkModel(name="bar", pk=1000)
-        # other model, same pk
-        self.assertEqual(self.ExtendedNotAutoPkField(name="bar", pk=1000)._pk, '1000')
-
-    def test_collections_filtered_by_pk(self):
-        # default auto pk
-        self.AutoPkModel(name="foo")
-        self.AutoPkModel(name="foo")
-        self.assertEqual(set(self.AutoPkModel.collection(name="foo")), set(['1', '2']))
-        self.assertEqual(set(self.AutoPkModel.collection(pk=1)), set(['1', ]))
-        self.assertEqual(set(self.AutoPkModel.collection(name="foo", pk=1)), set(['1', ]))
-        self.assertEqual(set(self.AutoPkModel.collection(name="foo", pk=3)), set())
-        self.assertEqual(set(self.AutoPkModel.collection(name="bar", pk=1)), set())
-        # specific pk
-        self.NotAutoPkModel(name="foo", pk="100")
-        self.NotAutoPkModel(name="foo", pk="200")
-        self.assertEqual(set(self.NotAutoPkModel.collection(name="foo")), set(['100', '200']))
-        self.assertEqual(set(self.NotAutoPkModel.collection(pk=100)), set(['100', ]))
-        self.assertEqual(set(self.NotAutoPkModel.collection(name="foo", pk=100)), set(['100', ]))
-        self.assertEqual(set(self.NotAutoPkModel.collection(name="foo", pk=300)), set())
-        self.assertEqual(set(self.NotAutoPkModel.collection(name="bar", pk=100)), set())
-
-    def test_pk_cannot_be_updated(self):
-        obj = self.AutoPkModel(name="foo")
-        with self.assertRaises(ValueError):
-            obj.pk.set(2)
-        obj2 = self.RedefinedAutoPkModel(name="bar")
-        with self.assertRaises(ValueError):
-            obj2.pk.set(2)
-        with self.assertRaises(ValueError):
-            obj2.id.set(2)
-        with self.assertRaises(ValueError):
-            obj2.id.set(3)
-        obj3 = self.NotAutoPkModel(name="evil", pk=666)
-        with self.assertRaises(ValueError):
-            obj3.pk.set(777)
-
-    def test_can_access_pk_with_two_names(self):
-        # create via pk, get via id or pk
-        self.RedefinedNotAutoPkField(name="foo", pk=1)
-        same_obj = self.RedefinedNotAutoPkField.get(pk=1)
-        same_obj2 = self.RedefinedNotAutoPkField.get(id=1)
-        self.assertEqual(same_obj.pk.get(), same_obj2.pk.get())
-        self.assertEqual(same_obj.id.get(), same_obj2.id.get())
-        # create via id, get via id or pk
-        self.RedefinedNotAutoPkField(name="foo", id=2)
-        same_obj = self.RedefinedNotAutoPkField.get(pk=2)
-        same_obj2 = self.RedefinedNotAutoPkField.get(id=2)
-        self.assertEqual(same_obj._pk, same_obj2._pk)
-        self.assertEqual(same_obj.id.get(), same_obj2.id.get())
-        # collection via pk or id
-        self.assertEqual(set(self.RedefinedNotAutoPkField.collection(pk=1)), set(['1', ]))
-        self.assertEqual(set(self.RedefinedNotAutoPkField.collection(id=2)), set(['2', ]))
-
-    def test_cannot_set_pk_with_two_names(self):
-        with self.assertRaises(ValueError):
-            self.RedefinedNotAutoPkField(name="foo", pk=1, id=2)
-
-
 class DeleteTest(LimpydBaseTest):
 
     def test_stringfield_keys_are_deleted(self):
@@ -813,13 +682,13 @@ class DeleteTest(LimpydBaseTest):
         self.assertEqual(len(self.connection.keys()), 8)
         self.assertEqual(len(Train.collection(kind="Corail")), 1)
 
-    def test_hashablefield_keys_are_deleted(self):
+    def test_instancehashfield_keys_are_deleted(self):
 
         class Train(TestRedisModel):
-            namespace = "test_hashablefield_keys_are_deleted"
-            name = fields.HashableField(unique=True)
-            kind = fields.HashableField(indexable=True)
-            wagons = fields.HashableField(default=10)
+            namespace = "test_instancehashfield_keys_are_deleted"
+            name = fields.InstanceHashField(unique=True)
+            kind = fields.InstanceHashField(indexable=True)
+            wagons = fields.InstanceHashField(default=10)
 
         # Check that db is empty
         self.assertEqual(len(self.connection.keys()), 0)
@@ -859,7 +728,7 @@ class DeleteTest(LimpydBaseTest):
 
         class Train(TestRedisModel):
             namespace = "test_pkfield_cannot_be_deleted"
-            name = fields.HashableField(unique=True)
+            name = fields.InstanceHashField(unique=True)
 
         train = Train(name="TGV")
         with self.assertRaises(ImplementationError):
@@ -869,9 +738,9 @@ class DeleteTest(LimpydBaseTest):
 
         class Train(TestRedisModel):
             namespace = "test_model_delete"
-            name = fields.HashableField(unique=True)
+            name = fields.InstanceHashField(unique=True)
             kind = fields.StringField(indexable=True)
-            wagons = fields.HashableField(default=10)
+            wagons = fields.InstanceHashField(default=10)
 
         # Check that db is empty
         self.assertEqual(len(self.connection.keys()), 0)
@@ -901,94 +770,6 @@ class DeleteTest(LimpydBaseTest):
         self.assertEqual(len(self.connection.keys()), 6)
         self.assertEqual(len(Train.collection(kind="Corail")), 1)
         self.assertEqual(len(Train.collection()), 1)
-
-
-class HMTest(LimpydBaseTest):
-    """
-    Test behavior of hmset and hmget
-    """
-
-    class HMTestModel(TestRedisModel):
-        foo = fields.HashableField()
-        bar = fields.HashableField(indexable=True)
-        baz = fields.HashableField(unique=True)
-
-    def test_hmset_should_set_all_values(self):
-        obj = self.HMTestModel()
-        obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
-        self.assertEqual(obj.foo.hget(), 'FOO')
-        self.assertEqual(obj.bar.hget(), 'BAR')
-        self.assertEqual(obj.baz.hget(), 'BAZ')
-
-    def test_hmget_should_get_all_values(self):
-        obj = self.HMTestModel()
-        obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
-        data = obj.hmget('foo', 'bar', 'baz')
-        self.assertEqual(data, ['FOO', 'BAR', 'BAZ'])
-
-    def test_hmset_should_index_values(self):
-        obj = self.HMTestModel()
-        obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
-        self.assertEqual(set(self.HMTestModel.collection(bar='BAR')), set([obj._pk]))
-        self.assertEqual(set(self.HMTestModel.collection(baz='BAZ')), set([obj._pk]))
-
-    def test_hmset_should_clear_cache_for_fields(self):
-        obj = self.HMTestModel()
-        obj.foo.hget()  # set the cache
-        obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
-        hits_before = self.connection.info()['keyspace_hits']
-        obj.foo.hget()  # should miss the cache and hit redis
-        hits_after = self.connection.info()['keyspace_hits']
-        self.assertEqual(hits_before + 1, hits_after)
-
-    def test_hmset_should_not_index_if_an_error_occurs(self):
-        self.HMTestModel(baz="BAZ")
-        test_obj = self.HMTestModel()
-        with self.assertRaises(UniquenessError):
-            # The order of parameters below is important. Yes all are passed via
-            # the kwargs dict, but order is not random, it's consistent, and
-            # here i have to be sure that "bar" is managed first in hmset, so i
-            # do some tests to always have the wanted order.
-            # So bar will be indexed, then baz will raise because we already
-            # set the "BAZ" value for this field.
-            test_obj.hmset(baz='BAZ', foo='FOO', bar='BAR')
-        # We must not have an entry in the bar index with the BAR value because
-        # the hmset must have raise an exception and revert index already set.
-        self.assertEqual(set(self.HMTestModel.collection(bar='BAR')), set())
-
-    def test_hmget_should_get_values_from_cache(self):
-        obj = self.HMTestModel(foo='FOO', bar='BAR')
-        # fill the cache
-        obj.foo.hget()
-
-        # get it from cache
-        hits_before = self.connection.info()['keyspace_hits']
-        obj.hmget('foo')
-        hits_after = self.connection.info()['keyspace_hits']
-        # hmget should not have hit redis
-        self.assertEqual(hits_before, hits_after)
-
-        # get one from cache, one from redis
-        hits_before = self.connection.info()['keyspace_hits']
-        obj.hmget('foo', 'bar')
-        hits_after = self.connection.info()['keyspace_hits']
-        # hmget should have hit redis to get bar
-        self.assertEqual(hits_before + 1, hits_after)
-
-    def test_hmget_should_cache_retrieved_values_for_hget(self):
-        obj = self.HMTestModel(foo='FOO', bar='BAR', baz='BAZ')
-        obj.hmget('foo', 'bar')
-        with self.assertNumCommands(0):
-            foo = obj.foo.hget()
-            self.assertEqual(foo, 'FOO')
-
-    def test_hmget_result_is_not_cached_itself(self):
-        obj = self.HMTestModel(foo='FOO', bar='BAR')
-        obj.hmget()
-        obj.foo.hset('FOO2')
-        with self.assertNumCommands(1):
-            data = obj.hmget()
-            self.assertEqual(data, ['FOO2', 'BAR', None])
 
 
 class ConnectionTest(LimpydBaseTest):
@@ -1033,13 +814,13 @@ class FieldExistenceTest(LimpydBaseTest):
         # test value manually set (StringField)
         boat.length.set(1)
         self.assertTrue(boat.length.exists())
-        # test value manually set (HashableField)
+        # test value manually set (InstanceHashField)
         boat.power.hset('engine')
         self.assertTrue(boat.power.exists())
 
     def test_deleted_field_does_not_exist(self):
         boat = Boat(name="Pen Duick I")
-        # test HashableField
+        # test InstanceHashField
         boat.power.delete()
         self.assertFalse(boat.power.exists())
         # test StringField
@@ -1050,7 +831,7 @@ class FieldExistenceTest(LimpydBaseTest):
     def test_field_of_deleted_object_does_not_exist(self):
         boat = Boat(name="Pen Duick I")
         boat.delete()
-        # test HashableField
+        # test InstanceHashField
         self.assertFalse(boat.power.exists())
         # test StringField
         self.assertFalse(boat.length.exists())
@@ -1082,267 +863,6 @@ class ProxyTest(LimpydBaseTest):
         boat = Boat(name="Rainbow Warrior I", power="human", length=40, launched=1955)
         boat.power.proxy_set('engine')
         self.assertEqual(boat.power.hget(), "engine")
-
-
-class IndexableSortedSetFieldTest(LimpydBaseTest):
-
-    class SortedSetModel(TestRedisModel):
-        field = fields.SortedSetField(indexable=True)
-
-    def test_indexable_sorted_sets_are_indexed(self):
-        obj = self.SortedSetModel()
-
-        # add one value
-        obj.field.zadd(1.0, 'foo')
-        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set([obj._pk]))
-        self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set())
-
-        # add another value
-        with self.assertNumCommands(5):
-            # check that only 5 commands occured: zadd + index of value
-            # + 3 for the lock (set at the biginning, check/unset at the end))
-            obj.field.zadd(2.0, 'bar')
-        # check collections
-        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set([obj._pk]))
-        self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set([obj._pk]))
-
-        # remove a value
-        with self.assertNumCommands(5):
-            # check that only 5 commands occured: zrem + deindex of value
-            # + 3 for the lock (set at the biginning, check/unset at the end))
-            obj.field.zrem('foo')
-        # check collections
-        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set())
-        self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set([obj._pk]))
-
-        # remove the object
-        obj.delete()
-        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set())
-        self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set())
-
-    def test_zincr_should_correctly_index_only_its_own_value(self):
-        obj = self.SortedSetModel()
-
-        # add a value, to check that its index is not updated
-        obj.field.zadd(ignorable=1)
-
-        with self.assertNumCommands(5):
-            # check that we had only 5 commands: one for zincr, one for indexing the value
-            # + 3 for the lock (set at the biginning, check/unset at the end))
-            obj.field.zincrby('foo', 5.0)
-
-        # check that the new value is indexed
-        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set([obj._pk]))
-
-        # check that the previous value was not deindexed
-        self.assertEqual(set(self.SortedSetModel.collection(field='ignorable')), set([obj._pk]))
-
-    def test_zremrange_reindex_all_vaues(self):
-        obj = self.SortedSetModel()
-
-        obj.field.zadd(foo=1, bar=2, baz=3)
-
-        # we remove two values
-        with self.assertNumCommands(10):
-            # check that we had 10 commands:
-            # - 1 to get all existing values to deindex
-            # - 3 to deindex all values
-            # - 1 for the zremrange
-            # - 1 to get all remaining values to index
-            # - 1 to index the only remaining value
-            # - 3 for the lock (set at the biginning, check/unset at the end))
-            obj.field.zremrangebyscore(1, 2)
-
-        # check that all values are correctly indexed/deindexed
-        self.assertEqual(set(self.SortedSetModel.collection(field='foo')), set())
-        self.assertEqual(set(self.SortedSetModel.collection(field='bar')), set())
-        self.assertEqual(set(self.SortedSetModel.collection(field='baz')), set([obj._pk]))
-
-
-class IndexableSetFieldTest(LimpydBaseTest):
-
-    class SetModel(TestRedisModel):
-        field = fields.SetField(indexable=True)
-
-    def test_indexable_sets_are_indexed(self):
-        obj = self.SetModel()
-
-        # add one value
-        obj.field.sadd('foo')
-        self.assertEqual(set(self.SetModel.collection(field='foo')), set([obj._pk]))
-        self.assertEqual(set(self.SetModel.collection(field='bar')), set())
-
-        # add another value
-        obj.field.sadd('bar')
-        self.assertEqual(set(self.SetModel.collection(field='foo')), set([obj._pk]))
-        self.assertEqual(set(self.SetModel.collection(field='bar')), set([obj._pk]))
-
-        # remove a value
-        obj.field.srem('foo')
-        self.assertEqual(set(self.SetModel.collection(field='foo')), set())
-        self.assertEqual(set(self.SetModel.collection(field='bar')), set([obj._pk]))
-
-        # remove the object
-        obj.delete()
-        self.assertEqual(set(self.SetModel.collection(field='foo')), set())
-        self.assertEqual(set(self.SetModel.collection(field='bar')), set())
-
-    def test_spop_command_should_correctly_deindex_one_value(self):
-        # spop remove and return a random value from the set, we don't know which one
-
-        obj = self.SetModel()
-
-        values = ['foo', 'bar']
-
-        obj.field.sadd(*values)
-
-        with self.assertNumCommands(5):
-            # check that we had only 5 commands: one for spop, one for deindexing the value
-            # + 3 for the lock (set at the biginning, check/unset at the end))
-            poped_value = obj.field.spop()
-
-        values.remove(poped_value)
-        self.assertEqual(obj.field.proxy_get(), set(values))
-        self.assertEqual(set(self.SetModel.collection(field=values[0])), set([obj._pk]))
-        self.assertEqual(set(self.SetModel.collection(field=poped_value)), set())
-
-
-class IndexableListFieldTest(LimpydBaseTest):
-
-    class ListModel(TestRedisModel):
-        field = fields.ListField(indexable=True)
-
-    def test_indexable_lists_are_indexed(self):
-        obj = self.ListModel()
-
-        # add one value
-        obj.field.lpush('foo')
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
-        self.assertEqual(set(self.ListModel.collection(field='bar')), set())
-
-        # add another value
-        obj.field.lpush('bar')
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
-        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
-
-        # remove a value
-        obj.field.rpop()  # will remove foo
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set())
-        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
-
-        obj.delete()
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set())
-        self.assertEqual(set(self.ListModel.collection(field='bar')), set())
-
-        # test we can add many values at the same time
-        obj = self.ListModel()
-        obj.field.rpush('foo', 'bar')
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
-        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
-
-    def test_pop_commands_should_correctly_deindex_one_value(self):
-        obj = self.ListModel()
-
-        obj.field.lpush('foo', 'bar')
-
-        with self.assertNumCommands(5):
-            # check that we had only 5 commands: one for lpop, one for deindexing the value
-            # + 3 for the lock (set at the biginning, check/unset at the end))
-            bar = obj.field.lpop()
-
-        self.assertEqual(bar, 'bar')
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
-        self.assertEqual(set(self.ListModel.collection(field='bar')), set())
-
-    def test_pushx_commands_should_correctly_index_only_its_values(self):
-        obj = self.ListModel()
-
-        # check that pushx on an empty list does nothing
-        obj.field.lpushx('foo')
-        self.assertEqual(obj.field.proxy_get(), [])
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set())
-
-        # add a value to really test pushx
-        obj.field.lpush('foo')
-        # then test pushx
-        with self.assertNumCommands(5):
-            # check that we had only 5 comands, one for the rpushx, one for indexing the value
-            # + 3 for the lock (set at the biginning, check/unset at the end))
-            obj.field.rpushx('bar')
-
-        # test list and collection, to be sure
-        self.assertEqual(obj.field.proxy_get(), ['foo', 'bar'])
-        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
-
-    def test_lrem_command_should_correctly_deindex_only_its_value_when_possible(self):
-        obj = self.ListModel()
-
-        obj.field.lpush('foo', 'bar', 'foo',)
-
-        #remove all foo
-        with self.assertNumCommands(5):
-            # check that we had only 5 comands, one for the lrem, one for indexing the value
-            # + 3 for the lock (set at the biginning, check/unset at the end))
-            obj.field.lrem(0, 'foo')
-
-        # no more foo in the list
-        self.assertEqual(obj.field.proxy_get(), ['bar'])
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set())
-        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
-
-        # add more foos to test lrem with another count parameter
-        obj.field.lpush('foo')
-        obj.field.rpush('foo')
-
-        # remove foo at the start
-        with self.assertNumCommands(11):
-            # we did a lot of calls to reindex, just check this:
-            # - 1 lrange to get all values before the lrem
-            # - 3 srem to deindex the 3 values (even if two values are the same)
-            # - 1 lrem call
-            # - 1 lrange to get all values after the rem
-            # - 2 sadd to index the two remaining values
-            # - 3 for the lock (set at the biginning, check/unset at the end))
-            obj.field.lrem(1, 'foo')
-
-        # still a foo in the list
-        self.assertEqual(obj.field.proxy_get(), ['bar', 'foo'])
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set([obj._pk]))
-
-    def test_lset_command_should_correctly_deindex_and_index_its_value(self):
-        obj = self.ListModel()
-
-        obj.field.lpush('foo')
-
-        # replace foo with bar
-        with self.assertNumCommands(7):
-            # we should have 7 calls:
-            # - 1 lindex to get the current value
-            # - 1 to deindex this value
-            # - 1 for the lset call
-            # - 1 to index the new value
-            # - 3 for the lock (set at the biginning, check/unset at the end))
-            obj.field.lset(0, 'bar')
-
-        # check collections
-        self.assertEqual(obj.field.proxy_get(), ['bar'])
-        self.assertEqual(set(self.ListModel.collection(field='foo')), set())
-        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
-
-        # replace an inexisting value will raise, without (de)indexing anything)
-        with self.assertNumCommands(5):
-            # we should have 5 calls:
-            # - 1 lindex to get the current value, which is None (out f range) so
-            #   nothing to deindex
-            # - 1 for the lset call
-            # + 3 for the lock (set at the biginning, check/unset at the end))
-            with self.assertRaises(RedisError):
-                obj.field.lset(1, 'baz')
-
-        # check collections are not modified
-        self.assertEqual(obj.field.proxy_get(), ['bar'])
-        self.assertEqual(set(self.ListModel.collection(field='bar')), set([obj._pk]))
-        self.assertEqual(set(self.ListModel.collection(field='baz')), set())
 
 
 if __name__ == '__main__':

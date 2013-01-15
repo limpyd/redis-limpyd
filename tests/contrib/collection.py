@@ -17,9 +17,9 @@ class Group(TestRedisModel):
     collection_manager = ExtendedCollectionManager
 
     id = fields.AutoPKField()
-    name = fields.HashableField(indexable=True)
-    active = fields.HashableField(indexable=True, default=1)
-    public = fields.HashableField(indexable=True, default=1)
+    name = fields.InstanceHashField(indexable=True)
+    active = fields.InstanceHashField(indexable=True, default=1)
+    public = fields.InstanceHashField(indexable=True, default=1)
 
 
 class GroupsContainer(TestRedisModel):
@@ -86,9 +86,9 @@ class FieldOrModelAsValueForSortAndFilterTest(BaseTest):
     class Query(TestRedisModel):
         namespace = 'FieldOrModelAsValueForSortAndFilterTest'
         collection_manager = ExtendedCollectionManager
-        name = fields.HashableField()
-        active = fields.HashableField()
-        public = fields.HashableField()
+        name = fields.InstanceHashField()
+        active = fields.InstanceHashField()
+        public = fields.InstanceHashField()
 
     def test_sort_should_accept_field_or_fieldname(self):
         # test with field name

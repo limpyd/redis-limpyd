@@ -123,8 +123,8 @@ class CollectionTest(CollectionBaseTest):
         class Group(TestRedisModel):
             namespace = 'collection'
             collection_manager = ActiveGroups
-            name = fields.HashableField()
-            active = fields.HashableField(indexable=True, default=1)
+            name = fields.InstanceHashField()
+            active = fields.InstanceHashField(indexable=True, default=1)
 
         Group(name='limpyd core devs')
         Group(name='limpyd fan boys', active=0)
@@ -217,10 +217,10 @@ class SortTest(CollectionBaseTest):
             ['4', '3', '1', '2']
         )
 
-    def test_sort_by_hashablefield(self):
+    def test_sort_by_instancehashfield(self):
 
         class Event(TestRedisModel):
-            year = fields.HashableField()
+            year = fields.InstanceHashField()
 
         # Create some instances
         Event(year=2000)
@@ -242,7 +242,7 @@ class SortTest(CollectionBaseTest):
     def test_sort_by_alpha(self):
 
         class Singer(TestRedisModel):
-            name = fields.HashableField()
+            name = fields.InstanceHashField()
 
         # Create some instances
         Singer(name="Jacques Higelin")
@@ -293,9 +293,9 @@ class InstancesTest(CollectionBaseTest):
         Try to chain all the collection possibilities.
         """
         class Band(TestRedisModel):
-            name = fields.HashableField(unique=True)
-            started_in = fields.HashableField()
-            genre = fields.HashableField(indexable=True)
+            name = fields.InstanceHashField(unique=True)
+            started_in = fields.InstanceHashField()
+            genre = fields.InstanceHashField(indexable=True)
 
         madrugada = Band(name="Madrugada", started_in="1992", genre="Alternative")
         radiohead = Band(name="Radiohead", started_in="1985", genre="Alternative")

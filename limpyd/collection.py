@@ -290,14 +290,18 @@ class CollectionManager(object):
 
     def _add_filters(self, **filters):
         """Define self._lazy_collection according to filters."""
-        for field_name, value in filters.iteritems():
-            if self.cls._field_is_pk(field_name):
+        for key, value in filters.iteritems():
+            if self.cls._field_is_pk(key):
                 pk = self.cls.get_field('pk').normalize(value)
                 self._lazy_collection['pks'].add(pk)
             else:
+                # each key can have optional subpath
+                # we pass it as args to the field, which is responsable
+                # from handling them
+                key_path = key.split('__')
+                field_name = key_path.pop(0)
                 field = self.cls.get_field(field_name)
-                self._lazy_collection['sets'].add(field.index_key(value))
-
+                self._lazy_collection['sets'].add(field.index_key(value, *key_path))
         return self
 
     def __len__(self):
@@ -326,7 +330,7 @@ class CollectionManager(object):
     def _get_simple_fields(self):
         """
         Return a list of the names of all fields that handle simple values
-        (StringField or HashableField), that redis can use to return values via
+        (StringField or InstanceHashField), that redis can use to return values via
         the sort command (so, exclude all fields based on MultiValuesField)
         """
         fields = []
