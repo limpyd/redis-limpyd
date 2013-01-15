@@ -622,7 +622,8 @@ class MultiValuesField(RedisField):
         The returned value will be deindexed
         """
         result = self._traverse_command(command, *args, **kwargs)
-        self.deindex([result])
+        if result:
+            self.deindex([result])
         return result
 
     def index(self, values=None):
