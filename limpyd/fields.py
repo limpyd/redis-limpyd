@@ -575,7 +575,7 @@ class StringField(SingleValueField):
         Index only if value has been set.
         """
         result = self._traverse_command(command, value)
-        if result:
+        if result and self.indexable:
             self.index(value)
         return result
 
@@ -621,7 +621,7 @@ class MultiValuesField(RedisField):
         The returned value will be deindexed
         """
         result = self._traverse_command(command, *args, **kwargs)
-        if result:
+        if result and self.indexable:
             self.deindex([result])
         return result
 
@@ -795,7 +795,7 @@ class ListField(MultiValuesField):
         existed when the command was called
         """
         result = self._traverse_command(command, *args, **kwargs)
-        if result:
+        if result and self.indexable:
             self.index(args)
         return result
     _call_lpushx = _pushx
@@ -829,7 +829,7 @@ class ListField(MultiValuesField):
 
     def _call_linsert(self, command, where, refvalue, value):
         result = self._traverse_command(command, where, refvalue, value)
-        if result != -1:
+        if result != -1 and self.indexable:
             self.index([value])
         return result
 
@@ -879,7 +879,7 @@ class HashField(MultiValuesField):
 
     def _call_hsetnx(self, command, key, value):
         result = self._traverse_command(command, key, value)
-        if result:
+        if result and self.indexable:
             # hsetnx returns 1 if key has been set
             self.index({key: value})
         return result
