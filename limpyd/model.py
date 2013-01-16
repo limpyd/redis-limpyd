@@ -121,7 +121,7 @@ class RedisModel(RedisProxyCommand):
     DoesNotExist = DoesNotExist
 
     available_getters = ('hmget', )
-    available_full_modifiers = ('hmset', )
+    available_modifiers = ('hmset', )
 
     def __init__(self, *args, **kwargs):
         """
@@ -454,8 +454,7 @@ class RedisModel(RedisProxyCommand):
                 field = self.get_field(field_name)
                 if field.indexable:
                     field.deindex()
-                    field.mark_for_indexing(value)
-                    field.index()
+                    field.index(value)
                     indexed.append((field, value))
 
             # Call redis (waits for a dict)
@@ -468,8 +467,7 @@ class RedisModel(RedisProxyCommand):
             # really raise the error
             for field, new_value in indexed:
                 old_value = field.hget()
-                field.mark_for_deindexing(new_value)
-                field.deindex()
+                field.deindex(new_value)
                 field.hset(old_value)
             raise
 
