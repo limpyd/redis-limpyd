@@ -853,7 +853,7 @@ class HashField(MultiValuesField):
     proxy_setter = "hmset"
 
     available_getters = ('hget', 'hgetall', 'hmget', 'hkeys', 'hvals',
-                         'hexists', 'hlen', )
+                         'hlen', )
     available_modifiers = ('hdel', 'hmset', 'hsetnx', 'hset', 'hincrby',
                            'hincrbyfloat', )
 
@@ -937,6 +937,24 @@ class HashField(MultiValuesField):
             for field_name, value in values.iteritems():
                 key = self.index_key(value, field_name)
                 self.remove_index(key)
+
+    def hexists(self, key):
+        """
+        Call the hexists command to check if the redis hash key exists for the
+        current field
+        """
+        try:
+            hashkey = self.key
+        except DoesNotExist:
+            """
+            If the object doesn't exists anymore, its PK is deleted, so the
+            "self.key" call will raise a DoesNotExist exception. We catch it
+            to return False, as the field doesn't exists too.
+            """
+            return False
+        else:
+            return self.connection.hexists(hashkey, key)
+    exists = hexists
 
 
 class InstanceHashField(SingleValueField):
