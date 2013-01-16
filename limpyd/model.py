@@ -517,9 +517,9 @@ class RedisModel(RedisProxyCommand):
             for field_name, value in kwargs.items():
                 field = self.get_field(field_name)
                 if field.indexable:
+                    indexed.append(field)
                     field.deindex()
                     field.index(value)
-                    indexed.append((field, value))
 
             # Call redis (waits for a dict)
             result = self._call_command('hmset', kwargs)
@@ -537,11 +537,12 @@ class RedisModel(RedisProxyCommand):
         except:
             # We revert indexes previously set if we have an exception, then
             # really raise the error
-            for field, new_value in indexed:
-                old_value = field.hget()
-                field.deindex(new_value)
-                field.hset(old_value)
+            for field in indexed:
+                field.rollback_index()
             raise
+        finally:
+            for field in indexed:
+                field.reset_index_cache()
 
     def delete(self):
         """

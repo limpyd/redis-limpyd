@@ -415,20 +415,34 @@ class RedisField(RedisProxyCommand):
                     result = meth(name, *args, **kwargs)
                 except:
                     # Prevent from reprocessing further index/deindex
-                    _indexed_keys = set(self._indexed_keys)
-                    _deindexed_keys = set(self._deindexed_keys)
-                    for key in _indexed_keys:
-                        self.remove_index(key)
-                    for key in _deindexed_keys:
-                        self.add_index(key)
+                    self.rollback_index()
                     raise
                 else:
                     return result
                 finally:
-                    self._indexed_keys = set()
-                    self._deindexed_keys = set()
+                    self.reset_index_cache()
         else:
             return meth(name, *args, **kwargs)
+
+    def rollback_index(self):
+        """
+        Restore the index in its previous status, using deindexed/indexed values
+        temporarily stored.
+        """
+        _indexed_keys = set(self._indexed_keys)
+        _deindexed_keys = set(self._deindexed_keys)
+        for key in _indexed_keys:
+            self.remove_index(key)
+        for key in _deindexed_keys:
+            self.add_index(key)
+
+    def reset_index_cache(self):
+        """
+        Reset attributes used to store deindexed/indexed values, used to
+        rollback the index when soemthing failed.
+        """
+        self._indexed_keys = set()
+        self._deindexed_keys = set()
 
     def add_index(self, key):
         """
