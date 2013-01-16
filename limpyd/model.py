@@ -121,7 +121,7 @@ class RedisModel(RedisProxyCommand):
     collection_manager = CollectionManager
     DoesNotExist = DoesNotExist
 
-    no_cache_getters = ('hmget', 'hgetall', )
+    no_cache_getters = ('hmget', 'hgetall', 'hkeys', 'hvals', 'hlen')
     available_modifiers = ('hmset', )
 
     def __init__(self, *args, **kwargs):

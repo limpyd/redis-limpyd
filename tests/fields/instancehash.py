@@ -125,3 +125,25 @@ class HMTest(LimpydBaseTest):
         with self.assertNumCommands(0):
             self.assertEqual(obj.foo.hget(), 'FOO')
             self.assertEqual(obj.bar.hget(), 'BAR')
+
+    def test_hkeys_should_return_all_set_fieldnames(self):
+        obj = self.HMTestModel(foo='FOO', bar='BAR')
+        data = obj.hkeys()
+        self.assertEqual(set(data), set(['foo', 'bar']))
+        obj.foo.hdel()
+        data = obj.hkeys()
+        self.assertEqual(set(data), set(['bar', ]))
+
+    def test_hvals_should_return_all_set_values(self):
+        obj = self.HMTestModel(foo='FOO', bar='BAR')
+        data = obj.hvals()
+        self.assertEqual(set(data), set(['FOO', 'BAR']))
+        obj.foo.hdel()
+        data = obj.hvals()
+        self.assertEqual(set(data), set(['BAR', ]))
+
+    def test_hlen_should_return_number_of_set_fields(self):
+        obj = self.HMTestModel(foo='FOO', bar='BAR')
+        self.assertEqual(obj.hlen(), 2)
+        obj.foo.hdel()
+        self.assertEqual(obj.hlen(), 1)
