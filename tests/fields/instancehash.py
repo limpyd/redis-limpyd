@@ -110,3 +110,18 @@ class HMTest(LimpydBaseTest):
         with self.assertNumCommands(1):
             data = obj.hmget('foo', 'bar')
             self.assertEqual(data, ['FOO2', 'BAR'])
+
+    def test_hgetall_should_return_all_set_fields(self):
+        obj = self.HMTestModel(foo='FOO', bar='BAR')
+        data = obj.hgetall()
+        self.assertEqual(data, dict(foo='FOO', bar='BAR'))
+        obj.foo.hdel()
+        data = obj.hgetall()
+        self.assertEqual(data, dict(bar='BAR',))
+
+    def test_hgetall_should_cache_returned_values(self):
+        obj = self.HMTestModel(foo='FOO', bar='BAR')
+        obj.hgetall()
+        with self.assertNumCommands(0):
+            self.assertEqual(obj.foo.hget(), 'FOO')
+            self.assertEqual(obj.bar.hget(), 'BAR')

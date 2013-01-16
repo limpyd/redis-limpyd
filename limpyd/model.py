@@ -121,7 +121,7 @@ class RedisModel(RedisProxyCommand):
     collection_manager = CollectionManager
     DoesNotExist = DoesNotExist
 
-    no_cache_getters = ('hmget', )
+    no_cache_getters = ('hmget', 'hgetall', )
     available_modifiers = ('hmset', )
 
     def __init__(self, *args, **kwargs):
@@ -441,6 +441,32 @@ class RedisModel(RedisProxyCommand):
             "hash",
         )
 
+    def _cache_instancehashfields_data(self, data):
+        """
+        For each field name in the data dict, cache its value for a future
+        "hget" call.
+        """
+        if self.cacheable:
+            for field_name, value in data.iteritems():
+                # set cache for the field with its value
+                field = self.get_field(field_name)
+                if not field.cacheable:
+                    continue
+                if not field.has_cache():
+                    field.init_cache()
+                cache = field.get_cache()
+                haxh = make_cache_key('hget', field_name)
+                cache[haxh] = value
+
+    def hgetall(self):
+        """
+        Returns a dict with all InstanceHashField. Individually cache resulting
+        values for cacheable fields.
+        """
+        result = self._call_command('hgetall')
+        self._cache_instancehashfields_data(result)
+        return result
+
     def hmget(self, *args):
         """
         This command on the model allow getting many instancehash fields with only
@@ -476,16 +502,7 @@ class RedisModel(RedisProxyCommand):
             # call redis if some keys are not cached (waits for a list)
             retrieved = self._call_command('hmget', to_retrieve)
             retrieved_dict = dict(zip(to_retrieve, retrieved))
-
-            if self.cacheable:
-                for field_name, value in retrieved_dict.iteritems():
-                    # set cache for the field with new retrieved value
-                    field = self.get_field(field_name)
-                    if not field.has_cache():
-                        field.init_cache()
-                    cache = field.get_cache()
-                    haxh = make_cache_key('hget', field_name)
-                    cache[haxh] = retrieved_dict[field_name]
+            self._cache_instancehashfields_data(retrieved_dict)
 
         if cached:
             # we have some fields cached, return the values in the right order
