@@ -106,7 +106,7 @@ class RedisDatabase(object):
         A simple property on the instance that return the connection stored on
         the class
         """
-        if not self._connection:
+        if self._connection is None:
             self._connection = self.connect()
         return self._connection
 
