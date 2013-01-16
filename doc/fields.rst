@@ -149,6 +149,46 @@ The StringField_ type support these `Redis string commands`_:
 - `setrange`
 
 
+HashField
+---------
+
+HashField allows storage of a dict in Redis.
+
+Example::
+
+    class Email(model.RedisModel):
+        database = main_database
+        headers = fields.HashField()
+
+    >>> email = Email()
+    >>> headers = {'from': 'foo@bar.com', 'to': 'me@world.org'}
+    >>> email.headers.hmset(**headers)
+    >>> email.headers.hget('from')
+    'foo@bar.com'
+
+Supported commands:
+
+**Getters:**
+
+- `hget`
+- `hgetall`
+- `hmget`
+- `hkeys`
+- `hvals`
+- `hexists`
+- `hlen`
+
+
+**Modifiers:**
+
+- `hdel`
+- `hmset`
+- `hsetnx`
+- `hset`
+- `hincrby`
+- `hincrbyfloat`
+
+
 InstanceHashField
 -----------------
 
