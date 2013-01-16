@@ -29,6 +29,17 @@ class HMTest(LimpydBaseTest):
         obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
         data = obj.hmget('foo', 'bar', 'baz')
         self.assertEqual(data, ['FOO', 'BAR', 'BAZ'])
+        obj.hmset(baz='QUX')
+        data = obj.hmget('bar', 'baz')
+        self.assertEqual(data, ['BAR', 'QUX'])
+
+    def test_empty_hmset_call_should_fail(self):
+        obj = self.HMTestModel(foo='FOO', bar='BAR', baz='BAZ')
+        with self.assertRaises(DataError):
+            obj.hmset()
+        # nothing modified...
+        data = obj.hmget('foo', 'bar', 'baz')
+        self.assertEqual(data, ['FOO', 'BAR', 'BAZ'])
 
     def test_empty_hmget_call_should_return_nothing(self):
         obj = self.HMTestModel()

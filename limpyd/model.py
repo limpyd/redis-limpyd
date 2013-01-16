@@ -505,7 +505,7 @@ class RedisModel(RedisProxyCommand):
         their value.
         Index and cache are managed for indexable and/or cacheable fields.
         """
-        if not any(kwarg in self._instancehash_fields for kwarg in kwargs.keys()):
+        if kwargs and not any(kwarg in self._instancehash_fields for kwarg in kwargs.keys()):
             raise ValueError("Only InstanceHashField can be used here.")
 
         indexed = []
