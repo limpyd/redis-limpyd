@@ -189,10 +189,14 @@ The HashableField_ type support these `Redis hash commands <http://redis.io/comm
 
 **Multi:**
 
-The two following commands are not called on the fields themselves, but on an instance.
+The following commands are not called on the fields themselves, but on an instance:
 
 - hmget_
 - hmset_
+- hgetall_
+- hkeys_
+- hvals_
+- hlen_
 
 hmget
 """""
@@ -201,7 +205,7 @@ hmget_ is called directly on an instance, and expects a list of field names to r
 
 The result will be, as in Redis_, a list of all values, in the same order.
 
-If no names are provided, all the HashableField_ based fields will be fetched.
+If no names are provided, nothing will be fetched. Use hvals_, or better, hgetall_ to get values for all HashableFields
 
 It's up to you to associate names and values, but you can find an example below::
 
@@ -240,6 +244,68 @@ Example (with same model as for hmget_)::
     True
     >>> example.hmget('foo', 'bar')
     ['FOO', 'BAR']
+
+hgetall
+"""""""
+
+hgetall_ must be called directly on an instance, and will return a dictionary containing names and values of all HashableField with a stored value.
+If a field has no stored value, it will not appear in the result of hgetall_.
+
+Example (with same model as for hmget_)::
+
+    >>> example = Example(foo='FOO', bar='BAR')
+    >>> example.hgetall()
+    {'foo': 'FOO', 'bar': 'BAR'}
+    >>> example.foo.hdel()
+    >>> example.hgetall()
+    {bar': 'BAR'}
+
+hkeys
+"""""
+
+hkeys_ must be called on an instance and will return the name of all the HashableField with a stored value.
+If a field has no stored value, it will not appear in the result of hkeys_.
+Note that the result is not ordered in any way.
+
+Example (with same model as for hmget_)::
+
+    >>> example = Example(foo='FOO', bar='BAR')
+    >>> example.hkeys()
+    ['foo', 'bar']
+    >>> example.foo.hdel()
+    >>> example.hkeys()
+    ['bar']
+
+hvals
+"""""
+
+hkeys_ must be called on an instance and will return the value of all the HashableField with a stored value.
+If a field has no stored value, it will not appear in the result of hvals_.
+Note that the result is not ordered in any way.
+
+Example (with same model as for hmget_)::
+
+    >>> example = Example(foo='FOO', bar='BAR')
+    >>> example.hvals()
+    ['FOO', 'BAR']
+    >>> example.foo.hdel()
+    >>> example.hvals()
+    ['BAR']
+
+hlen
+""""
+hlen_ must be called on an instance and will return the number of HashableField with a stored value.
+If a field has no stored value, it will not be count in the result of hlen_.
+
+Example (with same model as for hmget_)::
+
+    >>> example = Example(foo='FOO', bar='BAR')
+    >>> example.hlen()
+    2
+    >>> example.foo.hdel()
+    >>> example.hlen()
+    1
+
 
 
 SetField
