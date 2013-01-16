@@ -574,8 +574,8 @@ class StringField(SingleValueField):
 
     available_getters = ('get', 'getbit', 'getrange', 'strlen', )
     available_modifiers = ('delete', 'getset', 'set', 'append', 'decr',
-                           'decrby', 'incr', 'incrby', 'incrbyfloat',
-                           'setbit', 'setnx', 'setrange', )
+                           'incr', 'incrbyfloat', 'setbit', 'setnx',
+                           'setrange', )
 
     _call_getset = SingleValueField._call_set
     _call_append = _call_setrange = _call_setbit = SingleValueField._reset

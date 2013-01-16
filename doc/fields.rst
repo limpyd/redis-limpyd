@@ -139,10 +139,8 @@ The StringField_ type support these `Redis string commands`_:
 
 - `append`
 - `decr`
-- `decrby`
 - `getset`
 - `incr`
-- `incrby`
 - `incrbyfloat`
 - `set`
 - `setbit`
