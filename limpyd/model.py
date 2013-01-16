@@ -555,11 +555,11 @@ class RedisModel(RedisProxyCommand):
             # We revert indexes previously set if we have an exception, then
             # really raise the error
             for field in indexed:
-                field.rollback_index()
+                field._rollback_index()
             raise
         finally:
             for field in indexed:
-                field.reset_index_cache()
+                field._reset_index_cache()
 
     def delete(self):
         """

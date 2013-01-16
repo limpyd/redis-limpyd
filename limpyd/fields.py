@@ -209,11 +209,6 @@ class RedisField(RedisProxyCommand):
         """
         Manage all field attributes
         """
-        # Store indexed/deindexed keys during process
-        # to be able to revert them in case of exception
-        self._indexed_keys = set()
-        self._deindexed_keys = set()
-        self.indexable = False
         self.cacheable = kwargs.get('cacheable', True)
         self.lockable = kwargs.get('lockable', True)
         if "default" in kwargs:
@@ -225,6 +220,8 @@ class RedisField(RedisProxyCommand):
             if hasattr(self, "default"):
                 raise ImplementationError('Cannot set "default" and "unique" together!')
             self.indexable = True
+
+        self._reset_index_cache()
 
         # keep fields ordered
         self._creation_order = RedisField._creation_order
@@ -414,17 +411,16 @@ class RedisField(RedisProxyCommand):
                 try:
                     result = meth(name, *args, **kwargs)
                 except:
-                    # Prevent from reprocessing further index/deindex
-                    self.rollback_index()
+                    self._rollback_index()
                     raise
                 else:
                     return result
                 finally:
-                    self.reset_index_cache()
+                    self._reset_index_cache()
         else:
             return meth(name, *args, **kwargs)
 
-    def rollback_index(self):
+    def _rollback_index(self):
         """
         Restore the index in its previous status, using deindexed/indexed values
         temporarily stored.
@@ -436,10 +432,10 @@ class RedisField(RedisProxyCommand):
         for key in _deindexed_keys:
             self.add_index(key)
 
-    def reset_index_cache(self):
+    def _reset_index_cache(self):
         """
         Reset attributes used to store deindexed/indexed values, used to
-        rollback the index when soemthing failed.
+        rollback the index when something failed.
         """
         self._indexed_keys = set()
         self._deindexed_keys = set()
