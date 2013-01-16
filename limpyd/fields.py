@@ -995,7 +995,7 @@ class PKField(SingleValueField):
         """
         return str(value)
 
-    def get_new(self, value):
+    def _validate(self, value):
         """
         Validate that a given new pk to set is always set, and return it.
         The returned value should be normalized, and will be used without check.
@@ -1056,7 +1056,7 @@ class PKField(SingleValueField):
             raise ValueError('A primary key cannot be updated')
 
         # Validate and return the value to be used as a pk
-        value = self.get_new(value)
+        value = self._validate(value)
 
         # Tell the model the pk is now set
         self._instance._pk = value
@@ -1088,7 +1088,7 @@ class AutoPKField(PKField):
     """
     _auto_increment = True
 
-    def get_new(self, value):
+    def _validate(self, value):
         """
         Validate that a given new pk to set is always set to None, then return
         a new pk
