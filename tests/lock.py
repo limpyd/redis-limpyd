@@ -35,7 +35,7 @@ class Bike(TestRedisModel):
     namespace = "test-lock"
     name = HookedStringField(indexable=True)
     wheels = HookedStringField(default=2)
-    passengers = HookedStringField(default=1, cacheable=False)
+    passengers = HookedStringField(default=1)
 
 
 class LockTest(LimpydBaseTest):
