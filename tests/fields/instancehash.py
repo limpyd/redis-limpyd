@@ -1,3 +1,5 @@
+from redis.exceptions import DataError, ResponseError
+
 from limpyd import fields
 from limpyd.exceptions import UniquenessError
 
@@ -27,6 +29,23 @@ class HMTest(LimpydBaseTest):
         obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
         data = obj.hmget('foo', 'bar', 'baz')
         self.assertEqual(data, ['FOO', 'BAR', 'BAZ'])
+        obj.hmset(baz='QUX')
+        data = obj.hmget('bar', 'baz')
+        self.assertEqual(data, ['BAR', 'QUX'])
+
+    def test_empty_hmset_call_should_fail(self):
+        obj = self.HMTestModel(foo='FOO', bar='BAR', baz='BAZ')
+        with self.assertRaises(DataError):
+            obj.hmset()
+        # nothing modified...
+        data = obj.hmget('foo', 'bar', 'baz')
+        self.assertEqual(data, ['FOO', 'BAR', 'BAZ'])
+
+    def test_empty_hmget_call_should_failse(self):
+        obj = self.HMTestModel()
+        obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
+        with self.assertRaises(ResponseError):
+            obj.hmget()
 
     def test_hmset_should_index_values(self):
         obj = self.HMTestModel()
@@ -48,3 +67,33 @@ class HMTest(LimpydBaseTest):
         # We must not have an entry in the bar index with the BAR value because
         # the hmset must have raise an exception and revert index already set.
         self.assertEqual(set(self.HMTestModel.collection(bar='BAR')), set())
+
+    def test_hgetall_should_return_all_set_fields(self):
+        obj = self.HMTestModel(foo='FOO', bar='BAR')
+        data = obj.hgetall()
+        self.assertEqual(data, dict(foo='FOO', bar='BAR'))
+        obj.foo.hdel()
+        data = obj.hgetall()
+        self.assertEqual(data, dict(bar='BAR',))
+
+    def test_hkeys_should_return_all_set_fieldnames(self):
+        obj = self.HMTestModel(foo='FOO', bar='BAR')
+        data = obj.hkeys()
+        self.assertEqual(set(data), set(['foo', 'bar']))
+        obj.foo.hdel()
+        data = obj.hkeys()
+        self.assertEqual(set(data), set(['bar', ]))
+
+    def test_hvals_should_return_all_set_values(self):
+        obj = self.HMTestModel(foo='FOO', bar='BAR')
+        data = obj.hvals()
+        self.assertEqual(set(data), set(['FOO', 'BAR']))
+        obj.foo.hdel()
+        data = obj.hvals()
+        self.assertEqual(set(data), set(['BAR', ]))
+
+    def test_hlen_should_return_number_of_set_fields(self):
+        obj = self.HMTestModel(foo='FOO', bar='BAR')
+        self.assertEqual(obj.hlen(), 2)
+        obj.foo.hdel()
+        self.assertEqual(obj.hlen(), 1)

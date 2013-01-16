@@ -6,7 +6,7 @@ Fields
 The core module of `limpyd` provides 5 fields types, matching the ones in Redis_:
 
 - StringField_, for the main data type in `Redis`, strings
-- HashableField_, for hashes
+- InstanceHashField_, for hashes
 - SetField_, for sets
 - ListField_, for lists
 - SortedSetField_, for sorted sets
@@ -36,7 +36,7 @@ For more informations about the cache, check Cache_.
 
 **default**
 
-It's possible to set default values for fields of type StringField_ and HashableField_::
+It's possible to set default values for fields of type StringField_ and InstanceHashField_::
 
     class Example(model.RedisModel):
         database = main_database
@@ -129,6 +129,7 @@ The StringField_ type support these `Redis string commands`_:
 
 **Getters:**
 
+- `bitcount`
 - `get`
 - `getbit`
 - `getrange`
@@ -139,10 +140,8 @@ The StringField_ type support these `Redis string commands`_:
 
 - `append`
 - `decr`
-- `decrby`
 - `getset`
 - `incr`
-- `incrby`
 - `incrbyfloat`
 - `set`
 - `setbit`
@@ -190,10 +189,10 @@ Supported commands:
 - `hincrbyfloat`
 
 
-HashableField
--------------
+InstanceHashField
+-----------------
 
-As for StringField_, HashableField_ based fields allow the storage of strings. But all the `HashableField` fields of an instance are stored in the same Redis_ hash, the name of the field being the key in the hash.
+As for StringField_, InstanceHashField_ based fields allow the storage of strings. But all the `InstanceHashField` fields of an instance are stored in the same Redis_ hash, the name of the field being the key in the hash.
 
 To fully use the power of Redis_ hashes, we also provide two methods to get and set multiples field in one operation (see hmget_ and hmset_). It's usually cheaper to store fields in hash that in strings. And it's faster to set/retrieve them using these two commands.
 
@@ -202,15 +201,15 @@ Example with simple commands::
     class Example(model.RedisModel):
         database = main_database
 
-        foo = fields.HashableField()
-        bar = fields.HashableField()
+        foo = fields.InstanceHashField()
+        bar = fields.InstanceHashField()
 
     >>> example.foo.hset('FOO')
     1  # 1 because the hash field was created
     >>> example.foo.hget()
     'FOO'
 
-The HashableField_ type support these `Redis hash commands <http://redis.io/commands#hash>`_:
+The InstanceHashField_ type support these `Redis hash commands <http://redis.io/commands#hash>`_:
 
 **Getters:**
 
@@ -225,14 +224,18 @@ The HashableField_ type support these `Redis hash commands <http://redis.io/comm
 
 **Deleter:**
 
-* Note that to delete the value of a HashableField_, you can use the `hdel` command, which do the same as the main `delete` one.
+* Note that to delete the value of a InstanceHashField_, you can use the `hdel` command, which do the same as the main `delete` one.
 
 **Multi:**
 
-The two following commands are not called on the fields themselves, but on an instance.
+The following commands are not called on the fields themselves, but on an instance:
 
 - hmget_
 - hmset_
+- hgetall_
+- hkeys_
+- hvals_
+- hlen_
 
 hmget
 """""
@@ -241,15 +244,15 @@ hmget_ is called directly on an instance, and expects a list of field names to r
 
 The result will be, as in Redis_, a list of all values, in the same order.
 
-If no names are provided, all the HashableField_ based fields will be fetched.
+If no names are provided, nothing will be fetched. Use hvals_, or better, hgetall_ to get values for all InstanceHashFields
 
 It's up to you to associate names and values, but you can find an example below::
 
     class Example(model.RedisModel):
         database = main_database
 
-        foo = fields.HashableField()
-        bar = fields.HashableField()
+        foo = fields.InstanceHashField()
+        bar = fields.InstanceHashField()
 
         def hmget_dict(self, *args):
             """
@@ -280,6 +283,68 @@ Example (with same model as for hmget_)::
     True
     >>> example.hmget('foo', 'bar')
     ['FOO', 'BAR']
+
+hgetall
+"""""""
+
+hgetall_ must be called directly on an instance, and will return a dictionary containing names and values of all InstanceHashField with a stored value.
+If a field has no stored value, it will not appear in the result of hgetall_.
+
+Example (with same model as for hmget_)::
+
+    >>> example = Example(foo='FOO', bar='BAR')
+    >>> example.hgetall()
+    {'foo': 'FOO', 'bar': 'BAR'}
+    >>> example.foo.hdel()
+    >>> example.hgetall()
+    {bar': 'BAR'}
+
+hkeys
+"""""
+
+hkeys_ must be called on an instance and will return the name of all the InstanceHashField with a stored value.
+If a field has no stored value, it will not appear in the result of hkeys_.
+Note that the result is not ordered in any way.
+
+Example (with same model as for hmget_)::
+
+    >>> example = Example(foo='FOO', bar='BAR')
+    >>> example.hkeys()
+    ['foo', 'bar']
+    >>> example.foo.hdel()
+    >>> example.hkeys()
+    ['bar']
+
+hvals
+"""""
+
+hkeys_ must be called on an instance and will return the value of all the InstanceHashField with a stored value.
+If a field has no stored value, it will not appear in the result of hvals_.
+Note that the result is not ordered in any way.
+
+Example (with same model as for hmget_)::
+
+    >>> example = Example(foo='FOO', bar='BAR')
+    >>> example.hvals()
+    ['FOO', 'BAR']
+    >>> example.foo.hdel()
+    >>> example.hvals()
+    ['BAR']
+
+hlen
+""""
+hlen_ must be called on an instance and will return the number of InstanceHashField with a stored value.
+If a field has no stored value, it will not be count in the result of hlen_.
+
+Example (with same model as for hmget_)::
+
+    >>> example = Example(foo='FOO', bar='BAR')
+    >>> example.hlen()
+    2
+    >>> example.foo.hdel()
+    >>> example.hlen()
+    1
+
 
 
 SetField

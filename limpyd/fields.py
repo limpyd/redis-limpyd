@@ -182,11 +182,6 @@ class RedisField(RedisProxyCommand):
         """
         Manage all field attributes
         """
-        # Store indexed/deindexed keys during process
-        # to be able to revert them in case of exception
-        self._indexed_keys = set()
-        self._deindexed_keys = set()
-        self.indexable = False
         self.lockable = kwargs.get('lockable', True)
         if "default" in kwargs:
             self.default = kwargs["default"]
@@ -197,6 +192,8 @@ class RedisField(RedisProxyCommand):
             if hasattr(self, "default"):
                 raise ImplementationError('Cannot set "default" and "unique" together!')
             self.indexable = True
+
+        self._reset_index_cache()
 
         # keep fields ordered
         self._creation_order = RedisField._creation_order
@@ -371,21 +368,34 @@ class RedisField(RedisProxyCommand):
                 try:
                     result = meth(name, *args, **kwargs)
                 except:
-                    # Prevent from reprocessing further index/deindex
-                    _indexed_keys = set(self._indexed_keys)
-                    _deindexed_keys = set(self._deindexed_keys)
-                    for key in _indexed_keys:
-                        self.remove_index(key)
-                    for key in _deindexed_keys:
-                        self.add_index(key)
+                    self._rollback_index()
                     raise
                 else:
                     return result
                 finally:
-                    self._indexed_keys = set()
-                    self._deindexed_keys = set()
+                    self._reset_index_cache()
         else:
             return meth(name, *args, **kwargs)
+
+    def _rollback_index(self):
+        """
+        Restore the index in its previous status, using deindexed/indexed values
+        temporarily stored.
+        """
+        _indexed_keys = set(self._indexed_keys)
+        _deindexed_keys = set(self._deindexed_keys)
+        for key in _indexed_keys:
+            self.remove_index(key)
+        for key in _deindexed_keys:
+            self.add_index(key)
+
+    def _reset_index_cache(self):
+        """
+        Reset attributes used to store deindexed/indexed values, used to
+        rollback the index when something failed.
+        """
+        self._indexed_keys = set()
+        self._deindexed_keys = set()
 
     def add_index(self, key):
         """
@@ -515,10 +525,10 @@ class StringField(SingleValueField):
     proxy_getter = "get"
     proxy_setter = "set"
 
-    available_getters = ('get', 'getbit', 'getrange', 'strlen', )
+    available_getters = ('get', 'getbit', 'getrange', 'strlen', 'bitcount', )
     available_modifiers = ('delete', 'getset', 'set', 'append', 'decr',
-                           'decrby', 'incr', 'incrby', 'incrbyfloat',
-                           'setbit', 'setex', 'setnx', 'setrange', )
+                           'incr', 'incrbyfloat', 'setbit', 'setnx',
+                           'setrange', )
 
     _call_getset = SingleValueField._call_set
     _call_append = _call_setrange = _call_setbit = SingleValueField._reset
@@ -796,7 +806,7 @@ class HashField(MultiValuesField):
     proxy_setter = "hmset"
 
     available_getters = ('hget', 'hgetall', 'hmget', 'hkeys', 'hvals',
-                         'hexists', 'hlen', )
+                         'hlen', )
     available_modifiers = ('hdel', 'hmset', 'hsetnx', 'hset', 'hincrby',
                            'hincrbyfloat', )
 
@@ -880,6 +890,24 @@ class HashField(MultiValuesField):
             for field_name, value in values.iteritems():
                 key = self.index_key(value, field_name)
                 self.remove_index(key)
+
+    def hexists(self, key):
+        """
+        Call the hexists command to check if the redis hash key exists for the
+        current field
+        """
+        try:
+            hashkey = self.key
+        except DoesNotExist:
+            """
+            If the object doesn't exists anymore, its PK is deleted, so the
+            "self.key" call will raise a DoesNotExist exception. We catch it
+            to return False, as the field doesn't exists too.
+            """
+            return False
+        else:
+            return self.connection.hexists(hashkey, key)
+    exists = hexists
 
 
 class InstanceHashField(SingleValueField):

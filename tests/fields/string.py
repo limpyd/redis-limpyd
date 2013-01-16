@@ -46,6 +46,11 @@ class StringFieldTest(BaseModelTest):
         with self.assertNumCommands(1):
             vegetable.color.incr()
 
+    def test_incrbyfloat_should_not_make_index_calls(self):
+        vegetable = self.model(name="aubergine")
+        with self.assertNumCommands(1):
+            vegetable.color.incrbyfloat(1.5)
+
     def test_decr_should_not_make_index_calls(self):
         vegetable = self.model(name="aubergine")
         with self.assertNumCommands(1):
@@ -62,6 +67,11 @@ class StringFieldTest(BaseModelTest):
         with self.assertNumCommands(1):
             vegetable.color.append(" green")
         self.assertEqual(vegetable.color.get(), "dark green")
+
+    def test_setbit_should_not_make_index_calls(self):
+        vegetable = self.model(name="aubergine")
+        with self.assertNumCommands(1):
+            vegetable.color.setbit(0, 1)
 
 
 class IndexableStringFieldTest(BaseModelTest):
@@ -170,6 +180,19 @@ class IndexableStringFieldTest(BaseModelTest):
         self.assertCollection([], name='aubergine')
         self.assertCollection([vegetable._pk], name='augerbine')
 
+    def test_setbit_should_deindex_and_reindex(self):
+        vegetable = self.model(name="aubergine", pip='@')  # @ = 0b01000000
+        with self.assertNumCommands(8):
+            # Check number of queries
+            # - 3 for lock
+            # - 2 for deindex (getting value from redis)
+            # - 1 for setbit
+            # - 2 for reindex (getting value from redis)
+            vegetable.pip.setbit(3, 1)  # 01010000 => P
+        self.assertEqual(vegetable.pip.get(), 'P')
+        self.assertCollection([], pip='@')
+        self.assertCollection([vegetable._pk], pip='P')
+
 
 class Ferry(TestRedisModel):
     name = fields.StringField(unique=True)
@@ -226,6 +249,14 @@ class UniqueStringFieldTest(BaseModelTest):
         self.assertCollection([ferry1._pk], name=2)
         self.assertCollection([ferry2._pk], name=1)
 
+    def test_incrbyfloat_should_hit_uniqueness_test(self):
+        ferry1 = self.model(name=3.0)
+        ferry2 = self.model(name=2.5)
+        with self.assertRaises(UniquenessError):
+            ferry2.name.incrbyfloat(0.5)
+        self.assertCollection([ferry1._pk], name=3.0)
+        self.assertCollection([ferry2._pk], name=2.5)
+
     def test_setrange_should_hit_uniqueness_test(self):
         ferry1 = self.model(name="Kalliste")
         ferry2 = self.model(name="Kammiste")
@@ -233,3 +264,11 @@ class UniqueStringFieldTest(BaseModelTest):
             ferry2.name.setrange(2, "ll")
         self.assertCollection([ferry1._pk], name="Kalliste")
         self.assertCollection([ferry2._pk], name="Kammiste")
+
+    def test_setbit_should_hit_uniqueness_test(self):
+        ferry1 = self.model(name='P')  # 0b01010000
+        ferry2 = self.model(name='@')  # 0b01000000
+        with self.assertRaises(UniquenessError):
+            ferry2.name.setbit(3, 1)
+        self.assertCollection([ferry1._pk], name='P')
+        self.assertCollection([ferry2._pk], name='@')

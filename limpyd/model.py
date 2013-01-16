@@ -120,7 +120,7 @@ class RedisModel(RedisProxyCommand):
     collection_manager = CollectionManager
     DoesNotExist = DoesNotExist
 
-    available_getters = ('hmget', )
+    available_getters = ('hmget', 'hgetall', 'hkeys', 'hvals', 'hlen')
     available_modifiers = ('hmset', )
 
     def __init__(self, *args, **kwargs):
@@ -424,24 +424,20 @@ class RedisModel(RedisProxyCommand):
     def hmget(self, *args):
         """
         This command on the model allow getting many instancehash fields with only
-        one redis call. You should pass hash name to retrieve as arguments.
+        one redis call. You must pass hash name to retrieve as arguments.
         """
-        if len(args) == 0:
-            args = self._instancehash_fields
-        else:
-            if not any(arg in self._instancehash_fields for arg in args):
-                raise ValueError("Only InstanceHashField can be used here.")
+        if args and not any(arg in self._instancehash_fields for arg in args):
+            raise ValueError("Only InstanceHashField can be used here.")
 
         return self._call_command('hmget', args)
-
 
     def hmset(self, **kwargs):
         """
         This command on the model allow setting many instancehash fields with only
-        one redis call. You should pass kwargs with field names as keys, with
+        one redis call. You must pass kwargs with field names as keys, with
         their value.
         """
-        if not any(kwarg in self._instancehash_fields for kwarg in kwargs.iterkeys()):
+        if kwargs and not any(kwarg in self._instancehash_fields for kwarg in kwargs.iterkeys()):
             raise ValueError("Only InstanceHashField can be used here.")
 
         indexed = []
@@ -453,9 +449,9 @@ class RedisModel(RedisProxyCommand):
             for field_name, value in kwargs.items():
                 field = self.get_field(field_name)
                 if field.indexable:
+                    indexed.append(field)
                     field.deindex()
                     field.index(value)
-                    indexed.append((field, value))
 
             # Call redis (waits for a dict)
             result = self._call_command('hmset', kwargs)
@@ -465,11 +461,12 @@ class RedisModel(RedisProxyCommand):
         except:
             # We revert indexes previously set if we have an exception, then
             # really raise the error
-            for field, new_value in indexed:
-                old_value = field.hget()
-                field.deindex(new_value)
-                field.hset(old_value)
+            for field in indexed:
+                field._rollback_index()
             raise
+        finally:
+            for field in indexed:
+                field._reset_index_cache()
 
     def delete(self):
         """
