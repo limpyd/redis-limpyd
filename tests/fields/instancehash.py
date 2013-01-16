@@ -1,3 +1,5 @@
+from redis.exceptions import DataError
+
 from limpyd import fields
 from limpyd.exceptions import UniquenessError
 
@@ -27,6 +29,12 @@ class HMTest(LimpydBaseTest):
         obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
         data = obj.hmget('foo', 'bar', 'baz')
         self.assertEqual(data, ['FOO', 'BAR', 'BAZ'])
+
+    def test_empty_hmget_call_should_return_nothing(self):
+        obj = self.HMTestModel()
+        obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
+        data = obj.hmget()
+        self.assertEqual(data, [])
 
     def test_hmset_should_index_values(self):
         obj = self.HMTestModel()
@@ -86,9 +94,8 @@ class HMTest(LimpydBaseTest):
 
     def test_hmget_result_is_not_cached_itself(self):
         obj = self.HMTestModel(foo='FOO', bar='BAR')
-        obj.hmget()
+        obj.hmget('foo', 'bar')
         obj.foo.hset('FOO2')
         with self.assertNumCommands(1):
-            data = obj.hmget()
-            self.assertEqual(data, ['FOO2', 'BAR', None])
-
+            data = obj.hmget('foo', 'bar')
+            self.assertEqual(data, ['FOO2', 'BAR'])

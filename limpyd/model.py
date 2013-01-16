@@ -447,11 +447,8 @@ class RedisModel(RedisProxyCommand):
         one redis call. You should pass hash name to retrieve as arguments.
         Try to get values from local cache if possible.
         """
-        if len(args) == 0:
-            args = self._instancehash_fields
-        else:
-            if not any(arg in self._instancehash_fields for arg in args):
-                raise ValueError("Only InstanceHashField can be used here.")
+        if args and not any(arg in self._instancehash_fields for arg in args):
+            raise ValueError("Only InstanceHashField can be used here.")
 
         # get values from cache if we can
         cached = {}
