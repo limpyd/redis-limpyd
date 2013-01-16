@@ -572,7 +572,7 @@ class StringField(SingleValueField):
     proxy_getter = "get"
     proxy_setter = "set"
 
-    available_getters = ('get', 'getbit', 'getrange', 'strlen', )
+    available_getters = ('get', 'getbit', 'getrange', 'strlen', 'bitcount', )
     available_modifiers = ('delete', 'getset', 'set', 'append', 'decr',
                            'incr', 'incrbyfloat', 'setbit', 'setnx',
                            'setrange', )

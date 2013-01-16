@@ -129,6 +129,7 @@ The StringField_ type support these `Redis string commands`_:
 
 **Getters:**
 
+- `bitcount`
 - `get`
 - `getbit`
 - `getrange`
