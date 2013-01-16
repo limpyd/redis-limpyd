@@ -24,7 +24,7 @@ class TestRedisModel(model.RedisModel):
 class Bike(TestRedisModel):
     name = fields.StringField(indexable=True)
     wheels = fields.StringField(default=2)
-    passengers = fields.StringField(default=1, cacheable=False)
+    passengers = fields.StringField(default=1)
 
 
 class MotorBike(Bike):
@@ -35,7 +35,6 @@ class Boat(TestRedisModel):
     """
     Use also InstanceHashField.
     """
-    cacheable = False
 
     name = fields.StringField(unique=True)
     power = fields.InstanceHashField(indexable=True, default="sail")
@@ -463,93 +462,6 @@ class ExistsTest(LimpydBaseTest):
     def test_should_raise_if_no_kwarg(self):
         with self.assertRaises(ValueError):
             Boat.exists()
-
-
-class CommandCacheTest(LimpydBaseTest):
-
-    def test_should_not_hit_redis_when_cached(self):
-        # Not sure the connection.info() is thread safe...
-        bike = Bike(name="randonneuse")
-        # First get
-        name = bike.name.get()
-        hits_before = self.connection.info()['keyspace_hits']
-        # Get again
-        name = bike.name.get()
-        hits_after = self.connection.info()['keyspace_hits']
-        self.assertEqual(name, "randonneuse")
-        self.assertEqual(hits_before, hits_after)
-        # Flush all cache from instance
-        bike.init_cache()
-        name = bike.name.get()
-        hits_after = self.connection.info()['keyspace_hits']
-        self.assertEqual(name, "randonneuse")
-        self.assertNotEqual(hits_before, hits_after)
-
-    def test_should_flush_if_modifiers_command_is_called(self):
-        bike = Bike(name="draisienne")
-        name = bike.name.get()
-        self.assertEqual(name, "draisienne")
-        bike.name.set('tandem')
-        name = bike.name.get()
-        self.assertEqual(name, "tandem")
-
-    def test_should_not_hit_cache_when_flushed_for_field(self):
-        bike = Bike(name="randonneuse", wheels=4)
-        # First get
-        name = bike.name.get()
-        wheels = bike.wheels.get()
-        hits_before = self.connection.info()['keyspace_hits']
-        # Get again
-        name = bike.name.get()
-        wheels = bike.wheels.get()
-        hits_after = self.connection.info()['keyspace_hits']
-        self.assertEqual(name, "randonneuse")
-        self.assertEqual(wheels, "4")
-        self.assertEqual(hits_before, hits_after)
-        # Flush cache for field `name`
-        bike.name.init_cache()
-        name = bike.name.get()
-        hits_after_flush = self.connection.info()['keyspace_hits']
-        self.assertEqual(name, "randonneuse")
-        self.assertNotEqual(hits_before, hits_after_flush)
-        # Getting again the wheels must hit cache
-        wheels = bike.wheels.get()
-        hits_after_getting_wheels = self.connection.info()['keyspace_hits']
-        self.assertEqual(wheels, "4")
-        self.assertEqual(hits_after_flush, hits_after_getting_wheels)
-
-    def test_not_cached_field_should_not_hit_cache(self):
-        bike = Bike(name="tandem", wheels=2, passengers=2)
-        # First get
-        name = bike.name.get()
-        passengers = bike.passengers.get()
-        hits_before = self.connection.info()['keyspace_hits']
-        # Get again
-        name = bike.name.get()
-        passengers = bike.passengers.get()
-        hits_after = self.connection.info()['keyspace_hits']
-        self.assertEqual(name, "tandem")
-        self.assertEqual(passengers, "2")
-        hits_attended = hits_before + 1  # one field, `passengers`, should miss cache
-        self.assertEqual(hits_after, hits_attended)
-
-    def test_not_cached_model_should_not_hit_cache(self):
-        boat = Boat(name="Pen Duick I", length=15.1, launched=1898)
-        # First get
-        name = boat.name.get()
-        length = boat.length.get()
-        launched = boat.launched.get()
-        hits_before = self.connection.info()['keyspace_hits']
-        # Get again
-        name = boat.name.get()
-        length = boat.length.get()
-        launched = boat.launched.get()
-        hits_after = self.connection.info()['keyspace_hits']
-        self.assertEqual(name, "Pen Duick I")
-        self.assertEqual(length, "15.1")
-        self.assertEqual(launched, "1898")
-        hits_attended = hits_before + 3  # the 3 fields should miss cache
-        self.assertEqual(hits_after, hits_attended)
 
 
 class MetaRedisProxyTest(LimpydBaseTest):

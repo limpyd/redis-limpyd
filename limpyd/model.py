@@ -5,7 +5,7 @@ from copy import copy
 import threading
 
 from limpyd.fields import *
-from limpyd.utils import make_key, make_cache_key
+from limpyd.utils import make_key
 from limpyd.exceptions import *
 from limpyd.database import RedisDatabase
 from limpyd.collection import CollectionManager
@@ -115,13 +115,12 @@ class RedisModel(RedisProxyCommand):
     __metaclass__ = MetaRedisModel
 
     namespace = None  # all models in an app may have the same namespace
-    cacheable = True
     lockable = True
     abstract = True
     collection_manager = CollectionManager
     DoesNotExist = DoesNotExist
 
-    no_cache_getters = ('hmget', )
+    available_getters = ('hmget', )
     available_modifiers = ('hmset', )
 
     def __init__(self, *args, **kwargs):
@@ -134,7 +133,6 @@ class RedisModel(RedisProxyCommand):
         - some kwargs == instanciate, connect, and set the properties received
         - one arg == get from pk
         """
-        self.cacheable = self.__class__.cacheable
         self.lockable = self.__class__.lockable
 
         # set to True when the instance's PK will be tested for existence in redis
@@ -159,9 +157,6 @@ class RedisModel(RedisProxyCommand):
         # change the get_field method to use the instance related one instead
         # of the classmethod
         self.get_field = self.get_instance_field
-
-        # Prepare command internal caching
-        self.init_cache()
 
         # Validate arguments
         if len(args) > 0 and len(kwargs) > 0:
@@ -252,21 +247,6 @@ class RedisModel(RedisProxyCommand):
         subclasses)
         """
         return database._use_for_model(cls)
-
-    def init_cache(self):
-        """
-        Call it to init or clear the command cache.
-        the "__self__" if used to store cache for the model, other keys are for
-        its fields.
-        """
-        if self.cacheable:
-            self._cache = {'__self__': {}}
-
-    def get_cache(self):
-        """
-        Return the local cache dict.
-        """
-        return self._cache['__self__']
 
     @classmethod
     def has_field(cls, field_name):
@@ -445,7 +425,6 @@ class RedisModel(RedisProxyCommand):
         """
         This command on the model allow getting many instancehash fields with only
         one redis call. You should pass hash name to retrieve as arguments.
-        Try to get values from local cache if possible.
         """
         if len(args) == 0:
             args = self._instancehash_fields
@@ -453,62 +432,16 @@ class RedisModel(RedisProxyCommand):
             if not any(arg in self._instancehash_fields for arg in args):
                 raise ValueError("Only InstanceHashField can be used here.")
 
-        # get values from cache if we can
-        cached = {}
-        to_retrieve = []
-        retrieved = []
-        if self.cacheable:
-            # we do the cache stuff only if the object is cacheable, to avoid
-            # useless computations if not
-            for field_name in args:
-                field = self.get_field(field_name)
-                if field.cacheable and field.has_cache():
-                    field_cache = field.get_cache()
-                    haxh = make_cache_key('hget', field_name)
-                    if haxh in field_cache:
-                        cached[field_name] = field_cache[haxh]
-                        continue
-                # field not cached, we need to retrieve it
-                to_retrieve.append(field_name)
-        else:
-            # object not cacheable, retrieve all fields
-            to_retrieve = args
+        return self._call_command('hmget', args)
 
-        retrieved_dict = {}
-        if to_retrieve:
-            # call redis if some keys are not cached (waits for a list)
-            retrieved = self._call_command('hmget', to_retrieve)
-            retrieved_dict = dict(zip(to_retrieve, retrieved))
-
-            if self.cacheable:
-                for field_name, value in retrieved_dict.iteritems():
-                    # set cache for the field with new retrieved value
-                    field = self.get_field(field_name)
-                    if not field.has_cache():
-                        field.init_cache()
-                    cache = field.get_cache()
-                    haxh = make_cache_key('hget', field_name)
-                    cache[haxh] = retrieved_dict[field_name]
-
-        if cached:
-            # we have some fields cached, return the values in the right order
-            retrieved = []
-            for field_name in args:
-                if field_name in cached:
-                    retrieved.append(cached[field_name])
-                else:
-                    retrieved.append(retrieved_dict[field_name])
-
-        return retrieved
 
     def hmset(self, **kwargs):
         """
         This command on the model allow setting many instancehash fields with only
         one redis call. You should pass kwargs with field names as keys, with
         their value.
-        Index and cache are managed for indexable and/or cacheable fields.
         """
-        if not any(kwarg in self._instancehash_fields for kwarg in kwargs.keys()):
+        if not any(kwarg in self._instancehash_fields for kwarg in kwargs.iterkeys()):
             raise ValueError("Only InstanceHashField can be used here.")
 
         indexed = []
@@ -527,14 +460,6 @@ class RedisModel(RedisProxyCommand):
             # Call redis (waits for a dict)
             result = self._call_command('hmset', kwargs)
 
-            # Clear the cache for each cacheable field
-            if self.cacheable:
-                for field_name, value in kwargs.items():
-                    field = self.get_field(field_name)
-                    if not field.cacheable or not field.has_cache():
-                        continue
-                    field_cache = field.get_cache()
-                    field_cache.clear()
             return result
 
         except:

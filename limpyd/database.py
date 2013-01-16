@@ -26,7 +26,6 @@ class RedisDatabase(object):
     have the same name (defined by the class name)
     """
     _connections = {}  # class level cache
-    discard_cache = False
 
     def __init__(self, **connection_settings):
         self._connection = None  # Instance level cache

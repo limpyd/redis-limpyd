@@ -224,16 +224,8 @@ class RelatedFieldMixin(object):
     def __init__(self, to, *args, **kwargs):
         """
         Force the field to be indexable and save related arguments.
-        We also disable caching because cache is instance-related, and when
-        we delete a object linked to a related field, we need to instanciate
-        all instances linked to it to remove the link. But with cache enabled,
-        the cache of just created instances is cleared, but not ones of
-        already existing ones. Test "test_deleting_an_object_must_clear_the_fk"
-        fails with caching enabled. Consider moving cache from instances to the
-        database could be an option.
         """
         kwargs['indexable'] = True
-        kwargs['cacheable'] = False
         super(RelatedFieldMixin, self).__init__(*args, **kwargs)
 
         self.related_to = to
