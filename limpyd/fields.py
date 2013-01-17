@@ -336,7 +336,7 @@ class RedisField(RedisProxyCommand):
         except DoesNotExist:
             """
             If the object doesn't exists anymore, its PK is deleted, so the
-            "self.key" call will raise a DoesnotExist exception. We catch it
+            "self.key" call will raise a DoesNotExist exception. We catch it
             to return False, as the field doesn't exists too.
             """
             return False
@@ -1028,7 +1028,7 @@ class PKField(SingleValueField):
         try:
             if not value:
                 value = self.get()
-        except AttributeError:
+        except (AttributeError, DoesNotExist):
             # If the instance is deleted, the _pk attribute doesn't exist
             # anymore. So we catch the AttributeError to return False (this pk
             # field doesn't exist anymore) in this specific case
@@ -1059,7 +1059,7 @@ class PKField(SingleValueField):
         value = self._validate(value)
 
         # Tell the model the pk is now set
-        self._instance._pk = value
+        self._instance._set_pk(value)
         self._set = True
 
         # We have a new pk, so add it to the collection
@@ -1074,6 +1074,14 @@ class PKField(SingleValueField):
         We do not call the default getter as we have the value cached in the
         instance in its _pk attribute
         """
+        if not hasattr(self, '_instance'):
+            raise ImplementationError("Impossible to get the PK of an unbound field")
+        if not hasattr(self._instance, '_pk'):
+            raise DoesNotExist("The current object doesn't exists anymore")
+
+        if not self._instance._pk:
+            self.set(value=None)
+
         return self.normalize(self._instance._pk)
 
     def delete(self):
