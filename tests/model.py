@@ -134,7 +134,7 @@ class InitTest(LimpydBaseTest):
         with self.assertNumCommands(0):
             bike4 = Bike.lazy_connect(1000)
         # set a field: we check pk for the first update if skipped the existence test
-        with self.assertRaises(ValueError):
+        with self.assertRaises(DoesNotExist):
             bike4.name.set('monocycle')
         self.assertFalse(bike4.connected)
 
@@ -451,17 +451,29 @@ class UniquenessTest(LimpydBaseTest):
 class ExistsTest(LimpydBaseTest):
 
     def test_generic_exists_test(self):
-        boat1 = Boat(name="Pen Duick I", length=15.1, launched=1898)
-        boat2 = Boat(name="Pen Duick II", length=13.6, launched=1964)
-        boat3 = Boat(name="Pen Duick III", length=17.45, launched=1966)
-        self.assertEqual(Boat.exists(name="Pen Duick I"), True)
-        self.assertEqual(Boat.exists(name="Pen Duick I", launched=1898), True)
-        self.assertEqual(Boat.exists(name="Pen Duick II", launched=1898), False)
-        self.assertEqual(Boat.exists(name="Pen Duick IV"), False)
+        Boat(name="Pen Duick I", length=15.1, launched=1898)
+        Boat(name="Pen Duick II", length=13.6, launched=1964)
+        Boat(name="Pen Duick III", length=17.45, launched=1966)
+        self.assertTrue(Boat.exists(pk=1))
+        self.assertFalse(Boat.exists(pk=1000))
+        self.assertTrue(Boat.exists(name="Pen Duick I"))
+        self.assertTrue(Boat.exists(name="Pen Duick I", launched=1898))
+        self.assertFalse(Boat.exists(name="Pen Duick II", launched=1898))
+        self.assertFalse(Boat.exists(name="Pen Duick IV"))
 
     def test_should_raise_if_no_kwarg(self):
         with self.assertRaises(ValueError):
             Boat.exists()
+
+    def test_doesnotexist_should_be_raised_when_object_not_found(self):
+        with self.assertRaises(DoesNotExist):
+            Boat(1000)
+        with self.assertRaises(DoesNotExist):
+            Boat.get(1000)
+        with self.assertRaises(DoesNotExist):
+            Boat.get(pk=1000)
+        with self.assertRaises(DoesNotExist):
+            Boat.get(name='France')
 
 
 class MetaRedisProxyTest(LimpydBaseTest):

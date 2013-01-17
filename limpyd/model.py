@@ -217,7 +217,7 @@ class RedisModel(RedisProxyCommand):
         else:
             self._pk = None
             self._connected = False
-            raise ValueError("No %s found with pk %s" % (self.__class__.__name__, pk))
+            raise DoesNotExist("No %s found with pk %s" % (self.__class__.__name__, pk))
 
     @classmethod
     def lazy_connect(cls, pk):
