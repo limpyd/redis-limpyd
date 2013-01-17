@@ -367,24 +367,24 @@ class GetTest(LimpydBaseTest):
 
     def test_should_considere_one_arg_as_pk(self):
         boat1 = Boat(name="Pen Duick I", length=15.1)
-        boat2 = Boat.get(boat1.get_pk())
-        self.assertEqual(boat1.get_pk(), boat2.get_pk())
+        boat2 = Boat.get(boat1._pk)
+        self.assertEqual(boat1._pk, boat2._pk)
         self.assertEqual(boat1.name.get(), boat2.name.get())
 
     def test_should_filter_from_kwargs(self):
         boat1 = Boat(name="Pen Duick I", length=15.1)
         boat2 = Boat.get(name="Pen Duick I")
-        self.assertEqual(boat1.get_pk(), boat2.get_pk())
+        self.assertEqual(boat1._pk, boat2._pk)
         self.assertEqual(boat1.name.get(), boat2.name.get())
         boat3 = Boat.get(name="Pen Duick I", power="sail")
-        self.assertEqual(boat1.get_pk(), boat3.get_pk())
+        self.assertEqual(boat1._pk, boat3._pk)
         self.assertEqual(boat1.name.get(), boat3.name.get())
 
     def test_should_accepte_a_simple_pk_as_kwargs(self):
         boat1 = Boat(name="Pen Duick I", length=15.1)
         with self.assertNumCommands(1):  # only a sismember
-            boat2 = Boat.get(pk=boat1.get_pk())
-        self.assertEqual(boat1.get_pk(), boat2.get_pk())
+            boat2 = Boat.get(pk=boat1._pk)
+        self.assertEqual(boat1._pk, boat2._pk)
 
     def test_should_raise_if_more_than_one_match(self):
         boat1 = Boat(name="Pen Duick I")
@@ -411,13 +411,13 @@ class GetOrConnectTest(LimpydBaseTest):
     def test_should_get_if_object_exists(self):
         boat = Boat(name="Pen Duick I")
         boat_again, created = Boat.get_or_connect(name="Pen Duick I")
-        self.assertEqual(boat.get_pk(), boat_again.get_pk())
+        self.assertEqual(boat._pk, boat_again._pk)
         self.assertFalse(created)
 
     def test_should_connect_if_object_do_not_exists(self):
         boat = Boat(name="Pen Duick I")
         boat_again, created = Boat.get_or_connect(name="Pen Duick II")
-        self.assertNotEqual(boat.get_pk(), boat_again.get_pk())
+        self.assertNotEqual(boat._pk, boat_again._pk)
         self.assertTrue(created)
 
 

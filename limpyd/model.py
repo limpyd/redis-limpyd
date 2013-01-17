@@ -283,12 +283,6 @@ class RedisModel(RedisProxyCommand):
 
         return field
 
-    def get_pk(self):
-        """
-        Kept here for compatibility: call self.pk.get()
-        """
-        return self.pk.get()
-
     def _set_pk(self, value):
         """
         Use the given value as the instance's primary key, if it doesn't have
@@ -405,7 +399,7 @@ class RedisModel(RedisProxyCommand):
     def key(self):
         return self.make_key(
             self._name,
-            self.get_pk(),
+            self.pk.get(),
             "hash",
         )
 

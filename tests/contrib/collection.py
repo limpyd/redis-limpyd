@@ -64,7 +64,7 @@ class CompatibilityTest(BaseTest):
         # test "instances"
         public_groups = list(Group.collection(public=1).instances())
         self.assertEqual(len(public_groups), 2)
-        public_groups_pks = set([g.get_pk() for g in public_groups])
+        public_groups_pks = set([g._pk for g in public_groups])
         self.assertEqual(public_groups_pks, set(['1', '3']))
 
         # test "values"
@@ -103,13 +103,13 @@ class FieldOrModelAsValueForSortAndFilterTest(BaseTest):
         # test using field from same model, without updating its value
         group = Group(name='foo')
         collection = Group.collection(name=group.name)
-        attended = set([self.groups[0].get_pk(), group.get_pk()])
+        attended = set([self.groups[0]._pk, group._pk])
         self.assertEqual(set(collection), attended)
 
         # test using a field from same model, updating its value before running the collection
         group = Group(name='foo')
         collection = Group.collection(name=group.name)
-        attended = set([self.groups[1].get_pk(), group.get_pk()])
+        attended = set([self.groups[1]._pk, group._pk])
         group.name.hset('bar')
         self.assertEqual(set(collection), attended)
 
@@ -117,20 +117,20 @@ class FieldOrModelAsValueForSortAndFilterTest(BaseTest):
         # test using a field from another model, without updating its value
         query = FieldOrModelAsValueForSortAndFilterTest.Query(name='foo')
         collection = Group.collection(name=query.name)
-        attended = set([self.groups[0].get_pk(), ])
+        attended = set([self.groups[0]._pk, ])
         self.assertEqual(set(collection), attended)
 
         # test using a field from another model, updating its value before running the collection
         query = FieldOrModelAsValueForSortAndFilterTest.Query(name='foo')
         collection = Group.collection(name=query.name)
-        attended = set([self.groups[1].get_pk(), ])
+        attended = set([self.groups[1]._pk, ])
         query.name.hset('bar')
         self.assertEqual(set(collection), attended)
 
         # test using a field from another model, really creating the object later
         query = FieldOrModelAsValueForSortAndFilterTest.Query()
         collection = Group.collection(name=query.name)
-        attended = set([self.groups[2].get_pk(), ])
+        attended = set([self.groups[2]._pk, ])
         query.name.hset('baz')
         self.assertEqual(set(collection), attended)
 
@@ -144,7 +144,7 @@ class FieldOrModelAsValueForSortAndFilterTest(BaseTest):
     def test_filter_should_accept_instance_as_value(self):
         group = Group(name='foo')
         collection = Group.collection(pk=group)
-        attended = set([group.get_pk(), ])
+        attended = set([group._pk, ])
         self.assertEqual(set(collection), attended)
 
 
@@ -452,7 +452,7 @@ class SortByScoreTest(BaseTest):
         sorted_by_score_instances = list(collection.sort(by_score=self.container.groups_sortedset))
         self.assertEqual(len(sorted_by_score_instances), len(self.active_sorted_pks))
 
-        sorted_by_score_pks = [g.get_pk() for g in sorted_by_score_instances]
+        sorted_by_score_pks = [g._pk for g in sorted_by_score_instances]
         self.assertEqual(sorted_by_score_pks, self.active_sorted_pks)
 
     def test_sort_by_sortedset_could_retrieve_values(self):
@@ -612,7 +612,7 @@ class StoreTest(BaseTest):
 
         instances = list(stored_collection.instances())
         self.assertEqual(len(instances), 2)
-        self.assertEqual(instances[0].get_pk(), '1')
+        self.assertEqual(instances[0]._pk, '1')
 
         dicts = list(stored_collection.values('pk', 'name'))
         self.assertEqual(len(dicts), 2)
@@ -706,20 +706,20 @@ class ValuesTest(BaseValuesTest):
 
     def test_values_should_accept_pk(self):
         #... but pk only has no advantage over simple collection result
-        boats = list(Boat.collection(pk=self.boat1.get_pk()).values('pk'))
-        self.assertEqual(boats[0]['pk'], self.boat1.get_pk())
+        boats = list(Boat.collection(pk=self.boat1._pk).values('pk'))
+        self.assertEqual(boats[0]['pk'], self.boat1._pk)
 
         class BoatWithNewPk(Boat):
             id = fields.AutoPKField()
-        boat = BoatWithNewPk()
+        boat = BoatWithNewPk(name="Pen Duick I")
 
-        boats = list(BoatWithNewPk.collection(pk=boat.get_pk()).values('pk'))
+        boats = list(BoatWithNewPk.collection(pk=boat._pk).values('pk'))
         self.assertFalse('id' in boats[0])
-        self.assertEqual(boats[0]['pk'], boat.get_pk())
+        self.assertEqual(boats[0]['pk'], boat._pk)
 
-        boats = list(BoatWithNewPk.collection(pk=boat.get_pk()).values('id'))
+        boats = list(BoatWithNewPk.collection(pk=boat._pk).values('id'))
         self.assertFalse('pk' in boats[0])
-        self.assertEqual(boats[0]['id'], boat.get_pk())
+        self.assertEqual(boats[0]['id'], boat._pk)
 
     def test_call_to_primary_keys_should_cancel_values(self):
         boats = set(Boat.collection().values('pk', 'name', 'launched').primary_keys())
@@ -763,19 +763,18 @@ class ValuesListTest(BaseValuesTest):
 
     def test_values_list_should_accept_pk(self):
         #... but pk only has no advantage over simple collection result
-        boats = list(Boat.collection(pk=self.boat1.get_pk()).values_list('pk'))
-        self.assertEqual(boats[0][0], self.boat1.get_pk())
+        boats = list(Boat.collection(pk=self.boat1._pk).values_list('pk'))
+        self.assertEqual(boats[0][0], self.boat1._pk)
 
         class BoatWithNewPk(Boat):
             namespace = Boat.namespace + 'values_list'
             id = fields.AutoPKField()
-        boat = BoatWithNewPk()
+        boat = BoatWithNewPk(name="Pen Duick I")
+        boats = list(BoatWithNewPk.collection(pk=boat._pk).values_list('pk'))
+        self.assertEqual(boats[0][0], boat._pk)
 
-        boats = list(BoatWithNewPk.collection(pk=boat.get_pk()).values_list('pk'))
-        self.assertEqual(boats[0][0], boat.get_pk())
-
-        boats = list(BoatWithNewPk.collection(pk=boat.get_pk()).values_list('id'))
-        self.assertEqual(boats[0][0], boat.get_pk())
+        boats = list(BoatWithNewPk.collection(pk=boat._pk).values_list('id'))
+        self.assertEqual(boats[0][0], boat._pk)
 
     def test_flat_argument_should_return_flat_list(self):
         names = list(Boat.collection().values_list('name', flat=True))

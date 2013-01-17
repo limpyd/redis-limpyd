@@ -281,7 +281,7 @@ class InstancesTest(CollectionBaseTest):
 
         for instance in Boat.collection().instances():
             self.assertTrue(isinstance(instance, Boat))
-            self.assertIn(instance.get_pk(), Boat.collection())
+            self.assertIn(instance._pk, Boat.collection())
 
     def test_sort_should_return_instances(self):
 

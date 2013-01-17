@@ -26,7 +26,6 @@ class PKFieldTest(LimpydBaseTest):
     def test_pk_value_for_default_pk_field(self):
         obj = self.AutoPkModel(name="foo")
         self.assertEqual(obj._pk, '1')
-        self.assertEqual(obj.get_pk(), obj._pk)
         self.assertEqual(obj.pk.get(), obj._pk)
         same_obj = self.AutoPkModel.get(obj._pk)
         self.assertEqual(same_obj._pk, obj._pk)
@@ -38,7 +37,6 @@ class PKFieldTest(LimpydBaseTest):
     def test_pk_value_for_redefined_auto_pk_field(self):
         obj = self.RedefinedAutoPkModel(name="foo")
         self.assertEqual(obj._pk, '1')
-        self.assertEqual(obj.get_pk(), obj._pk)
         self.assertEqual(obj.pk.get(), obj._pk)
         self.assertEqual(obj.id.get(), obj._pk)
         same_obj = self.RedefinedAutoPkModel.get(obj._pk)
@@ -51,7 +49,6 @@ class PKFieldTest(LimpydBaseTest):
     def test_pk_value_for_not_auto_increment_pk_field(self):
         obj = self.NotAutoPkModel(name="evil", pk=666)
         self.assertEqual(obj._pk, '666')
-        self.assertEqual(obj.get_pk(), obj._pk)
         self.assertEqual(obj.pk.get(), obj._pk)
         # test with real string
         obj2 = self.NotAutoPkModel(name="foo", pk="bar")
