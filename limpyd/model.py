@@ -217,7 +217,7 @@ class RedisModel(RedisProxyCommand):
         else:
             self._pk = None
             self._connected = False
-            raise ValueError("No %s found with pk %s" % (self.__class__.__name__, pk))
+            raise DoesNotExist("No %s found with pk %s" % (self.__class__.__name__, pk))
 
     @classmethod
     def lazy_connect(cls, pk):
@@ -283,29 +283,22 @@ class RedisModel(RedisProxyCommand):
 
         return field
 
-    def get_pk(self):
+    def _set_pk(self, value):
         """
-        Return the primary key of the instance.
-        If the `_pk` attribute doesn't exist, it's because the instance was deleted.
-        And if it's present but empty, it's because it's a new instance without
-        primary key so we ask for a new one. Then, as the object is new, with a pk,
-        we save default values for fields.
+        Use the given value as the instance's primary key, if it doesn't have
+        one yet (it must be used only for new instances). Then save default values.
         """
-        if not hasattr(self, '_pk'):
-            raise DoesNotExist("The current object doesn't exists anymore")
-
-        if not self._pk:
-            self.pk.set(None)
-            self._connected = True
-            # Default must be set only at first initialization
-            self._set_defaults()
-
-        return self._pk
+        if self._pk:
+            raise ImplementationError('Something wrong happened, the PK was already set !')
+        self._pk = value
+        self._connected = True
+        # Default must be set only at first initialization
+        self._set_defaults()
 
     def _set_defaults(self):
         """
         Set default values to fields. We assume that they are not yet populated
-        as this method is called in `get_pk`, just after creation of a new pk.
+        as this method is called just after creation of a new pk.
         """
         for field_name in self._fields:
             if field_name in self._init_fields:
@@ -406,7 +399,7 @@ class RedisModel(RedisProxyCommand):
     def key(self):
         return self.make_key(
             self._name,
-            self.get_pk(),
+            self.pk.get(),
             "hash",
         )
 

@@ -134,7 +134,7 @@ class InitTest(LimpydBaseTest):
         with self.assertNumCommands(0):
             bike4 = Bike.lazy_connect(1000)
         # set a field: we check pk for the first update if skipped the existence test
-        with self.assertRaises(ValueError):
+        with self.assertRaises(DoesNotExist):
             bike4.name.set('monocycle')
         self.assertFalse(bike4.connected)
 
@@ -367,24 +367,24 @@ class GetTest(LimpydBaseTest):
 
     def test_should_considere_one_arg_as_pk(self):
         boat1 = Boat(name="Pen Duick I", length=15.1)
-        boat2 = Boat.get(boat1.get_pk())
-        self.assertEqual(boat1.get_pk(), boat2.get_pk())
+        boat2 = Boat.get(boat1._pk)
+        self.assertEqual(boat1._pk, boat2._pk)
         self.assertEqual(boat1.name.get(), boat2.name.get())
 
     def test_should_filter_from_kwargs(self):
         boat1 = Boat(name="Pen Duick I", length=15.1)
         boat2 = Boat.get(name="Pen Duick I")
-        self.assertEqual(boat1.get_pk(), boat2.get_pk())
+        self.assertEqual(boat1._pk, boat2._pk)
         self.assertEqual(boat1.name.get(), boat2.name.get())
         boat3 = Boat.get(name="Pen Duick I", power="sail")
-        self.assertEqual(boat1.get_pk(), boat3.get_pk())
+        self.assertEqual(boat1._pk, boat3._pk)
         self.assertEqual(boat1.name.get(), boat3.name.get())
 
     def test_should_accepte_a_simple_pk_as_kwargs(self):
         boat1 = Boat(name="Pen Duick I", length=15.1)
         with self.assertNumCommands(1):  # only a sismember
-            boat2 = Boat.get(pk=boat1.get_pk())
-        self.assertEqual(boat1.get_pk(), boat2.get_pk())
+            boat2 = Boat.get(pk=boat1._pk)
+        self.assertEqual(boat1._pk, boat2._pk)
 
     def test_should_raise_if_more_than_one_match(self):
         boat1 = Boat(name="Pen Duick I")
@@ -411,13 +411,13 @@ class GetOrConnectTest(LimpydBaseTest):
     def test_should_get_if_object_exists(self):
         boat = Boat(name="Pen Duick I")
         boat_again, created = Boat.get_or_connect(name="Pen Duick I")
-        self.assertEqual(boat.get_pk(), boat_again.get_pk())
+        self.assertEqual(boat._pk, boat_again._pk)
         self.assertFalse(created)
 
     def test_should_connect_if_object_do_not_exists(self):
         boat = Boat(name="Pen Duick I")
         boat_again, created = Boat.get_or_connect(name="Pen Duick II")
-        self.assertNotEqual(boat.get_pk(), boat_again.get_pk())
+        self.assertNotEqual(boat._pk, boat_again._pk)
         self.assertTrue(created)
 
 
@@ -451,17 +451,29 @@ class UniquenessTest(LimpydBaseTest):
 class ExistsTest(LimpydBaseTest):
 
     def test_generic_exists_test(self):
-        boat1 = Boat(name="Pen Duick I", length=15.1, launched=1898)
-        boat2 = Boat(name="Pen Duick II", length=13.6, launched=1964)
-        boat3 = Boat(name="Pen Duick III", length=17.45, launched=1966)
-        self.assertEqual(Boat.exists(name="Pen Duick I"), True)
-        self.assertEqual(Boat.exists(name="Pen Duick I", launched=1898), True)
-        self.assertEqual(Boat.exists(name="Pen Duick II", launched=1898), False)
-        self.assertEqual(Boat.exists(name="Pen Duick IV"), False)
+        Boat(name="Pen Duick I", length=15.1, launched=1898)
+        Boat(name="Pen Duick II", length=13.6, launched=1964)
+        Boat(name="Pen Duick III", length=17.45, launched=1966)
+        self.assertTrue(Boat.exists(pk=1))
+        self.assertFalse(Boat.exists(pk=1000))
+        self.assertTrue(Boat.exists(name="Pen Duick I"))
+        self.assertTrue(Boat.exists(name="Pen Duick I", launched=1898))
+        self.assertFalse(Boat.exists(name="Pen Duick II", launched=1898))
+        self.assertFalse(Boat.exists(name="Pen Duick IV"))
 
     def test_should_raise_if_no_kwarg(self):
         with self.assertRaises(ValueError):
             Boat.exists()
+
+    def test_doesnotexist_should_be_raised_when_object_not_found(self):
+        with self.assertRaises(DoesNotExist):
+            Boat(1000)
+        with self.assertRaises(DoesNotExist):
+            Boat.get(1000)
+        with self.assertRaises(DoesNotExist):
+            Boat.get(pk=1000)
+        with self.assertRaises(DoesNotExist):
+            Boat.get(name='France')
 
 
 class MetaRedisProxyTest(LimpydBaseTest):

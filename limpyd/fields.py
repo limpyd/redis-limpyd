@@ -226,7 +226,7 @@ class RedisField(RedisProxyCommand):
         """
         return self.make_key(
             self._instance._name,
-            self._instance.get_pk(),
+            self._instance.pk.get(),
             self.name,
         )
 
@@ -336,7 +336,7 @@ class RedisField(RedisProxyCommand):
         except DoesNotExist:
             """
             If the object doesn't exists anymore, its PK is deleted, so the
-            "self.key" call will raise a DoesnotExist exception. We catch it
+            "self.key" call will raise a DoesNotExist exception. We catch it
             to return False, as the field doesn't exists too.
             """
             return False
@@ -415,13 +415,13 @@ class RedisField(RedisProxyCommand):
                 raise UniquenessError("Multiple values indexed for unique field %s: %s" % (self.name, index))
             elif len(index) == 1:
                 indexed_instance_pk = index.pop()
-                if indexed_instance_pk != self._instance.get_pk():
+                if indexed_instance_pk != self._instance.pk.get():
                     self.connection.delete(self.key)
                     raise UniquenessError('Key %s already exists (for instance %s)' % (key, indexed_instance_pk))
         # Do index => create a key to be able to retrieve parent pk with
         # current field value
-        log.debug("indexing %s with key %s" % (key, self._instance.get_pk()))
-        result = self.connection.sadd(key, self._instance.get_pk())
+        log.debug("indexing %s with key %s" % (key, self._instance.pk.get()))
+        result = self.connection.sadd(key, self._instance.pk.get())
         self._indexed_keys.add(key)
         return result
 
@@ -436,7 +436,7 @@ class RedisField(RedisProxyCommand):
             self.add_index(key)
 
     def remove_index(self, key):
-        self.connection.srem(key, self._instance.get_pk())
+        self.connection.srem(key, self._instance.pk.get())
         self._deindexed_keys.add(key)
 
     def deindex(self, value=None):
@@ -995,7 +995,7 @@ class PKField(SingleValueField):
         """
         return str(value)
 
-    def get_new(self, value):
+    def _validate(self, value):
         """
         Validate that a given new pk to set is always set, and return it.
         The returned value should be normalized, and will be used without check.
@@ -1028,7 +1028,7 @@ class PKField(SingleValueField):
         try:
             if not value:
                 value = self.get()
-        except AttributeError:
+        except (AttributeError, DoesNotExist):
             # If the instance is deleted, the _pk attribute doesn't exist
             # anymore. So we catch the AttributeError to return False (this pk
             # field doesn't exist anymore) in this specific case
@@ -1056,10 +1056,10 @@ class PKField(SingleValueField):
             raise ValueError('A primary key cannot be updated')
 
         # Validate and return the value to be used as a pk
-        value = self.get_new(value)
+        value = self._validate(value)
 
         # Tell the model the pk is now set
-        self._instance._pk = value
+        self._instance._set_pk(value)
         self._set = True
 
         # We have a new pk, so add it to the collection
@@ -1074,6 +1074,14 @@ class PKField(SingleValueField):
         We do not call the default getter as we have the value cached in the
         instance in its _pk attribute
         """
+        if not hasattr(self, '_instance'):
+            raise ImplementationError("Impossible to get the PK of an unbound field")
+        if not hasattr(self._instance, '_pk'):
+            raise DoesNotExist("The current object doesn't exists anymore")
+
+        if not self._instance._pk:
+            self.set(value=None)
+
         return self.normalize(self._instance._pk)
 
     def delete(self):
@@ -1088,7 +1096,7 @@ class AutoPKField(PKField):
     """
     _auto_increment = True
 
-    def get_new(self, value):
+    def _validate(self, value):
         """
         Validate that a given new pk to set is always set to None, then return
         a new pk

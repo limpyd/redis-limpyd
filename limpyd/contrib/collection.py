@@ -132,7 +132,7 @@ class ExtendedCollectionManager(CollectionManager):
                 field_name, value = set_
                 field = self.cls.get_field(field_name)
                 if isinstance(value, RedisModel):
-                    val = value.get_pk()
+                    val = value.pk.get()
                 elif isinstance(value, SingleValueField):
                     val = value.proxy_get()
                 else:
@@ -579,7 +579,7 @@ class ExtendedCollectionManager(CollectionManager):
             # We have a RedisModel and we want its pk, or a RedisField
             # (single value) and we want its value
             if isinstance(pk.value, RedisModel):
-                pk = pk.value.get_pk()
+                pk = pk.value.pk.get()
             elif isinstance(pk.value, SingleValueField):
                 pk = pk.value.proxy_get()
             else:
