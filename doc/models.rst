@@ -2,7 +2,7 @@
 Models
 ******
 
-:ref:`models` are the core of limpyd, it's why we're here. A RedisModel_ is a class, in a database, with some fields. Each instance of this model is a new object stored in Redis_ by `limpyd`.
+:doc:`models` are the core of limpyd, it's why we're here. A `RedisModel` is a class, in a database, with some fields. Each instance of this model is a new object stored in Redis_ by `limpyd`.
 
 Here a simple example::
 
@@ -16,7 +16,7 @@ To create an instance, it's as easy as::
 
     >>> example = Example(foo='FOO', bar='BAR')
 
-By just doing this, the fields are created, and a PKField_ is set with a value that you can use::
+By just doing this, the fields are created, and a :ref:`PKField` is set with a value that you can use::
 
     >>> print "New example object with pk #%s" % example.pk.get()
     New example object with pk #1
@@ -25,9 +25,9 @@ Then later to get an instance from Redis_ with it's pk, it's as simple as::
 
     >>> example = Example(1)
 
-So, to create an object, pass fields and their values as named arguments, and to retrieve it, pass its pk as the only argument. To retrieave instances via other fields than the pk, check the Collections_ section later in this document.
+So, to create an object, pass fields and their values as named arguments, and to retrieve it, pass its pk as the only argument. To retrieave instances via other fields than the pk, check the :doc:`collections` section later in this document.
 
-If you don't pass any argument to the RedisModel_, default one from fields are taken and are saved. But if no arguments and no default values, you get an empty instance, with no filled fields and no pk set. 
+If you don't pass any argument to the `RedisModel`, default one from fields are taken and are saved. But if no arguments and no default values, you get an empty instance, with no filled fields and no pk set. 
 
 The pk will be created with the first field. It's important to know that we do not store any concept of "model", each field is totally independent, thought the keys to save them in Redis_ are based on the object's pk. So you can have 50 fields in a model and save only one of them.
 
@@ -40,7 +40,7 @@ When defining a model, you will add fields, but there is also some other attribu
 
 **database**
 
-The `database` attribute is mandatory and must be a RedisDatabase_ instance. See Database_
+The `database` attribute is mandatory and must be a :doc:`RedisDatabase <database>` instance. See :doc:`database`
 
 **namespace**
 
@@ -82,3 +82,5 @@ By default, when updating a `indexable` field, update of the same field for all 
 If you prefere speed, or are sure that you don't have more than one thread/process/server that write to the same database, you can set this `lockable` attribute to False to disable it for all the model's fields.
 
 Note that you can also disable it at the field's level.
+
+.. _Redis: http://redis.io

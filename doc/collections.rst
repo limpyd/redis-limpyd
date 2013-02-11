@@ -1,5 +1,3 @@
-
-
 ***********
 Collections
 ***********
@@ -82,6 +80,8 @@ To slice the result, simply act as it's the result of a collection is a list::
     ['2']
 
 
+.. _collection-sorting:
+
 Sorting
 =======
 
@@ -136,12 +136,14 @@ But if you do something like::
 nothing will be done while results is not printed, iterated...
 
 
+.. _collection-subclassing:
+
 Subclassing
 ===========
 
 The collection stuff is managed by a class named `CollectionManager`, available in `limpyd.collection`.
 
-If you want to use another class (you own subclass or one provided in contrib, see `Extended collection`_), you can do it simple by declaring the `collection_manager` attribute of the model::
+If you want to use another class (you own subclass or one provided in contrib, see :ref:`Extended collection <extended-collection>`), you can do it simple by declaring the `collection_manager` attribute of the model::
 
     class MyOwnCollectionManager(CollectionManager):
         pass
@@ -157,3 +159,5 @@ If you want to use another class (you own subclass or one provided in contrib, s
 You can also do it on each call to the `collection` method, by passing the class to the `manager` argument (useful if you want to keep the default manager in the model)::
 
     >>> Person.collection(firstname='John', manager=MyOwnCollectionManager)
+
+.. _Redis: http://redis.io

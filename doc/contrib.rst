@@ -1,4 +1,3 @@
-
 *******
 Contrib
 *******
@@ -48,7 +47,7 @@ With this we can do stuff like this::
     ['limpyd core devs']
 
 
-.. _RelatedModel: `Related model`_
+.. _RelatedModel:
 
 Related model
 -------------
@@ -67,21 +66,21 @@ Here are the new field types:
 FKStringField
 """""""""""""
 
-The FKStringField_ type is based on StringField_ and allow setting a foreign key.
+The FKStringField_ type is based on :ref:`StringField` and allow setting a foreign key.
 
-It just stores the primary key of the related object in a StringField_.
+It just stores the primary key of the related object in a :ref:`StringField`.
 
-FKHashableField
-"""""""""""""""
+FKInstanceHashaField
+""""""""""""""""""""
 
-The FKHashableField_ type is based on HashableField_ and allow setting a foreign key.
+The FKInstanceHashaField_ type is based on :ref:`InstanceHashField` and allow setting a foreign key.
 
-It works like FKStringField_ but, as a HashableField_, can be retrieved with other fields via the hmget_ method on the instance.
+It works like FKStringField_ but, as a :ref:`InstanceHashField`, can be retrieved with other fields via the :ref:`InstanceHashField-hmget` method on the instance.
 
 M2MSetField
 """""""""""
 
-The M2MSetField_ type is based on SetField_ and allow setting many foreign keys, acting as a Many 2 Many fields.
+The M2MSetField_ type is based on :ref:`SetField` and allow setting many foreign keys, acting as a Many 2 Many fields.
 
 If no order is needed, it's the best choice for M2M, because it's the lightest M2M field (memory occupation), and it's fast to check if an element is included (`sismember`, O(1)), or to remove one (`srem`, O(N) where N is the number of members to be removed.).
 
@@ -90,7 +89,7 @@ If you need ordering *and* unicity, check M2MSortedSetField_.
 M2MListField
 """"""""""""
 
-The M2MListField_ type is based on ListField_ and allow setting many foreign keys, acting as a Many 2 Many fields.
+The M2MListField_ type is based on :ref:`ListField` and allow setting many foreign keys, acting as a Many 2 Many fields.
 
 It works like M2MSetField_, with two differences, because it's a list and not a set:
 
@@ -104,7 +103,7 @@ If you need ordering *and* unicity, check M2MSortedSetField_.
 M2MSortedSetField
 """""""""""""""""
 
-The M2MSortedSetField_ type is based on SortedSetField_ and allow setting many foreign keys, acting as a Many 2 Many fields.
+The M2MSortedSetField_ type is based on :ref:`SortedSetField` and allow setting many foreign keys, acting as a Many 2 Many fields.
 
 It works like M2MSetField_, with one differences, because it's a sorted set and not a simple set: each foreign key has a score attached to it, and the list for foreign keys is sorted by this score.
 
@@ -120,7 +119,7 @@ to
 
 The first new argument (and the first in the list of accepted ones, useful to pass it without naming it), is `to`, the name of the model on which this field is related to. 
 
-Note that the related model must be on the same database_.
+Note that the related model must be on the same :doc:`database`.
 
 It can accept a RelatedModel_::
 
@@ -133,7 +132,7 @@ It can accept a RelatedModel_::
         name = StringField()
         owner = FKStringField(Person)
 
-In this case the RelatedModel_ must be defined before the current model.
+In this case the :ref:`RelatedModel` must be defined before the current model.
 
 And it can accept a string. There is two ways to define model with a string:
 
@@ -228,7 +227,7 @@ or, with the related collection::
     >>> person1.owned_groups()
     ['group 1', 'group 2']
 
-These two lines return exactly the same thing, a lazy collection (See Collections_).
+These two lines return exactly the same thing, a lazy collection (See :doc:`collections`).
 
 You can pass other filters too::
 
@@ -466,6 +465,8 @@ The `transaction` method returns the value returned by the execution of its inte
 Note that as for the `pipeline` method, you cannot update indexables fields in the transaction because read commands are used to update them.
 
 
+.. _ExtendedCollectionManager:
+
 Extended collection
 ===================
 
@@ -478,7 +479,7 @@ Although the standard collection may be sufficient in most cases, we added an Ex
 - ability to pass fields on some methods
 - ability to store results
 
-To use this ExtendedCollectionManager_, declare it as seen in Subclassing_.
+To use this ExtendedCollectionManager_, declare it as seen in :ref:`collection-subclassing`.
 
 All of these new capabilities are described below:
 
@@ -492,7 +493,7 @@ It can be really useful to quickly iterate on all results when you, for example,
 
 **values**
 
-When calling `values` on a collection, the result of the collection is not a list of primary keys, but a list of dictionaries, one for each matching entry, with each field passed as argument. If no field is passed, all fields are retrieved. Note that only simple fields (PKField_, StringField_ and HashableField_) are concerned.
+When calling `values` on a collection, the result of the collection is not a list of primary keys, but a list of dictionaries, one for each matching entry, with each field passed as argument. If no field is passed, all fields are retrieved. Note that only simple fields (:ref:`PKField`, :ref:`StringField` and :ref:`InstanceHashField`) are concerned.
 
 Example::
 
@@ -569,11 +570,11 @@ Here is an example::
 - a python set
 - a python tuple
 - a string, which must be the key of a Redis_ set (cannot be a list of sorted set for now)
-- a `limpyd` SetField_, attached to a model
-- a `limpyd` ListField_, attached to a model
-- a `limpyd` SortedSetField_, attached to a model
+- a `limpyd` :ref:`SetField`, attached to a model
+- a `limpyd` :ref:`ListField`, attached to a model
+- a `limpyd` :ref:`SortedSetField`, attached to a model
 
-Imagine you have a list of friends in a SetField_, you can directly use it to intersect::
+Imagine you have a list of friends in a :ref:`SetField`, you can directly use it to intersect::
 
     >>> # current_user is an instance of a model, and friends a SetField_
     >>> Person.collection(city='New York').intersect(current_user.friends)
@@ -586,7 +587,7 @@ Sorted sets in Redis_ are a powerful feature, as it can store a list of data sor
 
 With ExtendedCollectionManager_, you can do this using the `sort` method, but with the new `by_score` named argument, instead of the `by` one used in simple sort.
 
-The `by_score` argument accepts a string which must be the key of a Redis_ sorted set, or a SortedSetField_ (attached to an instance)
+The `by_score` argument accepts a string which must be the key of a Redis_ sorted set, or a :ref:`SortedSetField` (attached to an instance)
 
 Say you have a list of friends in a sorted set, with the date you met them as a score. And you want to find ones that are in you city, but keep them sorted by the date you met them, ie the score of the sorted set. You can do this this way::
 
@@ -601,7 +602,7 @@ Say you have a list of friends in a sorted set, with the date you met them as a 
     >>> # finally keep sorting by friends meet date
     >>> collection.sort(by_score=current_user.friends)
 
-With the sort by score, as you have to use the `sort` method, you can still use the `alpha` and `desc` arguments (see Sorting_)
+With the sort by score, as you have to use the `sort` method, you can still use the `alpha` and `desc` arguments (see :ref:`collection-sorting`)
 
 When using `values` or `values_list` (see `Retrieving values`_), you may want to retrieve the score between other fields. To do so, simply use the SORTED_SCORE constant (defined in `contrib.collection`) as a field name to pass to `values` or `values_list`::
 
@@ -620,7 +621,7 @@ In the `contrib` module, we already allow passing fields in some place, as to se
 Now you can do this also in collection (if you use ExtendedCollectionManager_):
 
 - the `by` argument of the `sort` method can be a field, and not only a field name
-- the `by_score` arguement of the `sort` method can be a SortedSetField_ (attached to an instance), not only the key of a Redis_ sorted set
+- the `by_score` arguement of the `sort` method can be a :ref:`SortedSetField` (attached to an instance), not only the key of a Redis_ sorted set
 - arguments of the `intersect` method can be python list(etc...) but also multi-values `RedisField`
 - the right part of filters (passed when calling `collection` or `filter`) can also be a `RedisField`, not only a value. If a `RedisField` (specifically a `SingleValueField`), its value will be fetched from Redis_ only when the collection will be really called
 
@@ -632,7 +633,7 @@ For collections with heavy computations, like multiple filters, intersecting wit
 
 It's possible with ExtendedCollectionManager_, simply by calling the `store` method, which take two optional arguments:
 
-- `key`, which is the :issue:`123` key where the result will be stored, default to a randomly generated one
+- `key`, which is the key where the result will be stored, default to a randomly generated one
 - `ttl`, the duration, in seconds, for which we want to keep the stored result in Redis_, default to `DEFAULT_STORE_TTL` (60 seconds, defined in `contrib.collection`). You can pass None if you don't want the key to expire in Redis_.
 
 When calling `store`, the collection is executed and you got a new ExtendedCollectionManager_ object, pre-filled with the result of the original collection.
@@ -670,3 +671,5 @@ An example to show all of this, based on the previous example (see `Sort by scor
     >>> my_database.connection.persist(store_key)
 
 
+.. _Redis: http://redis.io
+.. _redis-py: https://github.com/andymccurdy/redis-py

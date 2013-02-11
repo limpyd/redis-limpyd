@@ -47,7 +47,7 @@ When setting a default value, the field will be saved when creating the instance
 
 Sometimes getting objects from Redis_ by its primary key is not what you want. You may want to search for objects with a specific value for a specific field. 
 
-By setting the `indexable` argument to True when defining the field, this functionnality is automatically activated, and you'll be able to retrieve objects by filtering on this field using Collections_.
+By setting the `indexable` argument to True when defining the field, this functionnality is automatically activated, and you'll be able to retrieve objects by filtering on this field using :doc:`collections`.
 
 To activate it, just set the `indexable` argument to True::
 
@@ -58,7 +58,7 @@ To activate it, just set the `indexable` argument to True::
 
 In this example you will be able to filter on the field `foo` but not on `bar`.
 
-See Collections_ to know how to filter objects.
+See :doc:`collections` to know how to filter objects.
 
 When updating an indexable field, a lock is acquired on Redis on this field, for all instances of the model. It wasn't possible to use pipeline or redis scripting, because both need to know in advance keys to update, but we don't always know since keys for indexes are based on values. So a all *writing* operations on an indexable field are protected, to ensure consistensy if many threads, process, servers are working on the same redis database.
 
@@ -80,7 +80,7 @@ Example::
     >>> example2 = Example(foo='FOO', bar='BAR')
     UniquenessError: Key :example:bar:BAR already exists (for instance 1)
 
-See Collections_ to know how to filter objects, as for `indexable`.
+See :doc:`collections` to know how to filter objects, as for `indexable`.
 
 **lockable**
 
@@ -93,6 +93,7 @@ If not specified, it's default to True, except if the `lockable` attribute of th
 Field types
 ===========
 
+.. _StringField:
 
 StringField
 -----------
@@ -142,6 +143,8 @@ The StringField_ type support these `Redis string commands`_:
 - `setrange`
 
 
+.. _HashField:
+
 HashField
 ---------
 
@@ -181,6 +184,7 @@ Supported commands:
 - `hincrby`
 - `hincrbyfloat`
 
+.. _InstanceHashField:
 
 InstanceHashField
 -----------------
@@ -229,6 +233,8 @@ The following commands are not called on the fields themselves, but on an instan
 - hkeys_
 - hvals_
 - hlen_
+
+.. _InstanceHashField-hmget:
 
 hmget
 """""
@@ -339,6 +345,7 @@ Example (with same model as for hmget_)::
     1
 
 
+.. _SetField:
 
 SetField
 --------
@@ -385,6 +392,8 @@ The SetField_ type support these `Redis set commands <http://redis.io/commands#s
 - `spop`
 - `srem`
 
+
+.. _ListField:
 
 ListField
 ---------
@@ -437,6 +446,8 @@ The ListField_ type support these `Redis list commands <http://redis.io/commands
 - `rpush`
 - `rpushx`
 
+
+.. _SortedSetfield:
 
 SortedSetField
 --------------
@@ -491,10 +502,12 @@ The SortedSetField_ type support these `Redis sorted set commands <http://redis.
 - `zremrangebyscore`
 
 
+.. _PKField:
+
 PKField
 -------
 
-PKField_ is a special subclass of StringField_ that manage primary keys of models. The PK of an object cannot be updated, as it serves to create keys of all its stored fields. It's this PK that is returned, with others, in Collections_.
+PKField_ is a special subclass of StringField_ that manage primary keys of models. The PK of an object cannot be updated, as it serves to create keys of all its stored fields. It's this PK that is returned, with others, in :doc:`collections`.
 
 A PK can contain any sort of string you want: simple integers, float, long uuid, names...
 

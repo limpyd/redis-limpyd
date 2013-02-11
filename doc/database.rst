@@ -46,7 +46,7 @@ Say you use an external module defined like this::
     class Bar(BaseModel):
         # ... fields ...
 
-In your code, to add these models to your database (which also allow to use them in `Related model`_) , simply do::
+In your code, to add these models to your database (which also allow to use them in :ref:`Related model <RelatedModel>`) , simply do::
 
     database = RedisDatabase(**connection_settings)
     BaseModel.use_database(database)
