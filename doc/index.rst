@@ -18,6 +18,8 @@ Featuring:
 - CRUD abstraction
 - Keep the power of all the `Redis data types <http://redis.io/topics/data-types>`_ in your own code
 
+Source code: https://github.com/yohanboniface/redis-limpyd
+
 Show me some code!
 ------------------
 
