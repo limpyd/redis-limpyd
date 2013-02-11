@@ -58,7 +58,7 @@ To use related fields, you must use `related.RelatedModel` instead of `model.Red
 Related field types
 -------------------
 
-The `related` module provides 5 field types, based on the standard ones. All have the `indexable` attribute to True, and `cacheable` to False (for internal needs, we can't activate cache on related fields.)
+The `related` module provides 5 field types, based on the standard ones. All have the `indexable` attribute set to True.
 
 There is one big addition on these fields over the normal one. Everywhere you can pass a value to store (in theory you would pass an object's primary key), you can pass an instance of a limpyd model. The primary key of these instances will be extraced for you.
 

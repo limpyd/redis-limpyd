@@ -79,7 +79,6 @@ Contents
    models
    fields
    collections
-   cache
    contrib
 
 

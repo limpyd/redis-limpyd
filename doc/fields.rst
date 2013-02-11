@@ -6,6 +6,7 @@ Fields
 The core module of `limpyd` provides 5 fields types, matching the ones in Redis_:
 
 - StringField_, for the main data type in `Redis`, strings
+- HashField_, for dicts
 - InstanceHashField_, for hashes
 - SetField_, for sets
 - ListField_, for lists
@@ -16,23 +17,15 @@ You can also manage primary keys with these too fields:
 - PKField_, based on StringField_
 - AutoPKField_, same as PKField_ but auto-incremented.
 
-All these fields can be indexed, cached, and manage the keys for you (they take the same arguments as the real Redis_ ones, as defined in the `StrictRedis` class of `redis-py`_, but without the `key` parameter)
+All these fields can be indexed, and they manage the keys for you (they take the same arguments as the real Redis_ ones, as defined in the `StrictRedis` class of redis-py_, but without the `key` parameter).
 
 Another thing all fields have in common, is the way to delete them: use the `delete` method on a field, and both the field and its value will be removed from Redis_.
-
 
 
 Field attributes
 ================
 
 When adding fields to a model, you can configure it with some attributes:
-
-**cacheable**
-
-We provide a way to deactivate cache on a specific field is the cache is activated on the model. Simply pass the `cacheable` argument to False.
-
-For more informations about the cache, check Cache_.
-
 
 **default**
 
@@ -557,3 +550,7 @@ A AutoPKField_ field is a PKField_ filled with auto-incremented integers, starti
 It's a AutoPKField_ that is attached by default to every model, if no other one is defined.
 
 See PKField_ for more details.
+
+.. _Redis: http://redis.io
+.. _redis-py: https://github.com/andymccurdy/redis-py
+

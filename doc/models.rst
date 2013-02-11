@@ -31,7 +31,7 @@ If you don't pass any argument to the RedisModel_, default one from fields are t
 
 The pk will be created with the first field. It's important to know that we do not store any concept of "model", each field is totally independent, thought the keys to save them in Redis_ are based on the object's pk. So you can have 50 fields in a model and save only one of them.
 
-Another really important thing to know is that when you create/retrieve an object, there is absolutely no data stored in it. Each time you access data via a field, the data is fetched from Redis_, except if you use the Cache_ (actually activated by default)
+Another really important thing to know is that when you create/retrieve an object, there is absolutely no data stored in it. Each time you access data via a field, the data is fetched from Redis_.
 
 Model attributes
 ================
@@ -74,12 +74,6 @@ For this you have the `abstract` attribute, `False` by default::
 
 In this example, only `Article` and `Image` are real models, both using the `main_database` database, the namespace "content", and having `title` and `pub_date` fields, in addition to their own.
 
-
-**cacheable**
-
-As we don't store field values in the object, and to avoid querying Redis_ each time we need a value, `limpyd` implements a level of local cache. It's activated by default, just set the `cacheable` attribute on the model to False to deactivate it.
-
-See Cache_ for more informations about this local cache.
 
 **lockable**
 
