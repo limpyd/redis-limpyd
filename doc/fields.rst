@@ -3,7 +3,7 @@
 Fields
 ******
 
-The core module of `limpyd` provides 5 fields types, matching the ones in Redis_:
+The core module of `limpyd` provides 6 fields types, matching the ones in Redis_:
 
 - StringField_, for the main data type in `Redis`, strings
 - HashField_, for dicts
