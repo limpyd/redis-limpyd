@@ -20,7 +20,7 @@ setup(
     download_url = "https://github.com/yohanboniface/redis-limpyd/tags",
     packages = find_packages(),
     include_package_data=True,
-    #license = "MIT",
+    install_requires=["redis", ],
     platforms=["any"],
     zip_safe=True,
 
