@@ -57,6 +57,14 @@ So you can use it like this::
     ['yellow']
 
 
+Install
+=======
+
+::
+
+    pip install redis-limpyd
+
+
 Documentation
 =============
 
