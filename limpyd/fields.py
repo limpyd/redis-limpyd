@@ -827,8 +827,8 @@ class HashField(MultiValuesField):
 
     available_getters = ('hget', 'hgetall', 'hmget', 'hkeys', 'hvals',
                          'hlen', )
-    available_modifiers = ('hdel', 'hmset', 'hsetnx', 'hset', 'hincrby',
-                           'hincrbyfloat', )
+    available_modifiers = ('delete', 'hdel', 'hmset', 'hsetnx', 'hset',
+                           'hincrby', 'hincrbyfloat', )
 
     def _call_hmset(self, command, *args, **kwargs):
         if self.indexable:

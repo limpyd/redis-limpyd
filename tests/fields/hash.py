@@ -83,6 +83,17 @@ class HashFieldTest(BaseModelTest):
         # (follow redis usage)
         obj.headers.hdel('a key that does not exist')
 
+    def test_delete_whole_hashfield(self):
+        obj = self.model()
+        headers = {
+            'from': 'foo@bar.com',
+            'to': 'me@world.org'
+        }
+        obj.headers.hmset(**headers)
+
+        obj.headers.delete()
+        self.assertEqual(obj.headers.hgetall(), {})
+
     def test_hsetnx_should_index_only_if_value_is_new(self):
         obj = self.model()
         obj.headers.hset('to', 'two@three.org')
