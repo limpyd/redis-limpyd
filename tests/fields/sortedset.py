@@ -131,6 +131,12 @@ class IndexableSortedSetFieldTest(BaseModelTest):
         # check that all values are correctly indexed/deindexed
         self.assertCollection([], field='foo')
 
+    def test_delete_set(self):
+        obj = self.model()
+        obj.field.zadd(foo=22, bar=34)
+        obj.field.delete()
+        self.assertEqual(obj.field.proxy_get(), [])
+
 
 class Student(TestRedisModel):
     exams = fields.SortedSetField(unique=True)

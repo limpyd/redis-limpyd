@@ -199,6 +199,12 @@ class IndexableListFieldTest(BaseModelTest):
         self.assertCollection([obj._pk], field="baz")
         self.assertCollection([], field="faz")
 
+    def test_delete_list(self):
+        obj = self.model()
+        obj.field.rpush("foo", "bar", "baz", "faz")
+        obj.field.delete()
+        self.assertEqual(obj.field.proxy_get(), [])
+
 
 class Menu(TestRedisModel):
     dishes = fields.ListField(unique=True)

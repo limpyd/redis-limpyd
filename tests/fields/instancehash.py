@@ -97,3 +97,8 @@ class HMTest(LimpydBaseTest):
         self.assertEqual(obj.hlen(), 2)
         obj.foo.hdel()
         self.assertEqual(obj.hlen(), 1)
+
+    def test_delete_is_an_alias_for_hdel(self):
+        obj = self.HMTestModel(foo='FOO', bar='BAR')
+        obj.foo.delete()
+        self.assertEqual(obj.hgetall(), {'bar': 'BAR'})
