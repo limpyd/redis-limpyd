@@ -1,0 +1,11 @@
+V 0.1.2  2013-08-30
+
+    * Add the missing 'delete' command to the HashField field
+
+V 0.1.1  2013-08-26
+
+    * Include only the "limpyd" package in setup.py (skip the tests)
+
+V 0.1.0  2013-02-12
+
+    * First public version
