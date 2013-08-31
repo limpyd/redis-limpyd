@@ -73,6 +73,11 @@ class StringFieldTest(BaseModelTest):
         with self.assertNumCommands(1):
             vegetable.color.setbit(0, 1)
 
+    def test_delete_string(self):
+        vegetable = self.model(name="aubergine")
+        vegetable.name.delete()
+        self.assertEqual(vegetable.name.get(), None)
+
 
 class IndexableStringFieldTest(BaseModelTest):
 

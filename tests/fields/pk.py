@@ -138,3 +138,24 @@ class PKFieldTest(LimpydBaseTest):
     def test_cannot_set_pk_with_two_names(self):
         with self.assertRaises(ValueError):
             self.RedefinedNotAutoPkField(name="foo", pk=1, id=2)
+
+    def test_pk_cannot_be_deleted(self):
+        obj = self.AutoPkModel(name="foo")
+        with self.assertRaises(ImplementationError):
+            obj.pk.delete()
+
+        obj = self.RedefinedAutoPkModel(name="foo")
+        with self.assertRaises(ImplementationError):
+            obj.pk.delete()
+        with self.assertRaises(ImplementationError):
+            obj.id.delete()
+
+        obj = self.NotAutoPkModel(name="evil", pk=666)
+        with self.assertRaises(ImplementationError):
+            obj.pk.delete()
+
+        obj = self.RedefinedNotAutoPkField(name="foo", pk=1)
+        with self.assertRaises(ImplementationError):
+            obj.pk.delete()
+        with self.assertRaises(ImplementationError):
+            obj.id.delete()

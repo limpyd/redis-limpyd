@@ -60,6 +60,12 @@ class IndexableSetFieldTest(BaseModelTest):
         self.assertCollection([obj._pk], field=values[0])
         self.assertCollection([], field=poped_value)
 
+    def test_delete_set(self):
+        obj = self.model()
+        obj.field.sadd('foo')
+        obj.field.delete()
+        self.assertEqual(obj.field.proxy_get(), set([]))
+
 
 class Crew(TestRedisModel):
     members = fields.SetField(unique=True)
