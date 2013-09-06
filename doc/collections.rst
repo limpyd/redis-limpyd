@@ -4,7 +4,7 @@ Collections
 
 The main and obvious way to get data from Redis via `limpyd` is to know the primary key of objects and instantiate them one by one.
 
-But some fields can be indexed, passing them the `indexable` or `unique` attribute. 
+But some fields can be indexed, passing them the `indexable` or `unique` attribute.
 
 If fields are indexed, it's possible to make query to retrieve many of them, using the `collection` method on the models.
 
@@ -20,7 +20,9 @@ The result of a call to the `collection` is lazy. The query is only sent to Redi
 
 By default, a collection returns a list of primary keys for all the matching objects, but you can sort them, retrieve only a part, and/or directly get full instances instead of primary keys.
 
-We will explain Filtering_, Sorting_, Slicing_, Instanciating_, and Lazyness_ below, based on this example::
+We will explain Filtering_, Sorting_, Slicing_, Instanciating_, and Lazyness_ below, based on this example:
+
+.. code:: python
 
     class Person(model.RedisModel):
         database = main_database
@@ -46,7 +48,9 @@ Note that for each primary key got from redis, a real instance is created, with 
 
 Note that when you'll update an instance got with `skip_exist_test` set to True, the existence of the primary key will be done before the update, raising an exception if not found.
 
-To cancel retrieving instances and get the default return format, call the `primary_keys` method::
+To cancel retrieving instances and get the default return format, call the `primary_keys` method:
+
+.. code:: python
 
     >>> Person.collection(firstname='John').instances().primary_keys()
     >>> ['1', '2']
@@ -55,7 +59,9 @@ To cancel retrieving instances and get the default return format, call the `prim
 Filtering
 =========
 
-To filter, simply call the `collection` (class)method with fields you want to filter as keys, and wanted values as values::
+To filter, simply call the `collection` (class)method with fields you want to filter as keys, and wanted values as values:
+
+.. code:: python
 
     >>> Person.collection(firstname='John')
     ['1', '2']
@@ -72,7 +78,9 @@ You cannot pass two filters with the same name. All filters are "and"ed.
 Slicing
 =======
 
-To slice the result, simply act as it's the result of a collection is a list::
+To slice the result, simply act as it's the result of a collection is a list:
+
+.. code:: python
 
     >>> Person.collection(firstname='John')
     ['1', '2']
@@ -91,7 +99,9 @@ It's as simple as calling the `sort` method of the collection. Use the `by` argu
 
 Redis_ default sorting is numeric. If you want to sort values lexicographically, set the `alpha` parameter to True.
 
-Example::
+Example:
+
+.. code:: python
 
     >>> Person.collection(firstname='John')
     ['1', '2']
@@ -108,7 +118,9 @@ Example::
 Instanciating
 =============
 
-If you want to retrieve already instanciated objects, instead of only primary keys and having to do instanciation yourself, you simply have to call `instances()` on the result of the collection. The result of the collection and its methods (`sort` and `instances`) return a collection, so you can do chaining::
+If you want to retrieve already instanciated objects, instead of only primary keys and having to do instanciation yourself, you simply have to call `instances()` on the result of the collection. The result of the collection and its methods (`sort` and `instances`) return a collection, so you can do chaining:
+
+.. code:: python
 
     >>> Person.collection(firstname='John')
     ['1', '2']
@@ -129,7 +141,9 @@ The result of a collection is lazy. In fact it's the collection itself, it's why
 
 The query is sent to Redis_ only when the data are needed. In the previous examples, data was needed to display them.
 
-But if you do something like::
+But if you do something like:
+
+.. code:: python
 
     >>> results = Person.collection(firstname='John').instances())
 
@@ -143,7 +157,9 @@ Subclassing
 
 The collection stuff is managed by a class named `CollectionManager`, available in `limpyd.collection`.
 
-If you want to use another class (you own subclass or one provided in contrib, see :ref:`Extended collection <extended-collection>`), you can do it simple by declaring the `collection_manager` attribute of the model::
+If you want to use another class (you own subclass or one provided in contrib, see :ref:`Extended collection <extended-collection>`), you can do it simple by declaring the `collection_manager` attribute of the model:
+
+.. code:: python
 
     class MyOwnCollectionManager(CollectionManager):
         pass
@@ -156,7 +172,9 @@ If you want to use another class (you own subclass or one provided in contrib, s
         lastname = fields.HashableField(indexable=True)
         birth_year = fields.HashableField(indexable=True)
 
-You can also do it on each call to the `collection` method, by passing the class to the `manager` argument (useful if you want to keep the default manager in the model)::
+You can also do it on each call to the `collection` method, by passing the class to the `manager` argument (useful if you want to keep the default manager in the model):
+
+.. code:: python
 
     >>> Person.collection(firstname='John', manager=MyOwnCollectionManager)
 

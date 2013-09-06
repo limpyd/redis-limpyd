@@ -13,7 +13,9 @@ Related fields
 
 `limpyd` provide a way to link models, via the `related` contrib module. It's only shortcuts to already existing stuff, aiming to make relations easy.
 
-Start with an example::
+Start with an example:
+
+.. code:: python
 
     from limpyd import fields
     from limpyd.contrib import related
@@ -30,7 +32,9 @@ Start with an example::
         members = related.M2MSetField('Person', related_name='membership')
 
 
-With this we can do stuff like this::
+With this we can do stuff like this:
+
+.. code:: python
 
     >>> core_devs = Group(name='limpyd core devs', private=0)
     >>> ybon = Person(name='ybon')
@@ -117,11 +121,13 @@ The related fields accept two new arguments when declaring them. One to tell to 
 to
 """
 
-The first new argument (and the first in the list of accepted ones, useful to pass it without naming it), is `to`, the name of the model on which this field is related to. 
+The first new argument (and the first in the list of accepted ones, useful to pass it without naming it), is `to`, the name of the model on which this field is related to.
 
 Note that the related model must be on the same :doc:`database`.
 
-It can accept a RelatedModel_::
+It can accept a RelatedModel_:
+
+.. code:: python
 
     class Person(related.RelatedModel):
         database = main_database
@@ -136,19 +142,25 @@ In this case the :ref:`RelatedModel` must be defined before the current model.
 
 And it can accept a string. There is two ways to define model with a string:
 
-- the name of a RelatedModel_::
+- the name of a RelatedModel_:
+
+.. code:: python
 
     class Group(related.RelatedModel):
         database = main_database
         owner = FKStringField('Person')
 
-If you want to link to a model with a different namespace than the one for the current model, you can add it::
+If you want to link to a model with a different namespace than the one for the current model, you can add it:
+
+.. code:: python
 
     class Group(related.RelatedModel):
         database = main_database
         owner = FKStringField('my_namespace:Person')
 
-- 'self', to define a link to the same model on which the related field is defined::
+- 'self', to define a link to the same model on which the related field is defined:
+
+.. code:: python
 
     class Group(related.RelatedModel):
         database = main_database
@@ -162,7 +174,9 @@ The `related_name` argument is not mandatory, except in some cases described bel
 
 This argument is the name which will be used to create the `Related collection`_ on the related model (the on described by the to_ argument)
 
-If defined, it must be a string. This string can accept to formatable arguments: `%(namespace)s` and `%(model)s` which will be replaced by the namespace and name of the model on which the related field is defined. It's usefull for subclassing::
+If defined, it must be a string. This string can accept to formatable arguments: `%(namespace)s` and `%(model)s` which will be replaced by the namespace and name of the model on which the related field is defined. It's usefull for subclassing:
+
+.. code:: python
 
     class Person(related.RelatedModel):
         database = main_database
@@ -182,7 +196,7 @@ If defined, it must be a string. This string can accept to formatable arguments:
     class PrivateGroup(BaseGroup):
         pass
 
-In this example, a person will have two related collections: 
+In this example, a person will have two related collections:
 
 - `groups_publicgroup_set`, liked to the `parent` field of `PublicGroup`
 - `groups_privategroup_set`, liked to the `parent` field of `PrivateGroup`
@@ -196,7 +210,9 @@ Related collections are the other side of the relation. They are created on the 
 
 They are a shortcut to the real collection, but available to ease writing.
 
-Let's define some models::
+Let's define some models:
+
+.. code:: python
 
 
     class Person(related.RelatedModel):
@@ -209,7 +225,9 @@ Let's define some models::
         private = fields.StringField(defaut=0)
         owner = FKStringField('Person', related_name='owned_groups')
 
-Now we can do::
+Now we can do:
+
+.. code:: python
 
     >>> group1 = Group(name='group 1')
     >>> group2 = Group(name='group 1', private=1)
@@ -217,24 +235,32 @@ Now we can do::
     >>> group1.owner.set(person1)
     >>> group2.owner.set(person1)
 
-To retrieve groups owned by `person1`, we can use the standard way::
+To retrieve groups owned by `person1`, we can use the standard way:
+
+.. code:: python
 
     >>> Group.collection(owner=person1.get_pk())
     ['group 1', 'group 2']
 
-or, with the related collection::
+or, with the related collection:
+
+.. code:: python
 
     >>> person1.owned_groups()
     ['group 1', 'group 2']
 
 These two lines return exactly the same thing, a lazy collection (See :doc:`collections`).
 
-You can pass other filters too::
+You can pass other filters too:
+
+.. code:: python
 
     >>> person1.owned_groups(private=1)
     ['group 2']
 
-Note that the collection manager of all related fields is the ExtendedCollectionManager_, so you can do things like::
+Note that the collection manager of all related fields is the ExtendedCollectionManager_, so you can do things like:
+
+.. code:: python
 
     >>> owned = person1.owned_groups()
     >>> owned.filter(private=1)
@@ -249,7 +275,9 @@ Foreign keys
 
 It's easy to set a foreign key, and easy to retrieve it using the default API.
 
-Using these models::
+Using these models:
+
+.. code:: python
 
     class Person(related.RelatedModel):
         database = main_database
@@ -260,18 +288,24 @@ Using these models::
         name = StringField()
         owner = FKStringField(Person)
 
-We can add data::
+We can add data:
+
+.. code:: python
 
     >>> core_devs = Group(name='limpyd core devs', private=0)
     >>> ybon = Person(name='ybon')
     >>> core_devs.owner.hset(ybon)
 
-And we can retrieve the related object this way::
+And we can retrieve the related object this way:
+
+.. code:: python
 
     >>> owner_pk = core_devs.owner.hget()
     >>> owner = Person(owner_pk)
 
-But we can use the `instance` method defined on foreign keys::
+But we can use the `instance` method defined on foreign keys:
+
+.. code:: python
 
     >>> owner = core_devs.owner.instance()
 
@@ -281,14 +315,18 @@ Many to Many
 
 To provide consistency on calling collections on the both sides of a relation, the M2MSetField_, M2MListField_ and M2MSortedSetField_ are `callable`, simulating a call to a collection, and effectively returning one. It's very useful to sort and/or return `instances`, `values` or `values_list`.
 
-Imagine the model::
+Imagine the model:
+
+.. code:: python
 
     class Person(related.RelatedModel):
         database = main_database
         name = PKStringField()
         following = M2MSetField('self', related_name='followers')
 
-Let's add some data::
+Let's add some data:
+
+.. code:: python
 
     >>> foo = Person(name='Foo')  # pk=1
     >>> bar = Person(name='Bar')  # pk=2
@@ -296,28 +334,36 @@ Let's add some data::
     >>> foo.following.sadd(bar, baz)
     >>> baz.following.sadd(bar)
 
-So we can retrieve followers via the `Related collection`_::
+So we can retrieve followers via the `Related collection`_:
+
+.. code:: python
 
     >>> bar.followers()
     ['1', '3']
     >>> baz.followers().values_list('name', flat=True)
     ['foo', 'baz']
 
-And on the other side... without simulating a collection when calling a M2MField, it's easy to retrieve primary keys::
+And on the other side... without simulating a collection when calling a M2MField, it's easy to retrieve primary keys:
+
+.. code:: python
 
     >>>foo.following.smembers()
     ['2', '3']
 
 But it's not the same "api" (but it sounds ok because it's a SetField), and it's really hard to retrieve names, or other stuff like with `values` and `values_list`, or even `instances`.
 
-With the callable possibility added to M2M fields, you can do this::
+With the callable possibility added to M2M fields, you can do this:
+
+.. code:: python
 
     >>> foo.following()  # return a collection
     ['1', '3']
     >>> foo.following().values_list('name', flat=True)
     ['bar', 'baz']
 
-Note that to provide even more consitency, use can call the `collection` method of a M2M field instead of simple "calling" it. So both lines below are the same::
+Note that to provide even more consitency, use can call the `collection` method of a M2M field instead of simple "calling" it. So both lines below are the same:
+
+.. code:: python
 
     >>> foo.following()
     >>> foo.following.collection()
@@ -343,7 +389,9 @@ In the contrib module, we provide a way to wirk with pipelines as defined in `re
 
 To activate this, you have to import and to use `PipelineDatabase` instead of the default `RedisDatabase`, without touching the arguments.
 
-Instead of doing this::
+Instead of doing this:
+
+.. code:: python
 
     from limpyd.database import RedisDatabase
 
@@ -353,10 +401,12 @@ Instead of doing this::
         db=0
     )
 
-Just do::
+Just do:
+
+.. code:: python
 
     from limpyd.contrib.database import PipelineDatabase
-    
+
     main_database = PipelineDatabase(
         host="localhost",
         port=6379,
@@ -376,7 +426,9 @@ It does not mean that you cannot set many fields in one time in a pipeline, but 
 
 The best use for pipelines in `limpyd`, is to get a lot of values in one pass.
 
-Say we have this model::
+Say we have this model:
+
+.. code:: python
 
     from limpyd.contrib.database import PipelineDatabase
 
@@ -392,7 +444,9 @@ Say we have this model::
         name = fields.StringField()
         city = fields.StringField(indexable=True)
 
-Add some data::
+Add some data:
+
+.. code:: python
 
     Person(name='Jean Dupond', city='Paris')
     Person(name='Francois Martin', city='Paris')
@@ -400,7 +454,9 @@ Add some data::
     Person(name='John Doe', city='San Franciso')
     Person(name='Paul Durand', city='Paris')
 
-Say we have already a lot of Person saved, we can retrieve all names this way::
+Say we have already a lot of Person saved, we can retrieve all names this way:
+
+.. code:: python
 
     persons = list(Person.collection(city='Paris').instances())
     with main_database.pipeline() as pipeline:
@@ -409,7 +465,9 @@ Say we have already a lot of Person saved, we can retrieve all names this way::
         names = pipeline.execute()
     print names
 
-This will result in only one call (within the pipeline)::
+This will result in only one call (within the pipeline):
+
+.. code:: python
 
     >>> ['Jean Dupond', 'Francois Martin', 'Paul Durand']
 
@@ -426,7 +484,9 @@ The goal is to help using pipelines with watches.
 
 The `watch` mechanism in Redis_ allow us to read values and use them in a pipeline, being sure that the values got in the first step were not updated by someone else since we read them.
 
-Imagine the `incr` method doesn't exists. Here is a way to implement it with a transaction without race condition (ie without the risk of having our value updated by someone else between the moment we read it, and the moment we save it)::
+Imagine the `incr` method doesn't exists. Here is a way to implement it with a transaction without race condition (ie without the risk of having our value updated by someone else between the moment we read it, and the moment we save it):
+
+.. code:: python
 
     class Page(model.RedisModel):
         database = main_database  # a PipelineDatabase object
@@ -495,7 +555,9 @@ It can be really useful to quickly iterate on all results when you, for example,
 
 When calling `values` on a collection, the result of the collection is not a list of primary keys, but a list of dictionaries, one for each matching entry, with each field passed as argument. If no field is passed, all fields are retrieved. Note that only simple fields (:ref:`PKField`, :ref:`StringField` and :ref:`InstanceHashField`) are concerned.
 
-Example::
+Example:
+
+.. code:: python
 
     >>> Person.collection(firstname='John').values()
     [{'pk': '1', 'firstname': 'John', 'lastname': 'Smith', 'birth_year': '1960'}, {'pk': '2', 'firstname': 'John', 'lastname': 'Doe', 'birth_year': '1965'}]
@@ -507,14 +569,18 @@ Example::
 
 The `values_list` method works the same as `values` but instead of having the collection return a list of dictionaries, it will return a list of tuples with values for asked fields, in the same order as they are passed as arguments. If no field is passed, all fields are retrieved in the same order as they are defined in the model.
 
-Example::
+Example:
+
+.. code:: python
 
     >>> Person.collection(firstname='John').values_list()
     [('1', 'John', 'Smith', '1960'), (2', 'John', 'Doe', '1965')]
     >>> Person.collection(firstname='John').values_list('pk', 'lastname')
     [('1', 'Smith'), ('2', 'Doe')]
 
-If you want to retrieve a single field, you can ask to get a flat list as a final result, by passing the `flat` named argument to True::
+If you want to retrieve a single field, you can ask to get a flat list as a final result, by passing the `flat` named argument to True:
+
+.. code:: python
 
     >>> Person.collection(firstname='John').values_list('pk', 'lastname')  # without flat
     [('Smith', ), ('Doe', )]
@@ -522,7 +588,9 @@ If you want to retrieve a single field, you can ask to get a flat list as a fina
     ['Smith', 'Doe']
 
 
-To cancel retrieving values and get the default return format, call the `primary_keys` method::
+To cancel retrieving values and get the default return format, call the `primary_keys` method:
+
+.. code:: python
 
     >>> Person.collection(firstname='John').values().primary_keys()  # works with values_list too
     >>> ['1', '2']
@@ -531,14 +599,18 @@ To cancel retrieving values and get the default return format, call the `primary
 Chaining filters
 ----------------
 
-With the standard collection, you can chain method class but you cannot add more filters than the ones defined in the `collecion` method. The only way was to create a dictionary, populate it, then pass it as named arguments::
+With the standard collection, you can chain method class but you cannot add more filters than the ones defined in the `collecion` method. The only way was to create a dictionary, populate it, then pass it as named arguments:
+
+.. code:: python
 
     >>> filters = {'firstname': 'John'}
     >>> if want_to_filter_by_city:
     >>>     filters['city'] = 'New York'
     >>> collection = Person.collection(**filters)
 
-With the ExtendedCollectionManager_ available in `contrib.collection`, you can add filters after the initial call::
+With the ExtendedCollectionManager_ available in `contrib.collection`, you can add filters after the initial call:
+
+.. code:: python
 
     >>> collection = Person.collection(firstname='John')
     >>> if want_to_filter_by_city:
@@ -558,7 +630,9 @@ This `intersect` method takes a list of primary keys and will intersect, if poss
 
 `intersect` return the collection itself, so it can be chained, as all methods of a collection. You may call this method many times to intersect many lists, but you can also pass many lists in one `intersect` call.
 
-Here is an example::
+Here is an example:
+
+.. code:: python
 
     >>> my_friends = [1, 2, 3]
     >>> john_people = list(Person.collection(firstname='John'))
@@ -574,7 +648,9 @@ Here is an example::
 - a `limpyd` :ref:`ListField`, attached to a model
 - a `limpyd` :ref:`SortedSetField`, attached to a model
 
-Imagine you have a list of friends in a :ref:`SetField`, you can directly use it to intersect::
+Imagine you have a list of friends in a :ref:`SetField`, you can directly use it to intersect:
+
+.. code:: python
 
     >>> # current_user is an instance of a model, and friends a SetField_
     >>> Person.collection(city='New York').intersect(current_user.friends)
@@ -589,12 +665,14 @@ With ExtendedCollectionManager_, you can do this using the `sort` method, but wi
 
 The `by_score` argument accepts a string which must be the key of a Redis_ sorted set, or a :ref:`SortedSetField` (attached to an instance)
 
-Say you have a list of friends in a sorted set, with the date you met them as a score. And you want to find ones that are in you city, but keep them sorted by the date you met them, ie the score of the sorted set. You can do this this way::
+Say you have a list of friends in a sorted set, with the date you met them as a score. And you want to find ones that are in you city, but keep them sorted by the date you met them, ie the score of the sorted set. You can do this this way:
+
+.. code:: python
 
     # current_user is an instance of a model, with city a field holding a city name
-    # and friends, a sorted_set with Person's primary keys as value, and the date 
+    # and friends, a sorted_set with Person's primary keys as value, and the date
     # the current_user met them as score.
-    
+
     >>> # start by filtering by city
     >>> collection = Person.collection(city=current_user.city.get())
     >>> # then intersect with friends
@@ -604,7 +682,9 @@ Say you have a list of friends in a sorted set, with the date you met them as a 
 
 With the sort by score, as you have to use the `sort` method, you can still use the `alpha` and `desc` arguments (see :ref:`collection-sorting`)
 
-When using `values` or `values_list` (see `Retrieving values`_), you may want to retrieve the score between other fields. To do so, simply use the SORTED_SCORE constant (defined in `contrib.collection`) as a field name to pass to `values` or `values_list`::
+When using `values` or `values_list` (see `Retrieving values`_), you may want to retrieve the score between other fields. To do so, simply use the SORTED_SCORE constant (defined in `contrib.collection`) as a field name to pass to `values` or `values_list`:
+
+.. code:: python
 
     >>> from limpyd.contrib.collection import SORTED_SCORE
     >>> # (following previous example)
@@ -646,7 +726,9 @@ One important thing to note: the new collection is based on a Redis_ list. As yo
 
 A last word: if the key is already expired when you execute the new collection, a `DoesNotExist` exception will be raised.
 
-An example to show all of this, based on the previous example (see `Sort by score`_)::
+An example to show all of this, based on the previous example (see `Sort by score`_):
+
+.. code:: python
 
     >>> # Start by making a collection with heavy calculation
     >>> collection = Person.collection(city=current_user.city.get())

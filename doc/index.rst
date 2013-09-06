@@ -6,8 +6,8 @@
 Welcome to redis-limpyd's documentation!
 ========================================
 
-Idea is to provide an **easy** way to store objects in Redis_, 
-**without losing the power and the control of the Redis API**, in a *limpid* way. So, scope is to 
+Idea is to provide an **easy** way to store objects in Redis_,
+**without losing the power and the control of the Redis API**, in a *limpid* way. So, scope is to
 provide just as abstraction as needed.
 
 Featuring:
@@ -23,10 +23,12 @@ Source code: https://github.com/yohanboniface/redis-limpyd
 Show me some code!
 ------------------
 
-Example of configuration::
+Example of configuration:
+
+.. code:: python
 
     from limpyd import model
-    
+
     main_database = model.RedisDatabase(
         host="localhost",
         port=6379,
@@ -42,7 +44,9 @@ Example of configuration::
         wheels = model.StringField(default=2)
 
 
-So you can use it like this::
+So you can use it like this:
+
+.. code:: python
 
     >>> mountainbike = Bike(name="mountainbike")
     >>> mountainbike.wheels.get()
