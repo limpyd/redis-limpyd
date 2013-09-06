@@ -29,7 +29,9 @@ When adding fields to a model, you can configure it with some attributes:
 
 **default**
 
-It's possible to set default values for fields of type StringField_ and InstanceHashField_::
+It's possible to set default values for fields of type StringField_ and InstanceHashField_:
+
+.. code:: python
 
     class Example(model.RedisModel):
         database = main_database
@@ -45,11 +47,13 @@ When setting a default value, the field will be saved when creating the instance
 
 **indexable**
 
-Sometimes getting objects from Redis_ by its primary key is not what you want. You may want to search for objects with a specific value for a specific field. 
+Sometimes getting objects from Redis_ by its primary key is not what you want. You may want to search for objects with a specific value for a specific field.
 
 By setting the `indexable` argument to True when defining the field, this functionnality is automatically activated, and you'll be able to retrieve objects by filtering on this field using :doc:`collections`.
 
-To activate it, just set the `indexable` argument to True::
+To activate it, just set the `indexable` argument to True:
+
+.. code:: python
 
     class Example(model.RedisModel):
         database = main_database
@@ -68,7 +72,9 @@ If you are sure you have only one thread, or you don't want to ensure consistenc
 
 The `unique` argument is the same as the `indexable` one, except it will ensure that you can't have multiple objects with the same value for some fields. `unique` fields are also indexed, and can be filtered, as for the `indexable` argument.
 
-Example::
+Example:
+
+.. code:: python
 
     class Example(model.RedisModel):
         database = main_database
@@ -100,17 +106,21 @@ StringField
 
 StringField_ based fields allow the storage of strings, but some `Redis string commands <http://redis.io/commands#string>`_ allow to treat them as integer, float or bits.
 
-Example::
+Example:
+
+.. code:: python
 
     from limpyd import model, fields
-    
+
     class Example(model.RedisModel):
         database = main_database
-        
+
         name = fields.StringField()
 
-You can use this model like this::
-    
+You can use this model like this:
+
+.. code:: python
+
     >>> example = Example(name='foo')
     >>> example.name.get()
     'foo'
@@ -150,7 +160,9 @@ HashField
 
 HashField allows storage of a dict in Redis.
 
-Example::
+Example:
+
+.. code:: python
 
     class Email(model.RedisModel):
         database = main_database
@@ -193,7 +205,9 @@ As for StringField_, InstanceHashField_ based fields allow the storage of string
 
 To fully use the power of Redis_ hashes, we also provide two methods to get and set multiples field in one operation (see hmget_ and hmset_). It's usually cheaper to store fields in hash that in strings. And it's faster to set/retrieve them using these two commands.
 
-Example with simple commands::
+Example with simple commands:
+
+.. code:: python
 
     class Example(model.RedisModel):
         database = main_database
@@ -245,7 +259,9 @@ The result will be, as in Redis_, a list of all values, in the same order.
 
 If no names are provided, nothing will be fetched. Use hvals_, or better, hgetall_ to get values for all InstanceHashFields
 
-It's up to you to associate names and values, but you can find an example below::
+It's up to you to associate names and values, but you can find an example below:
+
+.. code:: python
 
     class Example(model.RedisModel):
         database = main_database
@@ -275,7 +291,9 @@ hmset
 hmset_ is the reverse of hmget_, and also called directly on an instance, and expects
 named arguments with field names as keys, and new values to set as values.
 
-Example (with same model as for hmget_)::
+Example (with same model as for hmget_):
+
+.. code:: python
 
     >>> example = Example()
     >>> example.hmset(foo='FOO', bar='BAR')
@@ -289,7 +307,9 @@ hgetall
 hgetall_ must be called directly on an instance, and will return a dictionary containing names and values of all InstanceHashField with a stored value.
 If a field has no stored value, it will not appear in the result of hgetall_.
 
-Example (with same model as for hmget_)::
+Example (with same model as for hmget_):
+
+.. code:: python
 
     >>> example = Example(foo='FOO', bar='BAR')
     >>> example.hgetall()
@@ -305,7 +325,9 @@ hkeys_ must be called on an instance and will return the name of all the Instanc
 If a field has no stored value, it will not appear in the result of hkeys_.
 Note that the result is not ordered in any way.
 
-Example (with same model as for hmget_)::
+Example (with same model as for hmget_):
+
+.. code:: python
 
     >>> example = Example(foo='FOO', bar='BAR')
     >>> example.hkeys()
@@ -321,7 +343,9 @@ hkeys_ must be called on an instance and will return the value of all the Instan
 If a field has no stored value, it will not appear in the result of hvals_.
 Note that the result is not ordered in any way.
 
-Example (with same model as for hmget_)::
+Example (with same model as for hmget_):
+
+.. code:: python
 
     >>> example = Example(foo='FOO', bar='BAR')
     >>> example.hvals()
@@ -335,7 +359,9 @@ hlen
 hlen_ must be called on an instance and will return the number of InstanceHashField with a stored value.
 If a field has no stored value, it will not be count in the result of hlen_.
 
-Example (with same model as for hmget_)::
+Example (with same model as for hmget_):
+
+.. code:: python
 
     >>> example = Example(foo='FOO', bar='BAR')
     >>> example.hlen()
@@ -352,17 +378,21 @@ SetField
 
 SetField_ based fields can store many values in one field, using the set data type of Redis_, an unordered set (with unique values).
 
-Example::
+Example:
+
+.. code:: python
 
     from limpyd import model, fields
-    
+
     class Example(model.RedisModel):
         database = main_database
-        
+
         stuff = fields.SetField()
 
-You can use this model like this::
-    
+You can use this model like this:
+
+.. code:: python
+
     >>> example = Example()
     >>> example.stuff.sadd('foo', 'bar')
     2  # number of values really added to the set
@@ -400,17 +430,21 @@ ListField
 
 ListField_ based fields can store many values in one field, using the list data type of Redis_. Values are ordered, and are not unique (you can push many times the same value).
 
-Example::
+Example:
+
+.. code:: python
 
     from limpyd import model, fields
-    
+
     class Example(model.RedisModel):
         database = main_database
-        
+
         stuff = fields.ListField()
 
-You can use this model like this::
-    
+You can use this model like this:
+
+.. code:: python
+
     >>> example = Example()
     >>> example.stuff.rpush('foo', 'bar')
     2  # number of values added to the list
@@ -454,17 +488,21 @@ SortedSetField
 
 SortedSetField_ based fields can store many values, each scored, in one field using the sorted-set data type of Redis_. Values are unique (it's a set), and are ordered by their score.
 
-Example::
+Example:
+
+.. code:: python
 
     from limpyd import model, fields
-    
+
     class Example(model.RedisModel):
         database = main_database
-        
+
         stuff = fields.SortedSetField()
 
-You can use this model like this::
-    
+You can use this model like this:
+
+.. code:: python
+
     >>> example = Example()
     >>> example.stuff.zadd(foo=2.5, bar=1.1)
     2  # number of values added to the sorted set
@@ -515,7 +553,9 @@ If you want a PKField which will be automatically filled, and auto-incremented, 
 
 By default, a model has a AutoPKField_ attached to it, named `pk`. But you can redefine the nameand type of PKField you want.
 
-Examples::
+Examples:
+
+.. code:: python
 
     class Foo(model.RedisModel):
         """
@@ -539,7 +579,9 @@ Examples::
 
 Note that wathever name you use for the PKField_ (or AutoPKField_), you can always access it via the name `pk` (but also we its real name). It's easier for abstraction.
 
-To access the pk value of an object, you have many ways::
+To access the pk value of an object, you have many ways:
+
+.. code:: python
 
     class Example(model.RedisModel):
         database = main_database

@@ -16,18 +16,22 @@ To create an instance, it's as easy as::
 
     >>> example = Example(foo='FOO', bar='BAR')
 
-By just doing this, the fields are created, and a :ref:`PKField` is set with a value that you can use::
+By just doing this, the fields are created, and a :ref:`PKField` is set with a value that you can use:
+
+.. code:: python
 
     >>> print "New example object with pk #%s" % example.pk.get()
     New example object with pk #1
 
-Then later to get an instance from Redis_ with it's pk, it's as simple as::
+Then later to get an instance from Redis_ with it's pk, it's as simple as:
+
+.. code:: python
 
     >>> example = Example(1)
 
 So, to create an object, pass fields and their values as named arguments, and to retrieve it, pass its pk as the only argument. To retrieave instances via other fields than the pk, check the :doc:`collections` section later in this document.
 
-If you don't pass any argument to the `RedisModel`, default one from fields are taken and are saved. But if no arguments and no default values, you get an empty instance, with no filled fields and no pk set. 
+If you don't pass any argument to the `RedisModel`, default one from fields are taken and are saved. But if no arguments and no default values, you get an empty instance, with no filled fields and no pk set.
 
 The pk will be created with the first field. It's important to know that we do not store any concept of "model", each field is totally independent, thought the keys to save them in Redis_ are based on the object's pk. So you can have 50 fields in a model and save only one of them.
 
@@ -44,11 +48,11 @@ The `database` attribute is mandatory and must be a :doc:`RedisDatabase <databas
 
 **namespace**
 
-You can't have two models with the same name on the same database. Except if you use namespacing. 
+You can't have two models with the same name on the same database. Except if you use namespacing.
 
-Each model has a `namespace`, default to an empty string. 
+Each model has a `namespace`, default to an empty string.
 
-The `namespace` can be used to regroup models. All models about registration could have the `namespace` "registration", ones about the payment could have "payment", and so on. 
+The `namespace` can be used to regroup models. All models about registration could have the `namespace` "registration", ones about the payment could have "payment", and so on.
 
 With this you can have models with the same name in different `namespaces`, because the Redis_ keys created to store your data is computed with the `namespace`, the model name, and the pk of objects.
 
@@ -56,7 +60,9 @@ With this you can have models with the same name in different `namespaces`, beca
 
 If you have many models sharing some field names, and/or within the same database and/or the same namespace, it could be useful to regroup all common stuff into a "base model", without using it to really store data in Redis_.
 
-For this you have the `abstract` attribute, `False` by default::
+For this you have the `abstract` attribute, `False` by default:
+
+.. code:: python
 
     class Content(model.RedisModel):
         database = main_database
