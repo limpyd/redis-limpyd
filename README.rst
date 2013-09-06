@@ -12,10 +12,12 @@ Featuring:
 - CRUD abstraction
 - Keep the power of all the `Redis data types <http://redis.io/topics/data-types>`_ in your own code
 
-Example of configuration::
+Example of configuration:
+
+.. code:: python
 
     from limpyd import model
-    
+
     main_database = model.RedisDatabase(
         host="localhost",
         port=6379,
@@ -31,7 +33,9 @@ Example of configuration::
         wheels = model.StringField(default=2)
 
 
-So you can use it like this::
+So you can use it like this:
+
+.. code:: python
 
     >>> mountainbike = Bike(name="mountainbike")
     >>> mountainbike.wheels.get()
@@ -60,7 +64,7 @@ So you can use it like this::
 Install
 =======
 
-::
+.. code:: bash
 
     pip install redis-limpyd
 
