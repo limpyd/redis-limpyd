@@ -49,7 +49,7 @@ class StringFieldTest(BaseModelTest):
     def test_incrbyfloat_should_not_make_index_calls(self):
         vegetable = self.model(name="aubergine")
         with self.assertNumCommands(1):
-            vegetable.color.incrbyfloat(1.5)
+            vegetable.color.incrbyfloat("1.5")
 
     def test_decr_should_not_make_index_calls(self):
         vegetable = self.model(name="aubergine")
@@ -147,17 +147,17 @@ class IndexableStringFieldTest(BaseModelTest):
 
     def test_incrbyfloat_should_deindex_and_reindex(self):
         vegetable = self.model()
-        vegetable.pip.set(10.3)
-        self.assertCollection([vegetable._pk], pip=10.3)
+        vegetable.pip.set("10.3")
+        self.assertCollection([vegetable._pk], pip="10.3")
         with self.assertNumCommands(7):
             # Check number of queries
             # - 3 for lock
             # - 2 for getting old value and deindexing it
             # - 1 for decr
             # - 1 for reindex
-            vegetable.pip.incrbyfloat(3.9)
-        self.assertCollection([], pip=10.3)
-        self.assertCollection([vegetable._pk], pip=14.2)
+            vegetable.pip.incrbyfloat("3.9")
+        self.assertCollection([], pip="10.3")
+        self.assertCollection([vegetable._pk], pip="14.2")
 
     def test_setnx_should_index_only_if_value_has_been_set(self):
         vegetable = self.model()
@@ -255,12 +255,12 @@ class UniqueStringFieldTest(BaseModelTest):
         self.assertCollection([ferry2._pk], name=1)
 
     def test_incrbyfloat_should_hit_uniqueness_test(self):
-        ferry1 = self.model(name=3.0)
-        ferry2 = self.model(name=2.5)
+        ferry1 = self.model(name="3.0")
+        ferry2 = self.model(name="2.5")
         with self.assertRaises(UniquenessError):
-            ferry2.name.incrbyfloat(0.5)
-        self.assertCollection([ferry1._pk], name=3.0)
-        self.assertCollection([ferry2._pk], name=2.5)
+            ferry2.name.incrbyfloat("0.5")
+        self.assertCollection([ferry1._pk], name="3.0")
+        self.assertCollection([ferry2._pk], name="2.5")
 
     def test_setrange_should_hit_uniqueness_test(self):
         ferry1 = self.model(name="Kalliste")
