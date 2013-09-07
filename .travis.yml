@@ -6,7 +6,3 @@ install: "pip install -r requirements.txt --use-mirrors"
 script: "python run_tests.py"
 services:
   - redis-server
-# whitelist
-branches:
-  only:
-    - python2.6+travis
