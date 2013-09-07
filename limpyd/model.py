@@ -121,7 +121,7 @@ class RedisModel(RedisProxyCommand):
     DoesNotExist = DoesNotExist
 
     available_getters = ('hmget', 'hgetall', 'hkeys', 'hvals', 'hlen')
-    available_modifiers = ('hmset', )
+    available_modifiers = ('hmset', 'hdel')
 
     def __init__(self, *args, **kwargs):
         """
@@ -460,6 +460,23 @@ class RedisModel(RedisProxyCommand):
         finally:
             for field in indexed:
                 field._reset_index_cache()
+
+    def hdel(self, *args):
+        """
+        This command on the model allow deleting many instancehash fields with
+        only one redis call. You must pass hash names to retrieve as arguments
+        """
+        if args and not any(arg in self._instancehash_fields for arg in args):
+            raise ValueError("Only InstanceHashField can be used here.")
+
+        # Set indexes for indexable fields.
+        for field_name in args:
+            field = self.get_field(field_name)
+            if field.indexable:
+                field.deindex()
+
+        # Return the number of fields really deleted
+        return self._call_command('hdel', *args)
 
     def delete(self):
         """
