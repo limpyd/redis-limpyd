@@ -1,5 +1,10 @@
-import unittest
+# -*- coding:utf-8 -*-
+
 import sys
+if sys.version_info >= (2, 7):
+    import unittest
+else:
+    import unittest2 as unittest
 
 from limpyd.database import (RedisDatabase, DEFAULT_CONNECTION_SETTINGS)
 

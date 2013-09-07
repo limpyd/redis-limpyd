@@ -1,6 +1,10 @@
 # -*- coding:Utf-8 -*-
 
-import unittest
+import sys
+if sys.version_info >= (2, 7):
+    import unittest
+else:
+    import unittest2 as unittest
 
 from base import LimpydBaseTest
 from limpyd.utils import make_key, unique_key
