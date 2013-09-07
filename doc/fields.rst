@@ -577,9 +577,7 @@ Examples:
         database = main_database
         name = fields.PKField()
 
-Note that wathever name you use for the PKField_ (or AutoPKField_), you can always access it via the name `pk` (but also we its real name). It's easier for abstraction.
-
-To access the pk value of an object, you have many ways:
+Note that wathever name you use for the PKField_ (or AutoPKField_), you can always access it via the name `pk` (but also we its real name). It's easier for abstraction:
 
 .. code:: python
 
@@ -589,8 +587,6 @@ To access the pk value of an object, you have many ways:
         name = fields.StringField()
 
     >>> example = Example(name='foobar')
-    >>> example.get_pk()
-    1
     >>> example.pk.get()
     1
     >>> example.id.get()

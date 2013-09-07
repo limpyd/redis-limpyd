@@ -31,7 +31,7 @@ We will explain Filtering_, Sorting_, Slicing_, Instanciating_, and Lazyness_ be
         birth_year = fields.HashableField(indexable=True)
 
         def __repr__(self):
-            return "<[%s] %s %s (%s)>" % tuple([self.get_pk()] + self.hmget('firstname', 'lastname', 'birth_year'))
+            return "<[%s] %s %s (%s)>" % tuple([self.pk.get()] + self.hmget('firstname', 'lastname', 'birth_year'))
 
     >>> Person(firstname='John', lastname='Smith', birth_year=1960)
     <[1] John Smith (1960)>
