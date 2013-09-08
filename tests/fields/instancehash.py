@@ -17,14 +17,14 @@ class HMTest(LimpydBaseTest):
         bar = fields.InstanceHashField(indexable=True)
         baz = fields.InstanceHashField(unique=True)
 
-    def test_hmset_should_set_all_values(self):
+    def test_hmset_should_set_values(self):
         obj = self.HMTestModel()
         obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
         self.assertEqual(obj.foo.hget(), 'FOO')
         self.assertEqual(obj.bar.hget(), 'BAR')
         self.assertEqual(obj.baz.hget(), 'BAZ')
 
-    def test_hmget_should_get_all_values(self):
+    def test_hmget_should_get_values(self):
         obj = self.HMTestModel()
         obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
         data = obj.hmget('foo', 'bar', 'baz')
@@ -32,6 +32,18 @@ class HMTest(LimpydBaseTest):
         obj.hmset(baz='QUX')
         data = obj.hmget('bar', 'baz')
         self.assertEqual(data, ['BAR', 'QUX'])
+
+    def test_hdel_should_delete_values(self):
+        obj = self.HMTestModel()
+        obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
+        count = obj.hdel('bar', 'baz')
+        self.assertEqual(count, 2)
+        self.assertEqual(obj.hmget('foo', 'bar', 'baz'), ['FOO', None, None])
+        obj.hmset(baz='QUX')
+        self.assertEqual(obj.hmget('foo', 'bar', 'baz'), ['FOO', None, 'QUX'])
+        count = obj.hdel('bar', 'baz')
+        self.assertEqual(count, 1)  # 'bar' was already deleted
+        self.assertEqual(obj.hmget('foo', 'bar', 'baz'), ['FOO', None, None])
 
     def test_empty_hmset_call_should_fail(self):
         obj = self.HMTestModel(foo='FOO', bar='BAR', baz='BAZ')
@@ -41,16 +53,29 @@ class HMTest(LimpydBaseTest):
         data = obj.hmget('foo', 'bar', 'baz')
         self.assertEqual(data, ['FOO', 'BAR', 'BAZ'])
 
-    def test_empty_hmget_call_should_failse(self):
+    def test_empty_hmget_call_should_fail(self):
         obj = self.HMTestModel()
         obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
         with self.assertRaises(ResponseError):
             obj.hmget()
 
+    def test_empty_hdel_call_should_fail(self):
+        obj = self.HMTestModel()
+        obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
+        with self.assertRaises(ResponseError):
+            obj.hdel()
+
     def test_hmset_should_index_values(self):
         obj = self.HMTestModel()
         obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
         self.assertEqual(set(self.HMTestModel.collection(bar='BAR')), set([obj._pk]))
+        self.assertEqual(set(self.HMTestModel.collection(baz='BAZ')), set([obj._pk]))
+
+    def test_hdel_should_deindex_values(self):
+        obj = self.HMTestModel()
+        obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
+        obj.hdel('foo', 'bar')
+        self.assertEqual(set(self.HMTestModel.collection(bar='BAR')), set([]))
         self.assertEqual(set(self.HMTestModel.collection(baz='BAZ')), set([obj._pk]))
 
     def test_hmset_should_not_index_if_an_error_occurs(self):

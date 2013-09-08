@@ -236,6 +236,7 @@ The InstanceHashField_ type support these `Redis hash commands <http://redis.io/
 **Deleter:**
 
 * Note that to delete the value of a InstanceHashField_, you can use the `hdel` command, which do the same as the main `delete` one.
+* See also hdel_ on the model to delete many InstanceHashField_ at once
 
 **Multi:**
 
@@ -247,6 +248,7 @@ The following commands are not called on the fields themselves, but on an instan
 - hkeys_
 - hvals_
 - hlen_
+- hdel_
 
 .. _InstanceHashField-hmget:
 
@@ -268,6 +270,8 @@ It's up to you to associate names and values, but you can find an example below:
 
         foo = fields.InstanceHashField()
         bar = fields.InstanceHashField()
+        baz = fields.InstanceHashField()
+        qux = fields.InstanceHashField()
 
         def hmget_dict(self, *args):
             """
@@ -300,6 +304,31 @@ Example (with same model as for hmget_):
     True
     >>> example.hmget('foo', 'bar')
     ['FOO', 'BAR']
+
+hdel
+""""
+hdel_ is called directly on an instance, and expects a list of field names to delete.
+
+The result will be, as in Redis_, the number of field really deleted (non-filled ones won't be counted).
+
+.. code:: python
+
+    >>> example = Example()
+    >>> example.hmset(foo='FOO', bar='BAR', baz='BAZ')
+    True
+    >>> example.hmget('foo', 'bar', 'baz')
+    ['FOO', 'BAR', 'BAZ']
+    >>> example.hdel('foo', 'bar', 'qux')
+    2
+    >>> example.hmget('foo', 'bar', 'baz')
+    [None, None, 'BAZ']
+
+Note that you can also call hdel_ on an InstanceHashField_ itself, without parameters, to delete this very field.
+
+.. code:: python
+
+    >>> example.baz.hdel()
+    1
 
 hgetall
 """""""
