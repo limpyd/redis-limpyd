@@ -20,6 +20,8 @@ Featuring:
 
 Source code: https://github.com/yohanboniface/redis-limpyd
 
+|PyPI Version| |Build Status|
+
 Show me some code!
 ------------------
 
@@ -95,3 +97,8 @@ Indices and tables
 
 
 .. _Redis: http://redis.io
+
+.. |PyPI Version| image:: https://pypip.in/v/redis-limpyd/badge.png
+   :target: https://pypi.python.org/pypi/redis-limpyd
+.. |Build Status| image:: https://travis-ci.org/yohanboniface/redis-limpyd.png
+   :target: https://travis-ci.org/yohanboniface/redis-limpyd

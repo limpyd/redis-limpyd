@@ -239,7 +239,7 @@ To retrieve groups owned by `person1`, we can use the standard way:
 
 .. code:: python
 
-    >>> Group.collection(owner=person1.get_pk())
+    >>> Group.collection(owner=person1.pk.get())
     ['group 1', 'group 2']
 
 or, with the related collection:

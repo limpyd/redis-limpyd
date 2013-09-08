@@ -104,7 +104,7 @@ Field types
 StringField
 -----------
 
-StringField_ based fields allow the storage of strings, but some `Redis string commands <http://redis.io/commands#string>`_ allow to treat them as integer, float or bits.
+StringField_ based fields allow the storage of strings, but some `Redis string commands <http://redis.io/commands#string>`_ allow to treat them as integer, float [1]_ or bits.
 
 Example:
 
@@ -146,7 +146,7 @@ The StringField_ type support these `Redis string commands`_:
 - `decr`
 - `getset`
 - `incr`
-- `incrbyfloat`
+- `incrbyfloat` [1]_
 - `set`
 - `setbit`
 - `setnx`
@@ -194,7 +194,7 @@ Supported commands:
 - `hsetnx`
 - `hset`
 - `hincrby`
-- `hincrbyfloat`
+- `hincrbyfloat` [1]_
 
 .. _InstanceHashField:
 
@@ -229,7 +229,7 @@ The InstanceHashField_ type support these `Redis hash commands <http://redis.io/
 **Modifiers:**
 
 - `hincrby`
-- `hincrbyfloat`
+- `hincrbyfloat` [1]_
 - `hset`
 - `hsetnx`
 
@@ -547,7 +547,7 @@ PKField
 
 PKField_ is a special subclass of StringField_ that manage primary keys of models. The PK of an object cannot be updated, as it serves to create keys of all its stored fields. It's this PK that is returned, with others, in :doc:`collections`.
 
-A PK can contain any sort of string you want: simple integers, float, long uuid, names...
+A PK can contain any sort of string you want: simple integers, float [1]_, long uuid, names...
 
 If you want a PKField which will be automatically filled, and auto-incremented, see AutoPKField_. Otherwise, with standard PKField_, you must assign a value to it when creating an instance.
 
@@ -577,9 +577,7 @@ Examples:
         database = main_database
         name = fields.PKField()
 
-Note that wathever name you use for the PKField_ (or AutoPKField_), you can always access it via the name `pk` (but also we its real name). It's easier for abstraction.
-
-To access the pk value of an object, you have many ways:
+Note that wathever name you use for the PKField_ (or AutoPKField_), you can always access it via the name `pk` (but also we its real name). It's easier for abstraction:
 
 .. code:: python
 
@@ -589,8 +587,6 @@ To access the pk value of an object, you have many ways:
         name = fields.StringField()
 
     >>> example = Example(name='foobar')
-    >>> example.get_pk()
-    1
     >>> example.pk.get()
     1
     >>> example.id.get()
@@ -609,3 +605,4 @@ See PKField_ for more details.
 .. _Redis: http://redis.io
 .. _redis-py: https://github.com/andymccurdy/redis-py
 
+.. [1] When working with floats, pass them as strings to avoid precision problems.
