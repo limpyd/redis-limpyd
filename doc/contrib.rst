@@ -28,7 +28,7 @@ Start with an example:
         database = main_database
         name = fields.PKField()
         private = fields.StringField()
-        owner = related.FKHashableField('Person')
+        owner = related.FKInstanceHashField('Person')
         members = related.M2MSetField('Person', related_name='membership')
 
 

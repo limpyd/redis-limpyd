@@ -30,8 +30,8 @@ Example of configuration:
 
         database = main_database
 
-        name = model.HashableField(indexable=True, unique=True)
-        color = model.HashableField()
+        name = model.InstanceHashField(indexable=True, unique=True)
+        color = model.InstanceHashField()
         wheels = model.StringField(default=2)
 
 

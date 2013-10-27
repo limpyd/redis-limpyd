@@ -69,14 +69,14 @@ For this you have the `abstract` attribute, `False` by default:
         namespace = "content"
         abstract = True
 
-        title = fields.HashableField()
-        pub_date = field.HashableField()
+        title = fields.InstanceHashField()
+        pub_date = field.InstanceHashField()
 
     class Article(Content):
         content = fields.StringField()
 
     class Image(Content):
-        path = fields.HashableField()
+        path = fields.InstanceHashField()
 
 In this example, only `Article` and `Image` are real models, both using the `main_database` database, the namespace "content", and having `title` and `pub_date` fields, in addition to their own.
 

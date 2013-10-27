@@ -26,9 +26,9 @@ We will explain Filtering_, Sorting_, Slicing_, Instanciating_, and Lazyness_ be
 
     class Person(model.RedisModel):
         database = main_database
-        firstname = fields.HashableField(indexable=True)
-        lastname = fields.HashableField(indexable=True)
-        birth_year = fields.HashableField(indexable=True)
+        firstname = fields.InstanceHashField(indexable=True)
+        lastname = fields.InstanceHashField(indexable=True)
+        birth_year = fields.InstanceHashField(indexable=True)
 
         def __repr__(self):
             return "<[%s] %s %s (%s)>" % tuple([self.pk.get()] + self.hmget('firstname', 'lastname', 'birth_year'))
@@ -168,9 +168,9 @@ If you want to use another class (you own subclass or one provided in contrib, s
         database = main_database
         collection_manager = MyOwnCollectionManager
 
-        firstname = fields.HashableField(indexable=True)
-        lastname = fields.HashableField(indexable=True)
-        birth_year = fields.HashableField(indexable=True)
+        firstname = fields.InstanceHashField(indexable=True)
+        lastname = fields.InstanceHashField(indexable=True)
+        birth_year = fields.InstanceHashField(indexable=True)
 
 You can also do it on each call to the `collection` method, by passing the class to the `manager` argument (useful if you want to keep the default manager in the model):
 
