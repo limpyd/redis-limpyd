@@ -1,4 +1,5 @@
 # -*- coding:utf-8 -*-
+from __future__ import unicode_literals
 
 from limpyd.utils import unique_key
 from limpyd.exceptions import *

@@ -1,3 +1,4 @@
+from __future__ import unicode_literals
 from limpyd import fields
 from limpyd.exceptions import UniquenessError
 

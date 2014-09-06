@@ -1,4 +1,6 @@
 # -*- coding:utf-8 -*-
+from __future__ import absolute_import
+from __future__ import unicode_literals
 
 import sys
 if sys.version_info >= (2, 7):
@@ -10,8 +12,8 @@ from redis.exceptions import ResponseError
 from limpyd import fields
 from limpyd.collection import CollectionManager
 from limpyd.exceptions import *
-from base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
-from model import Boat, Bike, TestRedisModel
+from .base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
+from .model import Boat, Bike, TestRedisModel
 
 
 class CollectionBaseTest(LimpydBaseTest):

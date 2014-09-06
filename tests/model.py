@@ -1,4 +1,6 @@
 # -*- coding:utf-8 -*-
+from __future__ import absolute_import
+from __future__ import unicode_literals
 
 import sys
 if sys.version_info >= (2, 7):
@@ -13,7 +15,7 @@ from datetime import datetime
 from limpyd import model
 from limpyd import fields
 from limpyd.exceptions import *
-from base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
+from .base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
 
 
 class TestRedisModel(model.RedisModel):
