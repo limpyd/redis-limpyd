@@ -2,10 +2,16 @@
 # -*- coding: utf-8 -*-
 
 import codecs
-
-from setuptools import setup
+from pip.req import parse_requirements
+from setuptools import setup, find_packages
 
 import limpyd
+
+
+def get_requirements(source):
+    install_reqs = parse_requirements(source)
+    return set([str(ir.req) for ir in install_reqs])
+
 
 long_description = codecs.open('README.rst', "r", "utf-8").read()
 
@@ -18,9 +24,9 @@ setup(
     keywords = "redis",
     url = limpyd.__homepage__,
     download_url = "https://github.com/yohanboniface/redis-limpyd/tags",
-    packages = ['limpyd'],
+    packages = find_packages(exclude=["tests.*", "tests"]),
     include_package_data=True,
-    install_requires=["redis", ],
+    install_requires=get_requirements('requirements.txt'),
     platforms=["any"],
     zip_safe=True,
 
@@ -36,4 +42,3 @@ setup(
         "Programming Language :: Python",
     ],
 )
-
