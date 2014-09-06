@@ -1,13 +1,17 @@
 # -*- coding:utf-8 -*-
 from __future__ import unicode_literals
+from future.builtins import str
+from future.builtins import zip
+from future.builtins import object
 
 from logging import getLogger
 from copy import copy
-from itertools import izip
+from future.utils import with_metaclass
+
 from redis.exceptions import RedisError
 from redis.client import Lock
 
-from limpyd.utils import make_key
+from limpyd.utils import make_key, normalize
 from limpyd.exceptions import *
 
 log = getLogger(__name__)
@@ -79,15 +83,7 @@ class MetaRedisProxy(type):
         return it
 
 
-class RedisProxyCommand(object):
-
-    __metaclass__ = MetaRedisProxy
-
-    # Commands allowed for an object, by type, each attribute is a list/typle.
-    # If an attribute is not defined, the one from its parent class is used.
-    # Here the different attributes:
-    #  - available_getters:  commands that get data from redis
-    #  - available_modifiers: commands that set data in redis
+class RedisProxyCommand(with_metaclass(MetaRedisProxy)):
 
     @classmethod
     def _make_command_method(cls, command_name):
@@ -473,9 +469,7 @@ class RedisField(RedisProxyCommand):
         """
         Coerce a value before using it in Redis.
         """
-        if value and isinstance(value, str):
-            value = value.decode('utf-8')
-        return value
+        return normalize(value)
 
     def _reset(self, command, *args, **kwargs):
         """
@@ -524,7 +518,7 @@ class SingleValueField(RedisField):
         """
         if self.indexable:
             current = self.proxy_get()
-            if current != value:
+            if normalize(current) != normalize(value):
                 if current is not None:
                     self.deindex(current)
                 if value is not None:
@@ -677,7 +671,7 @@ class SortedSetField(MultiValuesField):
                     raise RedisError("ZADD requires an equal number of "
                                      "values and scores")
                 keys.extend(args[1::2])
-            for pair in kwargs.iteritems():
+            for pair in kwargs.items():
                 keys.append(pair[0])
             self.index(keys)
         return self._traverse_command(command, *args, **kwargs)
@@ -709,7 +703,7 @@ class SortedSetField(MultiValuesField):
                                  "values and scores")
             pieces.extend(args)
 
-        for pair in kwargs.iteritems():
+        for pair in kwargs.items():
             pieces.append(pair[1])
             pieces.append(pair[0])
 
@@ -720,7 +714,7 @@ class SortedSetField(MultiValuesField):
         scores = pieces[0::2]
 
         pieces = []
-        for z in izip(scores, values):
+        for z in zip(scores, values):
             pieces.extend(z)
 
         return pieces
@@ -834,7 +828,7 @@ class HashField(MultiValuesField):
     def _call_hmset(self, command, *args, **kwargs):
         if self.indexable:
             current = self.proxy_get()
-            _to_deindex = dict((k, current[k]) for k in kwargs.iterkeys() if k in current)
+            _to_deindex = dict((k, current[k]) for k in kwargs.keys() if k in current)
             self.deindex(_to_deindex)
             self.index(kwargs)
         return self._traverse_command(command, kwargs)
@@ -900,7 +894,7 @@ class HashField(MultiValuesField):
 
         if values is None:
             values = self.proxy_get()
-        for field_name, value in values.iteritems():
+        for field_name, value in values.items():
             if value is not None:
                 key = self.index_key(value, field_name)
                 self.add_index(key)
@@ -913,7 +907,7 @@ class HashField(MultiValuesField):
 
         if values is None:
             values = self.proxy_get()
-        for field_name, value in values.iteritems():
+        for field_name, value in values.items():
             if value is not None:
                 key = self.index_key(value, field_name)
                 self.remove_index(key)

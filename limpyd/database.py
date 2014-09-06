@@ -1,5 +1,7 @@
 # -*- coding:utf-8 -*-
 from __future__ import unicode_literals
+from future.builtins import str
+from future.builtins import object
 
 import redis
 
@@ -46,7 +48,7 @@ class RedisDatabase(object):
             settings = self.connection_settings
         connection_key = ':'.join([str(settings[k]) for k in sorted(settings)])
         if connection_key not in self._connections:
-            self._connections[connection_key] = redis.StrictRedis(**settings)
+            self._connections[connection_key] = redis.StrictRedis(decode_responses=True, **settings)
         return self._connections[connection_key]
 
     def reset(self, **connection_settings):

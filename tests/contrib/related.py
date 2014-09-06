@@ -1,5 +1,6 @@
 # -*- coding:utf-8 -*-
 from __future__ import unicode_literals
+from future.builtins import object
 
 from limpyd import model, fields
 from limpyd.exceptions import *
@@ -108,7 +109,7 @@ class RelatedNameTest(LimpydBaseTest):
         self.assertEqual(set(ms_php.related_name_persontest_set()), set([ybon._pk]))
 
     def test_related_name_should_follow_namespace(self):
-        class SubTest():
+        class SubTest(object):
             """
             A class to create another model with the name "Group"
             """

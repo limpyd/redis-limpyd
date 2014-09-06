@@ -1,5 +1,8 @@
 # -*- coding:utf-8 -*-
 from __future__ import unicode_literals
+from future.builtins import str
+from future.builtins import zip
+from future.builtins import object
 
 from itertools import islice, chain
 from collections import namedtuple
@@ -125,7 +128,7 @@ class ExtendedCollectionManager(CollectionManager):
                                'stored at a key that does not exist anymore.')
 
         for set_ in sets:
-            if isinstance(set_, basestring):
+            if isinstance(set_, str):
                 all_sets.add(set_)
             elif isinstance(set_, ExtendedFilter):
                 # We have a RedisModel and we'll use its pk, or a RedisField
@@ -194,7 +197,7 @@ class ExtendedCollectionManager(CollectionManager):
             elif isinstance(set_, MultiValuesField) and not getattr(set_, '_instance', None):
                 raise ValueError('%s passed to "intersect" must be bound'
                                  % set_.__class__.__name__)
-            elif not isinstance(set_, (tuple, basestring, MultiValuesField, _StoredCollection)):
+            elif not isinstance(set_, (tuple, str, MultiValuesField, _StoredCollection)):
                 raise ValueError('%s is not a valid type of argument that can '
                                  'be used as a set. Allowed are: string (key '
                                  'of a redis set), limpyd multi-values field ('
@@ -283,7 +286,7 @@ class ExtendedCollectionManager(CollectionManager):
             by = parameters.get('by_score', None)
             if isinstance(by, SortedSetField) and getattr(by, '_instance', None):
                 by = by.key
-            elif not isinstance(by, basestring):
+            elif not isinstance(by, str):
                 by = None
 
             if by is None:
@@ -434,9 +437,9 @@ class ExtendedCollectionManager(CollectionManager):
          tuples: [('id1', 'name1'), ('id2', 'name2')]
          dicts:  [{'id': 'id1', 'name': 'name1'}, {'id': 'id2', 'name': 'name2'}]
         """
-        result = zip(*([iter(collection)] * len(self._values['fields']['names'])))
+        result = list(zip(*([iter(collection)] * len(self._values['fields']['names']))))
         if self._values['mode'] == 'dicts':
-            result = [dict(zip(self._values['fields']['names'], a_result))
+            result = [dict(list(zip(self._values['fields']['names'], a_result)))
                                                 for a_result in result]
         return result
 
@@ -538,7 +541,7 @@ class ExtendedCollectionManager(CollectionManager):
         """
         string_filters = filters.copy()
 
-        for field_name, value in filters.iteritems():
+        for field_name, value in filters.items():
 
             is_extended = False
 
@@ -750,7 +753,7 @@ class ExtendedCollectionManager(CollectionManager):
         flat = kwargs.pop('flat', False)
         if kwargs:
             raise ValueError('Unexpected keyword arguments for the values method: %s'
-                             % (kwargs.keys(),))
+                             % (list(kwargs.keys()),))
 
         if not fields:
             fields = self._get_simple_fields()

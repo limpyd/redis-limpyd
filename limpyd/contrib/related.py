@@ -1,5 +1,8 @@
 # -*- coding:utf-8 -*-
 from __future__ import unicode_literals
+from future.builtins import map
+from future.builtins import str
+from future.builtins import object
 
 import re
 from copy import copy
@@ -7,6 +10,7 @@ from copy import copy
 from limpyd import model, fields
 from limpyd.exceptions import *
 from limpyd.contrib.collection import ExtendedCollectionManager
+from future.utils import with_metaclass
 
 # used to validate a related_name
 re_identifier = re.compile(r"\W")
@@ -153,7 +157,7 @@ class RelatedModel(model.RedisModel):
         # models impacted by the change of database (impacted_models), to move
         # these relation on the new database
         reverse_relations = {}
-        for related_model_name, relations in original_database._relations.iteritems():
+        for related_model_name, relations in original_database._relations.items():
             for relation in relations:
                 reverse_relations.setdefault(relation[0], []).append((related_model_name, relation))
 
@@ -196,7 +200,7 @@ class RelatedFieldMetaclass(fields.MetaRedisProxy):
         return it
 
 
-class RelatedFieldMixin(object):
+class RelatedFieldMixin(with_metaclass(RelatedFieldMetaclass)):
     """
     Base mixin for all fields holding related instances.
     This mixin provides:
@@ -212,7 +216,6 @@ class RelatedFieldMixin(object):
       "_commands_with_many_values_from_python" (see RelatedFieldMetaclass)
     - management of related parameters: "to" and "related_name"
     """
-    __metaclass__ = RelatedFieldMetaclass
 
     _copy_conf = copy(fields.RedisField._copy_conf)
     _copy_conf['kwargs'] += [('to', 'related_to'), 'related_name']
@@ -287,7 +290,7 @@ class RelatedFieldMixin(object):
         if isinstance(self.related_to, type) and issubclass(self.related_to, RelatedModel):
             model_name = self.related_to._name
 
-        elif isinstance(self.related_to, basestring):
+        elif isinstance(self.related_to, str):
             if self.related_to == 'self':
                 model_name = self._model._name
             elif ':' not in self.related_to:
@@ -362,7 +365,7 @@ class RelatedFieldMixin(object):
         """
         Apply the from_python to each values and return the final list
         """
-        return map(self.from_python, values)
+        return list(map(self.from_python, values))
 
     @classmethod
     def _make_command_method(cls, command_name, many=False):

@@ -1,6 +1,7 @@
 # -*- coding:utf-8 -*-
 from __future__ import absolute_import
 from __future__ import unicode_literals
+from future.builtins import str
 
 import sys
 if sys.version_info >= (2, 7):
@@ -31,7 +32,7 @@ class UniqueKeyTest(LimpydBaseTest):
 
     def test_generated_key_must_be_a_string(self):
         key = unique_key(self.connection)
-        self.assertEqual(type(key), str)
+        self.assertTrue(isinstance(key, str))
 
     def test_generated_key_must_be_unique(self):
         key1 = unique_key(self.connection)

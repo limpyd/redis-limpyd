@@ -1,4 +1,5 @@
 from __future__ import unicode_literals
+from future.builtins import str, bytes
 import uuid
 
 from functools import wraps
@@ -9,7 +10,7 @@ log = getLogger(__name__)
 
 def make_key(*args):
     """Create the key concatening all args with `:`."""
-    return u":".join(unicode(arg) for arg in args)
+    return u":".join(str(arg) for arg in args)
 
 
 def unique_key(connection):
@@ -18,7 +19,16 @@ def unique_key(connection):
     keyspace.
     """
     while 1:
-        key = uuid.uuid4().hex
+        key = str(uuid.uuid4().hex)
         if not connection.exists(key):
             break
     return key
+
+
+def normalize(value):
+    """
+    Simple method to always have the same kind of value
+    """
+    if value and isinstance(value, bytes):
+        value = value.decode('utf-8')
+    return value

@@ -1,5 +1,6 @@
 # -*- coding:utf-8 -*-
 from __future__ import unicode_literals
+from future.builtins import object
 
 from limpyd.utils import unique_key
 from limpyd.exceptions import *
@@ -291,7 +292,7 @@ class CollectionManager(object):
 
     def _add_filters(self, **filters):
         """Define self._lazy_collection according to filters."""
-        for key, value in filters.iteritems():
+        for key, value in filters.items():
             if self.cls._field_is_pk(key):
                 pk = self.cls.get_field('pk').normalize(value)
                 self._lazy_collection['pks'].add(pk)
