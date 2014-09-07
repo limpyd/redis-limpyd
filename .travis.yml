@@ -4,7 +4,7 @@ python:
   - "2.7"
   - "3.3"
   - "3.4"
-install: "pip install ."
+install: "pip install --process-dependency-links ."
 script: "python run_tests.py"
 services:
   - redis-server

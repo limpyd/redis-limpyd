@@ -70,7 +70,10 @@ Python 2.6, 2.7, 3.3 and 3.4 are supported.
 
 .. code:: bash
 
-    pip install redis-limpyd
+    pip install --process-dependency-links redis-limpyd
+
+
+Note: the `process-dependency-links` is currently required to use a development version of future which correct a bug we suffered from.
 
 
 Documentation
