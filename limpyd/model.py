@@ -1,5 +1,6 @@
 # -*- coding:utf-8 -*-
 from __future__ import unicode_literals
+from future.utils import with_metaclass
 
 from logging import getLogger
 from copy import copy
@@ -10,7 +11,6 @@ from limpyd.utils import make_key
 from limpyd.exceptions import *
 from limpyd.database import RedisDatabase
 from limpyd.collection import CollectionManager
-from future.utils import with_metaclass
 
 __all__ = ['RedisModel', ]
 
@@ -38,7 +38,8 @@ class MetaRedisModel(MetaRedisProxy):
 
         # init (or get from parents) lists of redis fields
         _fields = list(it._fields) if hasattr(it, '_fields') else []
-        _instancehash_fields = list(it._instancehash_fields) if hasattr(it, '_instancehash_fields') else []
+        _instancehash_fields = list(it._instancehash_fields) if hasattr(it,
+                                                                    '_instancehash_fields') else []
 
         # Did we have already pk field ?
         pk_field = getattr(it, '_redis_attr_pk', None)
@@ -48,7 +49,8 @@ class MetaRedisModel(MetaRedisProxy):
         own_fields = []
 
         # limit to redis fields
-        redis_fields = [(k, v) for k, v in list(attrs.items()) if not k.startswith('_') and isinstance(v, RedisField)]
+        redis_fields = [(k, v) for k, v in list(attrs.items()) if not k.startswith('_') and
+                                                                        isinstance(v, RedisField)]
         # and keep them by declaration order
         redis_fields = [(k, v) for k, v in sorted(redis_fields, key=lambda f: f[1]._creation_order)]
 
@@ -262,7 +264,8 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
         are in the "_redis_attr_%s" form)
         """
         if not cls.has_field(field_name):
-            raise AttributeError('"%s" is not a field for the model "%s"' % (field_name, cls.__name__))
+            raise AttributeError('"%s" is not a field for the model "%s"' %
+                                 (field_name, cls.__name__))
 
         field = getattr(cls, '_redis_attr_%s' % field_name)
 
@@ -277,7 +280,8 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
         Return the field object with the given name (works for a bound instance)
         """
         if not self.has_field(field_name):
-            raise AttributeError('"%s" is not a field for the model "%s"' % (field_name, self.__class__.__name__))
+            raise AttributeError('"%s" is not a field for the model "%s"' %
+                                 (field_name, self.__class__.__name__))
 
         field = getattr(self, field_name)
 

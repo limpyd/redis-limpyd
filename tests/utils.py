@@ -9,8 +9,9 @@ if sys.version_info >= (2, 7):
 else:
     import unittest2 as unittest
 
-from .base import LimpydBaseTest
 from limpyd.utils import make_key, unique_key
+
+from .base import LimpydBaseTest
 
 
 class MakeKeyTest(LimpydBaseTest):

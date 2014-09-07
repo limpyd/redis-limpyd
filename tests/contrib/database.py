@@ -1,9 +1,10 @@
 # -*- coding:utf-8 -*-
 from __future__ import unicode_literals
 
-from ..base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
 from limpyd.contrib.database import PipelineDatabase
 from limpyd import model, fields
+
+from ..base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
 
 test_database = PipelineDatabase(**TEST_CONNECTION_SETTINGS)
 

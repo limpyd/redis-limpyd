@@ -449,7 +449,8 @@ class ExtendedCollectionManager(CollectionManager):
         Return True if we have to sort by set and do the stuff *before* asking
         redis for the sort
         """
-        return self._sort_by_sortedset and self._slice and (not self._lazy_collection['pks'] or self._want_score_value)
+        return self._sort_by_sortedset and self._slice and (not self._lazy_collection['pks']
+                                                            or self._want_score_value)
 
     @property
     def _sort_by_sortedset_after(self):
@@ -457,7 +458,8 @@ class ExtendedCollectionManager(CollectionManager):
         Return True if we have to sort by set and do the stuff *after* asking
         redis for the sort
         """
-        return self._sort_by_sortedset and not self._slice and (not self._lazy_collection['pks'] or self._want_score_value)
+        return self._sort_by_sortedset and not self._slice and (not self._lazy_collection['pks']
+                                                                or self._want_score_value)
 
     @property
     def _want_score_value(self):
@@ -547,7 +549,8 @@ class ExtendedCollectionManager(CollectionManager):
 
             if isinstance(value, RedisField):
                 # we will fetch the value when running the collection
-                if not isinstance(value, SingleValueField) or getattr(value, '_instance', None) is None:
+                if (not isinstance(value, SingleValueField)
+                    or getattr(value, '_instance', None) is None):
                     raise ValueError('If a field is used as a filter value, it '
                                      'must be a simple value field attached to '
                                      'an instance')

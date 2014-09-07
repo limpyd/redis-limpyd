@@ -99,7 +99,8 @@ class RelatedNameTest(LimpydBaseTest):
         class PersonTest(TestRedisModel):
             namespace = 'related-name'
             name = fields.PKField()
-            most_hated_group = FKStringField('related-tests:Group', related_name='%(namespace)s_%(model)s_set')
+            most_hated_group = FKStringField('related-tests:Group',
+                                             related_name='%(namespace)s_%(model)s_set')
 
         ms_php = Group(name='microsoft php')
         ybon = PersonTest(name='ybon')
@@ -140,25 +141,25 @@ class RelatedNameTest(LimpydBaseTest):
 
     def test_related_names_should_be_unique_for_a_model(self):
         with self.assertRaises(ImplementationError):
-            class Foo(TestRedisModel):
+            class Foo1(TestRedisModel):
                 namespace = 'related-name-uniq'
                 father = FKInstanceHashField('self')
                 mother = FKInstanceHashField('self')
 
         with self.assertRaises(ImplementationError):
-            class Foo(TestRedisModel):
+            class Foo2(TestRedisModel):
                 namespace = 'related-name-uniq'
                 father = FKInstanceHashField('self', related_name='parent')
                 mother = FKInstanceHashField('self', related_name='parent')
 
         with self.assertRaises(ImplementationError):
-            class Foo(TestRedisModel):
+            class Foo3(TestRedisModel):
                 namespace = 'related-name-uniq'
                 father = FKInstanceHashField('self', related_name='%(namespace)s_%(model)s_set')
                 mother = FKInstanceHashField('self', related_name='%(namespace)s_%(model)s_set')
 
         with self.assertRaises(ImplementationError):
-            class Foo(TestRedisModel):
+            class Foo4(TestRedisModel):
                 namespace = 'related-name-uniq'
                 father = FKInstanceHashField('Bar')
                 mother = FKInstanceHashField('Bar')
@@ -517,7 +518,10 @@ class M2MSortedSetTest(LimpydBaseTest):
 
         core_devs.members.zadd(20, ybon, 10, twidi)
 
-        self.assertEqual(core_devs.members.zrange(0, -1, withscores=True), [(twidi._pk, 10.0), (ybon._pk, 20.0)])
+        self.assertEqual(core_devs.members.zrange(0, -1, withscores=True), [
+            (twidi._pk, 10.0),
+            (ybon._pk, 20.0),
+        ])
         self.assertEqual(core_devs.members.zscore(twidi), 10.0)
         self.assertEqual(core_devs.members.zrevrangebyscore(25, 15), [ybon._pk])
 
@@ -525,7 +529,8 @@ class M2MSortedSetTest(LimpydBaseTest):
 class DatabaseTest(LimpydBaseTest):
     def test_database_could_transfer_its_models_and_relations_to_another(self):
         """
-        Move of models is tested in tests.models.DatabaseTest.test_database_could_transfer_its_models_to_another
+        Move of models is tested in
+        tests.models.DatabaseTest.test_database_could_transfer_its_models_to_another
         The move of relations is tested here.
         """
         db1 = model.RedisDatabase(**TEST_CONNECTION_SETTINGS)

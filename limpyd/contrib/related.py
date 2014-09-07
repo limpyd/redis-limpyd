@@ -3,6 +3,7 @@ from __future__ import unicode_literals
 from future.builtins import map
 from future.builtins import str
 from future.builtins import object
+from future.utils import with_metaclass
 
 import re
 from copy import copy
@@ -10,7 +11,6 @@ from copy import copy
 from limpyd import model, fields
 from limpyd.exceptions import *
 from limpyd.contrib.collection import ExtendedCollectionManager
-from future.utils import with_metaclass
 
 # used to validate a related_name
 re_identifier = re.compile(r"\W")
@@ -166,14 +166,14 @@ class RelatedModel(model.RedisModel):
             database._relations = {}
 
         # move relation for all impacted models
-        for model in impacted_models:
-            if model.abstract:
+        for _model in impacted_models:
+            if _model.abstract:
                 continue
-            for related_model_name, relation in reverse_relations[model._name]:
+            for related_model_name, relation in reverse_relations[_model._name]:
                 # if the related model name is already used as a relation, check
                 # if it's not already used with the related_name of the relation
                 if related_model_name in database._relations:
-                    field = model.get_field(relation[1])
+                    field = _model.get_field(relation[1])
                     field._assert_relation_does_not_exists()
                 # move the relation from the original database to the new
                 original_database._relations[related_model_name].remove(relation)
@@ -269,11 +269,13 @@ class RelatedFieldMixin(with_metaclass(RelatedFieldMetaclass)):
         Check if a relation with the current related_name doesn't already exists
         for the related model
         """
-        existing = [r for r in self.database._relations[self.related_to] if r[2] == self.related_name]
+        relation = self.database._relations[self.related_to]
+        existing = [r for r in relation if r[2] == self.related_name]
         if existing:
-            raise ImplementationError(
-                "The related name defined for the field '%s.%s', named '%s', already exists on the model '%s' (tied to the field '%s.%s')"
-                 % (self._model._name, self.name, self.related_name, self.related_to, existing[0][1], existing[0][0]))
+            error = ("The related name defined for the field '%s.%s', named '%s', already exists "
+                     "on the model '%s' (tied to the field '%s.%s')")
+            raise ImplementationError(error % (self._model._name, self.name, self.related_name,
+                                      self.related_to, existing[0][1], existing[0][0]))
 
     def _get_related_model_name(self):
         """

@@ -2,11 +2,10 @@
 from __future__ import unicode_literals
 from future.builtins import str
 from future.builtins import zip
-from future.builtins import object
+from future.utils import with_metaclass
 
 from logging import getLogger
 from copy import copy
-from future.utils import with_metaclass
 
 from redis.exceptions import RedisError
 from redis.client import Lock
@@ -117,7 +116,8 @@ class RedisProxyCommand(with_metaclass(MetaRedisProxy)):
         Add the key to the args and call the Redis command.
         """
         if not name in self.available_commands:
-            raise AttributeError("%s is not an available command for %s" % (name, self.__class__.__name__))
+            raise AttributeError("%s is not an available command for %s" %
+                                 (name, self.__class__.__name__))
         attr = getattr(self.connection, "%s" % name)
         key = self.key
         log.debug(u"Requesting %s with key %s and args %s" % (name, key, args))
@@ -409,12 +409,14 @@ class RedisField(RedisProxyCommand):
             index = self.connection.smembers(key)
             if len(index) > 1:
                 # this may not happen !
-                raise UniquenessError("Multiple values indexed for unique field %s: %s" % (self.name, index))
+                raise UniquenessError("Multiple values indexed for unique field %s: %s" %
+                                      (self.name, index))
             elif len(index) == 1:
                 indexed_instance_pk = index.pop()
                 if indexed_instance_pk != self._instance.pk.get():
                     self.connection.delete(self.key)
-                    raise UniquenessError('Key %s already exists (for instance %s)' % (key, indexed_instance_pk))
+                    raise UniquenessError('Key %s already exists (for instance %s)' %
+                                          (key, indexed_instance_pk))
         # Do index => create a key to be able to retrieve parent pk with
         # current field value
         log.debug("indexing %s with key %s" % (key, self._instance.pk.get()))
@@ -1022,13 +1024,14 @@ class PKField(SingleValueField):
         The returned value should be normalized, and will be used without check.
         """
         if value is None:
-            raise ValueError('The pk for %s is not "auto-increment", you must fill it' % \
+            raise ValueError('The pk for %s is not "auto-increment", you must fill it' %
                             self._model._name)
         value = self.normalize(value)
 
         # Check that this pk does not already exist
         if self.exists(value):
-            raise UniquenessError('PKField %s already exists for model %s)' % (value, self._instance.__class__))
+            raise UniquenessError('PKField %s already exists for model %s)' %
+                                  (value, self._instance.__class__))
 
         return value
 
@@ -1123,7 +1126,7 @@ class AutoPKField(PKField):
         a new pk
         """
         if value is not None:
-            raise ValueError('The pk for %s is "auto-increment", you must not fill it' % \
+            raise ValueError('The pk for %s is "auto-increment", you must not fill it' %
                             self._model._name)
         key = self._instance.make_key(self._model._name, 'max_pk')
         return self.normalize(self.connection.incr(key))

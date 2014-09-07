@@ -1,8 +1,8 @@
 from __future__ import unicode_literals
 from future.builtins import str, bytes
+
 import uuid
 
-from functools import wraps
 from logging import getLogger
 
 log = getLogger(__name__)

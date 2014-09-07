@@ -10,13 +10,14 @@ if sys.version_info >= (2, 7):
 else:
     import unittest2 as unittest
 
+from datetime import datetime
 import threading
 import time
-from datetime import datetime
 
 from limpyd import model
 from limpyd import fields
 from limpyd.exceptions import *
+
 from .base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
 
 
@@ -108,7 +109,7 @@ class InitTest(LimpydBaseTest):
 
     def test_wrong_field_name_cannot_be_used(self):
         with self.assertRaises(ValueError):
-            bike = Bike(power="human")
+            Bike(power="human")
 
     def test_fields_should_be_ordered(self):
         self.assertEqual(Bike._fields, ['pk', 'name', 'wheels', 'passengers'])
@@ -172,10 +173,10 @@ class DatabaseTest(LimpydBaseTest):
                 class Bike(TestRedisModel):
                     name = fields.StringField()
 
-            class Bike(TestRedisModel):
+            class Bike2(TestRedisModel):
                 name = fields.StringField()
                 namespace = 'sub-tests'
-            self.assertNotEqual(MainBike._name, Bike._name)
+            self.assertNotEqual(MainBike._name, Bike2._name)
 
         sub_test()
 
@@ -220,7 +221,8 @@ class DatabaseTest(LimpydBaseTest):
             Test that the database contains all non-abstract models in the given
             list and that each model has the correct database.
             """
-            self.assertEqual(database._models, dict((m._name, m) for m in models if not m.abstract))
+            self.assertEqual(database._models, dict((m._name, m) for m in models
+                                                                       if not m.abstract))
             for m in models:
                 self.assertEqual(m.database, database)
 
@@ -366,7 +368,7 @@ class IndexationTest(LimpydBaseTest):
         self.assertTrue(Bike.exists(name="tricycle"))
 
     def test_unicode_string_is_indexable(self):
-        bike = Bike(name=u"vélo")
+        Bike(name=u"vélo")
         self.assertFalse(Bike.exists(name="velo"))
         self.assertTrue(Bike.exists(name=u"vélo"))
 
@@ -395,23 +397,23 @@ class GetTest(LimpydBaseTest):
         self.assertEqual(boat1._pk, boat2._pk)
 
     def test_should_raise_if_more_than_one_match(self):
-        boat1 = Boat(name="Pen Duick I")
-        boat2 = Boat(name="Pen Duick II")
+        Boat(name="Pen Duick I")
+        Boat(name="Pen Duick II")
         with self.assertRaises(ValueError):
-            boat3 = Boat.get(power="sail")
+            Boat.get(power="sail")
 
     def test_should_raise_if_no_one_match(self):
-        boat1 = Boat(name="Pen Duick I")
+        Boat(name="Pen Duick I")
         with self.assertRaises(DoesNotExist):
-            boat3 = Boat.get(name="Pen Duick II")
+            Boat.get(name="Pen Duick II")
 
     def test_should_not_accept_more_than_one_arg(self):
         with self.assertRaises(ValueError):
-            boat = Boat.get(1, 2)
+            Boat.get(1, 2)
 
     def test_should_not_accept_no_params(self):
         with self.assertRaises(ValueError):
-            boat = Boat.get()
+            Boat.get()
 
 
 class GetOrConnectTest(LimpydBaseTest):
@@ -438,7 +440,7 @@ class UniquenessTest(LimpydBaseTest):
         self.assertEqual(boat1.length.get(), "15.1")
         # Try to create a boat with the same name
         with self.assertRaises(UniquenessError):
-            boat2 = Boat(name="Pen Duick I", length=15.1)
+            Boat(name="Pen Duick I", length=15.1)
         # Check data after
         self.assertEqual(boat1.name.get(), "Pen Duick I")
         self.assertEqual(boat1.length.get(), "15.1")
@@ -546,7 +548,8 @@ class InheritanceTest(LimpydBaseTest):
         self.assertEqual(set(bike._fields), set(['pk', 'name', 'wheels', 'passengers']))
         motorbike = MotorBike()
         self.assertEqual(len(motorbike._fields), 5)
-        self.assertEqual(set(motorbike._fields), set(['pk', 'name', 'wheels', 'passengers', 'power']))
+        self.assertEqual(set(motorbike._fields),
+                         set(['pk', 'name', 'wheels', 'passengers', 'power']))
         boat = Boat()
         self.assertEqual(len(boat._fields), 5)
         self.assertEqual(set(boat._fields), set(['pk', 'name', 'launched', 'power', 'length']))
@@ -565,8 +568,8 @@ class InheritanceTest(LimpydBaseTest):
         """
         Test that each model has its own collections
         """
-        bike = Bike(name="rosalie", wheels=4)
-        motorbike = MotorBike(name='davidson', wheels=2, power='not enough')
+        Bike(name="rosalie", wheels=4)
+        MotorBike(name='davidson', wheels=2, power='not enough')
         self.assertEqual(len(Bike.collection(name="rosalie")), 1)
         self.assertEqual(len(Bike.collection(name="davidson")), 0)
         self.assertEqual(len(MotorBike.collection(name="rosalie")), 0)
