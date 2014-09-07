@@ -66,6 +66,8 @@ So you can use it like this:
 Install
 =======
 
+Python 2.6, 2.7, 3.3 and 3.4 are supported.
+
 .. code:: bash
 
     pip install redis-limpyd

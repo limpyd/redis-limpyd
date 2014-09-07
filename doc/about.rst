@@ -6,6 +6,8 @@ About
 
 The project can be found here: https://github.com/yohanboniface/redis-limyd
 
+Python 2.6, 2.7, 3.3 and 3.4 are supported.
+
 Yohan is helped in the developement by `Stéphane "Twidi" Angel <https://github.com/twidi/>`_, with lot of work on his branches, aimed to be integrated upstream via pull requests when we have time to review code.
 You can found these branches here: https://github.com/twidi/redis-limpyd/branches (the `develop` branch is generally up to date with the work on all of them)
 
