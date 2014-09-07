@@ -587,7 +587,7 @@ class DeleteTest(LimpydBaseTest):
             wagons = fields.StringField(default=10)
 
         # Check that db is empty
-        self.assertEqual(len(list(self.connection.keys())), 0)
+        self.assertEqual(self.count_keys(), 0)
         # Create two models, to check also that the other is not
         # impacted by the delete of some field
         train1 = Train(name="Occitan", kind="Corail")
@@ -601,20 +601,20 @@ class DeleteTest(LimpydBaseTest):
         # - the 2 kind fields
         # - the kind index for "Corail"
         # - the 2 wagons fields
-        self.assertEqual(len(list(self.connection.keys())), 11)
+        self.assertEqual(self.count_keys(), 11)
         # If we delete the name field, only 9 key must remain
         # the train1.name field and the name:"Occitan" index are deleted
         train1.name.delete()
-        self.assertEqual(len(list(self.connection.keys())), 9)
+        self.assertEqual(self.count_keys(), 9)
         self.assertEqual(train1.name.get(), None)
         self.assertFalse(Train.exists(name="Occitan"))
         self.assertEqual(train1.wagons.get(), '10')
         self.assertEqual(train2.name.get(), 'Teoz')
-        self.assertEqual(len(list(self.connection.keys())), 9)
+        self.assertEqual(self.count_keys(), 9)
         # Now if we delete the train1.kind, only one key is deleted
         # The kind:"Corail" is still used by train2
         train1.kind.delete()
-        self.assertEqual(len(list(self.connection.keys())), 8)
+        self.assertEqual(self.count_keys(), 8)
         self.assertEqual(len(Train.collection(kind="Corail")), 1)
 
     def test_instancehashfield_keys_are_deleted(self):
@@ -626,7 +626,7 @@ class DeleteTest(LimpydBaseTest):
             wagons = fields.InstanceHashField(default=10)
 
         # Check that db is empty
-        self.assertEqual(len(list(self.connection.keys())), 0)
+        self.assertEqual(self.count_keys(), 0)
         # Create two models, to check also that the other is not
         # impacted by the delete of some field
         train1 = Train(name="Occitan", kind="Corail")
@@ -638,24 +638,24 @@ class DeleteTest(LimpydBaseTest):
         # - 2 trains hash key
         # - the 2 names index (one by value)
         # - the kind index
-        self.assertEqual(len(list(self.connection.keys())), 7)
+        self.assertEqual(self.count_keys(), 7)
         # The train1 hash must have three fields (name, kind and wagons)
         self.assertEqual(self.connection.hlen(train1.key), 3)
         # If we delete the train1 name, only 6 key must remain
         # (the name index for "Occitan" must be deleted)
         train1.name.delete()
-        self.assertEqual(len(list(self.connection.keys())), 6)
+        self.assertEqual(self.count_keys(), 6)
         self.assertEqual(self.connection.hlen(train1.key), 2)
         self.assertEqual(train1.name.hget(), None)
         self.assertFalse(Train.exists(name="Occitan"))
         self.assertEqual(train1.wagons.hget(), '10')
         self.assertEqual(train2.name.hget(), 'Teoz')
-        self.assertEqual(len(list(self.connection.keys())), 6)
+        self.assertEqual(self.count_keys(), 6)
         # Now if we delete the train1.kind, no key is deleted
         # Only the hash field must be deleted
         # The kind:"Corail" is still used by train2
         train1.kind.delete()
-        self.assertEqual(len(list(self.connection.keys())), 6)
+        self.assertEqual(self.count_keys(), 6)
         self.assertEqual(self.connection.hlen(train1.key), 1)
         self.assertEqual(len(Train.collection(kind="Corail")), 1)
 
@@ -678,7 +678,7 @@ class DeleteTest(LimpydBaseTest):
             wagons = fields.InstanceHashField(default=10)
 
         # Check that db is empty
-        self.assertEqual(len(list(self.connection.keys())), 0)
+        self.assertEqual(self.count_keys(), 0)
         # Create two models, to check also that the other is not
         # impacted by the delete of some field
         train1 = Train(name="Occitan", kind="Corail")
@@ -691,10 +691,10 @@ class DeleteTest(LimpydBaseTest):
         # - the 2 names index (one by value)
         # - the two kind keys
         # - the kind:Corail index
-        self.assertEqual(len(list(self.connection.keys())), 9)
+        self.assertEqual(self.count_keys(), 9)
         # If we delete the train1, only 6 key must remain
         train1.delete()
-        self.assertEqual(len(list(self.connection.keys())), 6)
+        self.assertEqual(self.count_keys(), 6)
         with self.assertRaises(DoesNotExist):
             train1.name.hget()
         with self.assertRaises(DoesNotExist):
@@ -702,7 +702,7 @@ class DeleteTest(LimpydBaseTest):
         self.assertFalse(Train.exists(name="Occitan"))
         self.assertTrue(Train.exists(name="Teoz"))
         self.assertEqual(train2.name.hget(), 'Teoz')
-        self.assertEqual(len(list(self.connection.keys())), 6)
+        self.assertEqual(self.count_keys(), 6)
         self.assertEqual(len(Train.collection(kind="Corail")), 1)
         self.assertEqual(len(Train.collection()), 1)
 

@@ -269,8 +269,8 @@ class RelatedFieldMixin(with_metaclass(RelatedFieldMetaclass)):
         Check if a relation with the current related_name doesn't already exists
         for the related model
         """
-        relation = self.database._relations[self.related_to]
-        existing = [r for r in relation if r[2] == self.related_name]
+        relations = self.database._relations[self.related_to]
+        existing = [r for r in relations if r[2] == self.related_name]
         if existing:
             error = ("The related name defined for the field '%s.%s', named '%s', already exists "
                      "on the model '%s' (tied to the field '%s.%s')")

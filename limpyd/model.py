@@ -1,5 +1,6 @@
 # -*- coding:utf-8 -*-
 from __future__ import unicode_literals
+from future.utils import iteritems, iterkeys
 from future.utils import with_metaclass
 
 from logging import getLogger
@@ -49,8 +50,8 @@ class MetaRedisModel(MetaRedisProxy):
         own_fields = []
 
         # limit to redis fields
-        redis_fields = [(k, v) for k, v in list(attrs.items()) if not k.startswith('_') and
-                                                                        isinstance(v, RedisField)]
+        redis_fields = [(k, v) for k, v in attrs.items() if not k.startswith('_')
+                                                            and isinstance(v, RedisField)]
         # and keep them by declaration order
         redis_fields = [(k, v) for k, v in sorted(redis_fields, key=lambda f: f[1]._creation_order)]
 
@@ -175,7 +176,7 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
             # redis do not has "real" transactions)
             # Here we do not set anything, in case one unique field fails
             kwargs_pk_field_name = None
-            for field_name, value in kwargs.items():
+            for field_name, value in iteritems(kwargs):
                 if self._field_is_pk(field_name):
                     if kwargs_pk_field_name:
                         raise ValueError(u'You cannot pass two values for the '
@@ -434,7 +435,7 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
         one redis call. You must pass kwargs with field names as keys, with
         their value.
         """
-        if kwargs and not any(kwarg in self._instancehash_fields for kwarg in kwargs.keys()):
+        if kwargs and not any(kwarg in self._instancehash_fields for kwarg in iterkeys(kwargs)):
             raise ValueError("Only InstanceHashField can be used here.")
 
         indexed = []
@@ -443,7 +444,7 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
         try:
 
             # Set indexes for indexable fields.
-            for field_name, value in list(kwargs.items()):
+            for field_name, value in iteritems(kwargs):
                 field = self.get_field(field_name)
                 if field.indexable:
                     indexed.append(field)

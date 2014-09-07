@@ -1,5 +1,6 @@
 # -*- coding:utf-8 -*-
 from __future__ import unicode_literals
+from future.utils import iteritems, iterkeys
 from future.builtins import str
 from future.builtins import zip
 from future.utils import with_metaclass
@@ -673,8 +674,7 @@ class SortedSetField(MultiValuesField):
                     raise RedisError("ZADD requires an equal number of "
                                      "values and scores")
                 keys.extend(args[1::2])
-            for pair in kwargs.items():
-                keys.append(pair[0])
+            keys.extend(kwargs)  # add kwargs keys (values to index)
             self.index(keys)
         return self._traverse_command(command, *args, **kwargs)
 
@@ -705,7 +705,7 @@ class SortedSetField(MultiValuesField):
                                  "values and scores")
             pieces.extend(args)
 
-        for pair in kwargs.items():
+        for pair in iteritems(kwargs):
             pieces.append(pair[1])
             pieces.append(pair[0])
 
@@ -830,7 +830,7 @@ class HashField(MultiValuesField):
     def _call_hmset(self, command, *args, **kwargs):
         if self.indexable:
             current = self.proxy_get()
-            _to_deindex = dict((k, current[k]) for k in kwargs.keys() if k in current)
+            _to_deindex = dict((k, current[k]) for k in iterkeys(kwargs) if k in current)
             self.deindex(_to_deindex)
             self.index(kwargs)
         return self._traverse_command(command, kwargs)
@@ -896,7 +896,7 @@ class HashField(MultiValuesField):
 
         if values is None:
             values = self.proxy_get()
-        for field_name, value in values.items():
+        for field_name, value in iteritems(values):
             if value is not None:
                 key = self.index_key(value, field_name)
                 self.add_index(key)
@@ -909,7 +909,7 @@ class HashField(MultiValuesField):
 
         if values is None:
             values = self.proxy_get()
-        for field_name, value in values.items():
+        for field_name, value in iteritems(values):
             if value is not None:
                 key = self.index_key(value, field_name)
                 self.remove_index(key)

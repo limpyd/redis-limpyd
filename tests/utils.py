@@ -51,6 +51,11 @@ class LimpydBaseTestTest(LimpydBaseTest):
             # we know that info do only one command
             self.connection.info()
 
+    def test_assert_count_key_is_ok(self):
+        self.assertEqual(self.count_keys(), 0)
+        self.connection.set('__test__', '__test__')
+        self.assertEqual(self.count_keys(), 1)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -42,6 +42,12 @@ class LimpydBaseTest(unittest.TestCase):
         """
         return self.connection.info()['total_commands_processed']
 
+    def count_keys(self):
+        """
+        Helper method to return the number of keys in the test database
+        """
+        return self.connection.dbsize()
+
     def assertNumCommands(self, num, func=None, *args, **kwargs):
         """
         A context assert, to use with "with":

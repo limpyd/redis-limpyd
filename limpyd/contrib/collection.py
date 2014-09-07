@@ -437,10 +437,9 @@ class ExtendedCollectionManager(CollectionManager):
          tuples: [('id1', 'name1'), ('id2', 'name2')]
          dicts:  [{'id': 'id1', 'name': 'name1'}, {'id': 'id2', 'name': 'name2'}]
         """
-        result = list(zip(*([iter(collection)] * len(self._values['fields']['names']))))
+        result = zip(*([iter(collection)] * len(self._values['fields']['names'])))
         if self._values['mode'] == 'dicts':
-            result = [dict(list(zip(self._values['fields']['names'], a_result)))
-                                                for a_result in result]
+            result = (dict(zip(self._values['fields']['names'], a_result)) for a_result in result)
         return result
 
     @property
@@ -756,7 +755,7 @@ class ExtendedCollectionManager(CollectionManager):
         flat = kwargs.pop('flat', False)
         if kwargs:
             raise ValueError('Unexpected keyword arguments for the values method: %s'
-                             % (list(kwargs.keys()),))
+                             % list(kwargs))
 
         if not fields:
             fields = self._get_simple_fields()
