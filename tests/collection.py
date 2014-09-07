@@ -1,4 +1,6 @@
 # -*- coding:utf-8 -*-
+from __future__ import absolute_import
+from __future__ import unicode_literals
 
 import sys
 if sys.version_info >= (2, 7):
@@ -7,11 +9,13 @@ else:
     import unittest2 as unittest
 
 from redis.exceptions import ResponseError
+
 from limpyd import fields
 from limpyd.collection import CollectionManager
 from limpyd.exceptions import *
-from base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
-from model import Boat, Bike, TestRedisModel
+
+from .base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
+from .model import Boat, Bike, TestRedisModel
 
 
 class CollectionBaseTest(LimpydBaseTest):
@@ -32,7 +36,7 @@ class CollectionTest(CollectionBaseTest):
 
     def test_new_instance_should_be_added_in_collection(self):
         self.assertEqual(set(Bike.collection()), set())
-        bike = Bike()
+        Bike()
         self.assertEqual(set(Bike.collection()), set())
         bike1 = Bike(name="trotinette")
         self.assertEqual(set(Bike.collection()), set([bike1._pk]))
@@ -51,22 +55,22 @@ class CollectionTest(CollectionBaseTest):
     def test_collection_should_be_lazy(self):
         # Simple collection
         hits_before = self.connection.info()['keyspace_hits']
-        collection = Boat.collection()
+        Boat.collection()
         hits_after = self.connection.info()['keyspace_hits']
         self.assertEqual(hits_before, hits_after)
         # Instances
         hits_before = self.connection.info()['keyspace_hits']
-        collection = Boat.instances()
+        Boat.instances()
         hits_after = self.connection.info()['keyspace_hits']
         self.assertEqual(hits_before, hits_after)
         # Filtered
         hits_before = self.connection.info()['keyspace_hits']
-        collection = Boat.collection(power="sail")
+        Boat.collection(power="sail")
         hits_after = self.connection.info()['keyspace_hits']
         self.assertEqual(hits_before, hits_after)
         # Slice it, it will be evaluated
         hits_before = self.connection.info()['keyspace_hits']
-        collection = Boat.collection()[:2]
+        Boat.collection()[:2]
         hits_after = self.connection.info()['keyspace_hits']
         self.assertNotEqual(hits_before, hits_after)
 
@@ -187,7 +191,7 @@ class SortTest(CollectionBaseTest):
         A temporary key is created for sorting, check that it is deleted.
         """
         keys_before = self.connection.info()['db%s' % TEST_CONNECTION_SETTINGS['db']]['keys']
-        s = list(Boat.collection().sort())
+        list(Boat.collection().sort())
         keys_after = self.connection.info()['db%s' % TEST_CONNECTION_SETTINGS['db']]['keys']
         self.assertEqual(keys_after, keys_before)
 
@@ -304,10 +308,11 @@ class InstancesTest(CollectionBaseTest):
         madrugada = Band(name="Madrugada", started_in="1992", genre="Alternative")
         radiohead = Band(name="Radiohead", started_in="1985", genre="Alternative")
         the_veils = Band(name="The Veils", started_in="2001", genre="Alternative")
-        archive = Band(name="Archive", started_in="1994", genre="Progressive Rock")
+        Band(name="Archive", started_in="1994", genre="Progressive Rock")
 
         self.assertEqual(
-            [band._pk for band in Band.collection(genre="Alternative").instances().sort(by="-started_in")[:2]],
+            [band._pk for band in Band.collection(genre="Alternative")
+                                      .instances().sort(by="-started_in")[:2]],
             [the_veils._pk, madrugada._pk]
         )
 

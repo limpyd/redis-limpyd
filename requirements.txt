@@ -1,3 +1,4 @@
-redis
-argparse
-unittest2
+redis==2.9.1
+#future==0.13.0
+# waiting for https://github.com/PythonCharmers/python-future/commit/f905bd893ef7b6bd9d3edc863a916a7ce0dfc47a
+https://github.com/PythonCharmers/python-future/tarball/v0.13.x#egg=future==0.13.dev

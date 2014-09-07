@@ -1,4 +1,7 @@
-# -*- coding:Utf-8 -*-
+# -*- coding:utf-8 -*-
+from __future__ import absolute_import
+from __future__ import unicode_literals
+from future.builtins import str
 
 import sys
 if sys.version_info >= (2, 7):
@@ -6,8 +9,9 @@ if sys.version_info >= (2, 7):
 else:
     import unittest2 as unittest
 
-from base import LimpydBaseTest
 from limpyd.utils import make_key, unique_key
+
+from .base import LimpydBaseTest
 
 
 class MakeKeyTest(LimpydBaseTest):
@@ -29,7 +33,7 @@ class UniqueKeyTest(LimpydBaseTest):
 
     def test_generated_key_must_be_a_string(self):
         key = unique_key(self.connection)
-        self.assertEqual(type(key), str)
+        self.assertTrue(isinstance(key, str))
 
     def test_generated_key_must_be_unique(self):
         key1 = unique_key(self.connection)
@@ -46,6 +50,11 @@ class LimpydBaseTestTest(LimpydBaseTest):
         with self.assertNumCommands(1):
             # we know that info do only one command
             self.connection.info()
+
+    def test_assert_count_key_is_ok(self):
+        self.assertEqual(self.count_keys(), 0)
+        self.connection.set('__test__', '__test__')
+        self.assertEqual(self.count_keys(), 1)
 
 
 if __name__ == '__main__':

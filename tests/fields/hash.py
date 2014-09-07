@@ -1,4 +1,5 @@
 # -*- coding:utf-8 -*-
+from __future__ import unicode_literals
 
 from limpyd import fields
 
@@ -48,7 +49,8 @@ class HashFieldTest(BaseModelTest):
         obj.headers.hset('from', 'someone@cassini.io')
         self.assertEqual(obj.headers.hget('from'), 'someone@cassini.io')
 
-        self.assertEqual(set(self.model.collection(headers__from='someone@cassini.io')), set([obj._pk]))
+        self.assertEqual(set(self.model.collection(headers__from='someone@cassini.io')),
+                         set([obj._pk]))
 
         # Now change value and check first has been deindexed and new redindexed
         obj.headers.hset('from', 'someoneelse@cassini.io')

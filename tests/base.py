@@ -1,4 +1,6 @@
 # -*- coding:utf-8 -*-
+from __future__ import unicode_literals
+from future.builtins import object
 
 import sys
 if sys.version_info >= (2, 7):
@@ -39,6 +41,12 @@ class LimpydBaseTest(unittest.TestCase):
         commands like info...)
         """
         return self.connection.info()['total_commands_processed']
+
+    def count_keys(self):
+        """
+        Helper method to return the number of keys in the test database
+        """
+        return self.connection.dbsize()
 
     def assertNumCommands(self, num, func=None, *args, **kwargs):
         """

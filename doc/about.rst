@@ -11,4 +11,18 @@ You can found these branches here: https://github.com/twidi/redis-limpyd/branche
 
 If you want to help, please fork (`master` or a feature branch, not `develop`) and work on a branch with a comprehensive name, write tests (seriously, everything is severely tested in `limpyd`) and make a pull request.
 
+
+Install
+=======
+
+Python 2.6, 2.7, 3.3 and 3.4 are supported.
+
+.. code:: bash
+
+    pip install --process-dependency-links redis-limpyd
+
+
+Note: the `process-dependency-links` is currently required to use a development version of future which correct a bug we suffered from.
+
+
 .. _Redis: http://redis.io

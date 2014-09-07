@@ -1,4 +1,8 @@
 # -*- coding:utf-8 -*-
+from __future__ import absolute_import
+from __future__ import unicode_literals
+from future import standard_library
+standard_library.install_hooks()
 
 import sys
 if sys.version_info >= (2, 7):
@@ -12,8 +16,8 @@ import time
 from limpyd.utils import make_key
 from limpyd import fields
 
-from base import LimpydBaseTest
-from model import TestRedisModel
+from .base import LimpydBaseTest
+from .model import TestRedisModel
 
 
 class HookedStringField(fields.StringField):

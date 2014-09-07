@@ -1,4 +1,5 @@
 # -*- coding:utf-8 -*-
+from __future__ import unicode_literals
 
 import sys
 if sys.version_info >= (2, 7):
@@ -73,15 +74,18 @@ class CompatibilityTest(BaseTest):
         self.assertEqual(public_groups_pks, set(['1', '3']))
 
         # test "values"
-        active_public_dicts = list(Group.collection(public=1, active=1).values('name', 'active', 'public'))
+        active_public_dicts = list(Group.collection(public=1, active=1)
+                                        .values('name', 'active', 'public'))
         self.assertEqual(len(active_public_dicts), 1)
         self.assertEqual(active_public_dicts[0], {'name': 'foo', 'active': '1', 'public': '1'})
 
         # test "values_list"
-        active_public_tuples = list(Group.collection(public=1, active=1).values_list('name', 'active', 'public'))
+        active_public_tuples = list(Group.collection(public=1, active=1)
+                                         .values_list('name', 'active', 'public'))
         self.assertEqual(len(active_public_tuples), 1)
         self.assertEqual(active_public_tuples[0], ('foo', '1', '1'))
-        active_names = list(Group.collection(active=1).values_list('name', flat=True).sort(by='name', alpha=True))
+        active_names = list(Group.collection(active=1).values_list('name', flat=True)
+                                                      .sort(by='name', alpha=True))
         self.assertEqual(len(active_names), 2)
         self.assertEqual(active_names, ['bar', 'foo'])
 
@@ -97,11 +101,13 @@ class FieldOrModelAsValueForSortAndFilterTest(BaseTest):
 
     def test_sort_should_accept_field_or_fieldname(self):
         # test with field name
-        groups = list(Group.collection().sort(by='name', alpha=True).values_list('name', flat=True))
+        groups = list(Group.collection().sort(by='name', alpha=True)
+                                        .values_list('name', flat=True))
         self.assertEqual(groups, ['bar', 'baz', 'foo', 'qux'])
         # test with field
         name_field = self.groups[0].name
-        groups = list(Group.collection().sort(by=name_field, alpha=True).values_list('name', flat=True))
+        groups = list(Group.collection().sort(by=name_field, alpha=True)
+                                        .values_list('name', flat=True))
         self.assertEqual(groups, ['bar', 'baz', 'foo', 'qux'])
 
     def test_filter_should_accept_field_from_same_model(self):
@@ -141,7 +147,8 @@ class FieldOrModelAsValueForSortAndFilterTest(BaseTest):
 
     def test_filter_should_accept_pkfield_or_pkvalue(self):
         group = Group()
-        collection = Group.collection(pk=group.pk)  # pass the pk, but value will be get when calling the collection
+        # pass the pk, but value will be get when calling the collection
+        collection = Group.collection(pk=group.pk)
         group.name.hset('aaa')  # create a pk for the object
         attended = set([group.pk.get()])
         self.assertEqual(set(collection), attended)
@@ -405,7 +412,8 @@ class SortByScoreTest(BaseTest):
         sorted_by_score = list(collection.sort(by_score=self.container.groups_sortedset))
         self.assertEqual(sorted_by_score, self.sorted_pks)
 
-        sorted_by_reverse_score = list(collection.sort(by_score=self.container.groups_sortedset, desc=True))
+        sorted_by_reverse_score = list(collection.sort(by_score=self.container.groups_sortedset,
+                                                       desc=True))
         self.assertEqual(sorted_by_reverse_score, self.reversed_sorted_pks)
 
     def test_sort_by_sortedset_with_slice(self):
@@ -413,27 +421,32 @@ class SortByScoreTest(BaseTest):
 
         with_smallest_score = collection.sort(by_score=self.container.groups_sortedset)[0]
         self.assertEqual(with_smallest_score, self.sorted_pks[0])
-        with_bigger_score = collection.sort(by_score=self.container.groups_sortedset, desc=True)[0]
+        with_bigger_score = collection.sort(by_score=self.container.groups_sortedset,
+                                            desc=True)[0]
         self.assertEqual(with_bigger_score, self.reversed_sorted_pks[0])
 
         with_bigger_score = collection.sort(by_score=self.container.groups_sortedset)[-1]
         self.assertEqual(with_bigger_score, self.sorted_pks[-1])
-        with_smallest_score = collection.sort(by_score=self.container.groups_sortedset, desc=True)[-1]
+        with_smallest_score = collection.sort(by_score=self.container.groups_sortedset,
+                                              desc=True)[-1]
         self.assertEqual(with_smallest_score, self.reversed_sorted_pks[-1])
 
         first_part = collection.sort(by_score=self.container.groups_sortedset)[0:2]
         self.assertEqual(first_part, self.sorted_pks[0:2])
-        first_part_reversed = collection.sort(by_score=self.container.groups_sortedset, desc=True)[0:2]
+        first_part_reversed = collection.sort(by_score=self.container.groups_sortedset,
+                                              desc=True)[0:2]
         self.assertEqual(first_part_reversed, self.reversed_sorted_pks[0:2])
 
         second_part = collection.sort(by_score=self.container.groups_sortedset)[2:4]
         self.assertEqual(second_part, self.sorted_pks[2:4])
-        second_part_reversed = collection.sort(by_score=self.container.groups_sortedset, desc=True)[2:4]
+        second_part_reversed = collection.sort(by_score=self.container.groups_sortedset,
+                                               desc=True)[2:4]
         self.assertEqual(second_part_reversed, self.reversed_sorted_pks[2:4])
 
         all_but_the_first = collection.sort(by_score=self.container.groups_sortedset)[1:]
         self.assertEqual(all_but_the_first, self.sorted_pks[1:])
-        all_but_the_first_reversed = collection.sort(by_score=self.container.groups_sortedset, desc=True)[1:]
+        all_but_the_first_reversed = collection.sort(by_score=self.container.groups_sortedset,
+                                                     desc=True)[1:]
         self.assertEqual(all_but_the_first_reversed, self.reversed_sorted_pks[1:])
 
     def test_sort_by_sortedset_with_filter(self):
@@ -442,13 +455,15 @@ class SortByScoreTest(BaseTest):
         sorted_by_score = list(collection.sort(by_score=self.container.groups_sortedset))
         self.assertEqual(sorted_by_score, self.active_sorted_pks)
 
-        sorted_by_reverse_score = list(collection.sort(by_score=self.container.groups_sortedset, desc=True))
+        sorted_by_reverse_score = list(collection.sort(by_score=self.container.groups_sortedset,
+                                                       desc=True))
         self.assertEqual(sorted_by_reverse_score, self.reversed_active_sorted_pks)
 
         with_smallest_score = collection.sort(by_score=self.container.groups_sortedset)[0]
         self.assertEqual(with_smallest_score, self.active_sorted_pks[0])
 
-        with_bigger_score = collection.sort(by_score=self.container.groups_sortedset, desc=True)[0]
+        with_bigger_score = collection.sort(by_score=self.container.groups_sortedset,
+                                            desc=True)[0]
         self.assertEqual(with_bigger_score, self.reversed_active_sorted_pks[0])
 
     def test_sort_by_sortedset_could_retrieve_instances(self):
@@ -470,11 +485,13 @@ class SortByScoreTest(BaseTest):
     def test_sort_by_sortedset_could_retrieve_values_list(self):
         collection = Group.collection(active=1)
 
-        sorted_by_score_tuples = list(collection.values_list('name', 'active', 'public').sort(by_score=self.container.groups_sortedset))
+        sorted_by_score_tuples = list(collection.values_list('name', 'active', 'public')
+                                                .sort(by_score=self.container.groups_sortedset))
         self.assertEqual(len(sorted_by_score_tuples), len(self.active_sorted_pks))
         self.assertEqual(sorted_by_score_tuples[0], ('bar', '1', '0'))
 
-        sorted_by_score_names = list(collection.values_list('name', flat=True).sort(by_score=self.container.groups_sortedset))
+        sorted_by_score_names = list(collection.values_list('name', flat=True)
+                                               .sort(by_score=self.container.groups_sortedset))
         self.assertEqual(sorted_by_score_names, ['bar', 'foo'])
 
     def test_sort_by_sortedset_should_work_without_filter(self):
@@ -496,13 +513,15 @@ class SortByScoreTest(BaseTest):
         self.assertEqual(sorted_by_score_names, ['foo'])
 
         # pk and matching filter
-        collection = Group.collection(pk=1, active=1).sort(by_score=self.container.groups_sortedset)
+        collection = Group.collection(pk=1, active=1).sort(
+                                                        by_score=self.container.groups_sortedset)
         self.assertEqual(list(collection), ['1'])
         sorted_by_score_names = list(collection.values_list('name', flat=True))
         self.assertEqual(sorted_by_score_names, ['foo'])
 
         # pk and not matching filter
-        collection = Group.collection(pk=1, active=0).sort(by_score=self.container.groups_sortedset)
+        collection = Group.collection(pk=1, active=0).sort(
+                                                        by_score=self.container.groups_sortedset)
         self.assertEqual(list(collection), [])
         sorted_by_score_names = list(collection.values_list('name', flat=True))
         self.assertEqual(sorted_by_score_names, [])
@@ -515,11 +534,16 @@ class SortByScoreTest(BaseTest):
 
     def test_score_should_be_retrieved_in_values(self):
         # test values
-        collection = Group.collection(active=1).values('name', SORTED_SCORE).sort(by_score=self.container.groups_sortedset)
-        self.assertEqual(list(collection), [{'name': 'bar', SORTED_SCORE: '200.0'}, {'name': 'foo', SORTED_SCORE: '1000.0'}])
+        collection = Group.collection(active=1).values('name', SORTED_SCORE).sort(
+                                                        by_score=self.container.groups_sortedset)
+        self.assertEqual(list(collection), [
+            {'name': 'bar', SORTED_SCORE: '200.0'},
+            {'name': 'foo', SORTED_SCORE: '1000.0'},
+        ])
 
         # tests values_list
-        collection = Group.collection(active=1).values_list('name', SORTED_SCORE).sort(by_score=self.container.groups_sortedset)
+        collection = Group.collection(active=1).values_list('name', SORTED_SCORE).sort(
+                                                        by_score=self.container.groups_sortedset)
         self.assertEqual(list(collection), [('bar', '200.0'), ('foo', '1000.0')])
 
         # test without sorting by score
@@ -527,7 +551,8 @@ class SortByScoreTest(BaseTest):
         self.assertEqual(set(collection), set([('bar', None), ('foo', None)]))
 
         # test with pk
-        collection = Group.collection(pk=1).values('name', SORTED_SCORE).sort(by_score=self.container.groups_sortedset)
+        collection = Group.collection(pk=1).values('name', SORTED_SCORE).sort(
+                                                        by_score=self.container.groups_sortedset)
         self.assertEqual(list(collection), [{'name': 'foo', SORTED_SCORE: '1000.0'}])
 
 
@@ -581,7 +606,8 @@ class StoreTest(BaseTest):
             list(stored_collection)
 
     def test_stored_call_should_be_faster(self):
-        collection = Group.collection(active=1, public=1).intersect([1, 2, 3, 5, 7, 8, 10]).sort(by='-name', alpha=True)
+        collection = Group.collection(active=1, public=1).intersect([1, 2, 3, 5, 7, 8, 10]).sort(
+                                                                            by='-name', alpha=True)
 
         commands_before = self.count_commands()
         time_before = time.time()

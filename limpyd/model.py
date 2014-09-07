@@ -1,4 +1,7 @@
 # -*- coding:utf-8 -*-
+from __future__ import unicode_literals
+from future.utils import iteritems, iterkeys
+from future.utils import with_metaclass
 
 from logging import getLogger
 from copy import copy
@@ -36,7 +39,8 @@ class MetaRedisModel(MetaRedisProxy):
 
         # init (or get from parents) lists of redis fields
         _fields = list(it._fields) if hasattr(it, '_fields') else []
-        _instancehash_fields = list(it._instancehash_fields) if hasattr(it, '_instancehash_fields') else []
+        _instancehash_fields = list(it._instancehash_fields) if hasattr(it,
+                                                                    '_instancehash_fields') else []
 
         # Did we have already pk field ?
         pk_field = getattr(it, '_redis_attr_pk', None)
@@ -46,7 +50,8 @@ class MetaRedisModel(MetaRedisProxy):
         own_fields = []
 
         # limit to redis fields
-        redis_fields = [(k, v) for k, v in attrs.items() if not k.startswith('_') and isinstance(v, RedisField)]
+        redis_fields = [(k, v) for k, v in attrs.items() if not k.startswith('_')
+                                                            and isinstance(v, RedisField)]
         # and keep them by declaration order
         redis_fields = [(k, v) for k, v in sorted(redis_fields, key=lambda f: f[1]._creation_order)]
 
@@ -107,12 +112,10 @@ class MetaRedisModel(MetaRedisProxy):
         return it
 
 
-class RedisModel(RedisProxyCommand):
+class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
     """
     Base redis model.
     """
-
-    __metaclass__ = MetaRedisModel
 
     namespace = None  # all models in an app may have the same namespace
     lockable = True
@@ -173,7 +176,7 @@ class RedisModel(RedisProxyCommand):
             # redis do not has "real" transactions)
             # Here we do not set anything, in case one unique field fails
             kwargs_pk_field_name = None
-            for field_name, value in kwargs.iteritems():
+            for field_name, value in iteritems(kwargs):
                 if self._field_is_pk(field_name):
                     if kwargs_pk_field_name:
                         raise ValueError(u'You cannot pass two values for the '
@@ -262,7 +265,8 @@ class RedisModel(RedisProxyCommand):
         are in the "_redis_attr_%s" form)
         """
         if not cls.has_field(field_name):
-            raise AttributeError('"%s" is not a field for the model "%s"' % (field_name, cls.__name__))
+            raise AttributeError('"%s" is not a field for the model "%s"' %
+                                 (field_name, cls.__name__))
 
         field = getattr(cls, '_redis_attr_%s' % field_name)
 
@@ -277,7 +281,8 @@ class RedisModel(RedisProxyCommand):
         Return the field object with the given name (works for a bound instance)
         """
         if not self.has_field(field_name):
-            raise AttributeError('"%s" is not a field for the model "%s"' % (field_name, self.__class__.__name__))
+            raise AttributeError('"%s" is not a field for the model "%s"' %
+                                 (field_name, self.__class__.__name__))
 
         field = getattr(self, field_name)
 
@@ -339,8 +344,8 @@ class RedisModel(RedisProxyCommand):
             raise ValueError(u"`Exists` method requires at least one kwarg.")
 
         # special case to check for a simple pk
-        if len(kwargs) == 1 and cls._field_is_pk(kwargs.keys()[0]):
-            return cls.get_field('pk').exists(kwargs.values()[0])
+        if len(kwargs) == 1 and cls._field_is_pk(list(kwargs.keys())[0]):
+            return cls.get_field('pk').exists(list(kwargs.values())[0])
 
         # get only the first element of the unsorted collection (the fastest)
         try:
@@ -361,8 +366,8 @@ class RedisModel(RedisProxyCommand):
             pk = args[0]
         elif kwargs:
             # special case to check for a simple pk
-            if len(kwargs) == 1 and cls._field_is_pk(kwargs.keys()[0]):
-                pk = kwargs.values()[0]
+            if len(kwargs) == 1 and cls._field_is_pk(list(kwargs.keys())[0]):
+                pk = list(kwargs.values())[0]
             else:  # case with many filters
                 result = cls.collection(**kwargs).sort(by='nosort')
                 if len(result) == 0:
@@ -430,7 +435,7 @@ class RedisModel(RedisProxyCommand):
         one redis call. You must pass kwargs with field names as keys, with
         their value.
         """
-        if kwargs and not any(kwarg in self._instancehash_fields for kwarg in kwargs.iterkeys()):
+        if kwargs and not any(kwarg in self._instancehash_fields for kwarg in iterkeys(kwargs)):
             raise ValueError("Only InstanceHashField can be used here.")
 
         indexed = []
@@ -439,7 +444,7 @@ class RedisModel(RedisProxyCommand):
         try:
 
             # Set indexes for indexable fields.
-            for field_name, value in kwargs.items():
+            for field_name, value in iteritems(kwargs):
                 field = self.get_field(field_name)
                 if field.indexable:
                     indexed.append(field)

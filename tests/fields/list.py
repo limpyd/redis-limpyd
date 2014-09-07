@@ -1,4 +1,5 @@
 # -*- coding:utf-8 -*-
+from __future__ import unicode_literals
 
 from redis.exceptions import RedisError
 
@@ -164,10 +165,10 @@ class IndexableListFieldTest(BaseModelTest):
         self.assertEqual(obj.field.proxy_get(), ['foo'])
         self.assertCollection([obj._pk], field="foo")
 
-        nb_key_before = len(self.connection.keys())
+        nb_key_before = self.count_keys()
         obj.field.linsert('before', 'foo', 'thevalue')
         # It should only have add one key for the new index
-        nb_key_after = len(self.connection.keys())
+        nb_key_after = self.count_keys()
         self.assertEqual(nb_key_after, nb_key_before + 1)
 
         self.assertEqual(obj.field.proxy_get(), ['thevalue', 'foo'])

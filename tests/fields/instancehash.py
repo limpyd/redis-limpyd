@@ -1,3 +1,5 @@
+from __future__ import unicode_literals
+
 from redis.exceptions import DataError, ResponseError
 
 from limpyd import fields

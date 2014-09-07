@@ -1,12 +1,17 @@
 # -*- coding:utf-8 -*-
+from __future__ import unicode_literals
+from future.utils import iteritems, iterkeys
+from future.builtins import str
+from future.builtins import zip
+from future.utils import with_metaclass
 
 from logging import getLogger
 from copy import copy
-from itertools import izip
+
 from redis.exceptions import RedisError
 from redis.client import Lock
 
-from limpyd.utils import make_key
+from limpyd.utils import make_key, normalize
 from limpyd.exceptions import *
 
 log = getLogger(__name__)
@@ -78,15 +83,7 @@ class MetaRedisProxy(type):
         return it
 
 
-class RedisProxyCommand(object):
-
-    __metaclass__ = MetaRedisProxy
-
-    # Commands allowed for an object, by type, each attribute is a list/typle.
-    # If an attribute is not defined, the one from its parent class is used.
-    # Here the different attributes:
-    #  - available_getters:  commands that get data from redis
-    #  - available_modifiers: commands that set data in redis
+class RedisProxyCommand(with_metaclass(MetaRedisProxy)):
 
     @classmethod
     def _make_command_method(cls, command_name):
@@ -120,7 +117,8 @@ class RedisProxyCommand(object):
         Add the key to the args and call the Redis command.
         """
         if not name in self.available_commands:
-            raise AttributeError("%s is not an available command for %s" % (name, self.__class__.__name__))
+            raise AttributeError("%s is not an available command for %s" %
+                                 (name, self.__class__.__name__))
         attr = getattr(self.connection, "%s" % name)
         key = self.key
         log.debug(u"Requesting %s with key %s and args %s" % (name, key, args))
@@ -412,12 +410,14 @@ class RedisField(RedisProxyCommand):
             index = self.connection.smembers(key)
             if len(index) > 1:
                 # this may not happen !
-                raise UniquenessError("Multiple values indexed for unique field %s: %s" % (self.name, index))
+                raise UniquenessError("Multiple values indexed for unique field %s: %s" %
+                                      (self.name, index))
             elif len(index) == 1:
                 indexed_instance_pk = index.pop()
                 if indexed_instance_pk != self._instance.pk.get():
                     self.connection.delete(self.key)
-                    raise UniquenessError('Key %s already exists (for instance %s)' % (key, indexed_instance_pk))
+                    raise UniquenessError('Key %s already exists (for instance %s)' %
+                                          (key, indexed_instance_pk))
         # Do index => create a key to be able to retrieve parent pk with
         # current field value
         log.debug("indexing %s with key %s" % (key, self._instance.pk.get()))
@@ -472,9 +472,7 @@ class RedisField(RedisProxyCommand):
         """
         Coerce a value before using it in Redis.
         """
-        if value and isinstance(value, str):
-            value = value.decode('utf-8')
-        return value
+        return normalize(value)
 
     def _reset(self, command, *args, **kwargs):
         """
@@ -523,7 +521,7 @@ class SingleValueField(RedisField):
         """
         if self.indexable:
             current = self.proxy_get()
-            if current != value:
+            if normalize(current) != normalize(value):
                 if current is not None:
                     self.deindex(current)
                 if value is not None:
@@ -676,8 +674,7 @@ class SortedSetField(MultiValuesField):
                     raise RedisError("ZADD requires an equal number of "
                                      "values and scores")
                 keys.extend(args[1::2])
-            for pair in kwargs.iteritems():
-                keys.append(pair[0])
+            keys.extend(kwargs)  # add kwargs keys (values to index)
             self.index(keys)
         return self._traverse_command(command, *args, **kwargs)
 
@@ -708,7 +705,7 @@ class SortedSetField(MultiValuesField):
                                  "values and scores")
             pieces.extend(args)
 
-        for pair in kwargs.iteritems():
+        for pair in iteritems(kwargs):
             pieces.append(pair[1])
             pieces.append(pair[0])
 
@@ -719,7 +716,7 @@ class SortedSetField(MultiValuesField):
         scores = pieces[0::2]
 
         pieces = []
-        for z in izip(scores, values):
+        for z in zip(scores, values):
             pieces.extend(z)
 
         return pieces
@@ -833,7 +830,7 @@ class HashField(MultiValuesField):
     def _call_hmset(self, command, *args, **kwargs):
         if self.indexable:
             current = self.proxy_get()
-            _to_deindex = dict((k, current[k]) for k in kwargs.iterkeys() if k in current)
+            _to_deindex = dict((k, current[k]) for k in iterkeys(kwargs) if k in current)
             self.deindex(_to_deindex)
             self.index(kwargs)
         return self._traverse_command(command, kwargs)
@@ -899,7 +896,7 @@ class HashField(MultiValuesField):
 
         if values is None:
             values = self.proxy_get()
-        for field_name, value in values.iteritems():
+        for field_name, value in iteritems(values):
             if value is not None:
                 key = self.index_key(value, field_name)
                 self.add_index(key)
@@ -912,7 +909,7 @@ class HashField(MultiValuesField):
 
         if values is None:
             values = self.proxy_get()
-        for field_name, value in values.iteritems():
+        for field_name, value in iteritems(values):
             if value is not None:
                 key = self.index_key(value, field_name)
                 self.remove_index(key)
@@ -1027,13 +1024,14 @@ class PKField(SingleValueField):
         The returned value should be normalized, and will be used without check.
         """
         if value is None:
-            raise ValueError('The pk for %s is not "auto-increment", you must fill it' % \
+            raise ValueError('The pk for %s is not "auto-increment", you must fill it' %
                             self._model._name)
         value = self.normalize(value)
 
         # Check that this pk does not already exist
         if self.exists(value):
-            raise UniquenessError('PKField %s already exists for model %s)' % (value, self._instance.__class__))
+            raise UniquenessError('PKField %s already exists for model %s)' %
+                                  (value, self._instance.__class__))
 
         return value
 
@@ -1128,7 +1126,7 @@ class AutoPKField(PKField):
         a new pk
         """
         if value is not None:
-            raise ValueError('The pk for %s is "auto-increment", you must not fill it' % \
+            raise ValueError('The pk for %s is "auto-increment", you must not fill it' %
                             self._model._name)
         key = self._instance.make_key(self._model._name, 'max_pk')
         return self.normalize(self.connection.incr(key))
