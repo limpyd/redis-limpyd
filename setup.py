@@ -4,6 +4,7 @@
 import codecs
 from pip.req import parse_requirements
 from setuptools import setup, find_packages
+import sys
 
 import limpyd
 
@@ -11,6 +12,12 @@ import limpyd
 def get_requirements(source):
     install_reqs = parse_requirements(source)
     return set([str(ir.req) for ir in install_reqs])
+
+
+if sys.version_info >= (2, 7):
+    install_requires = get_requirements('requirements.txt'),
+else:
+    install_requires = get_requirements('requirements-2.6.txt'),
 
 
 long_description = codecs.open('README.rst', "r", "utf-8").read()
@@ -26,7 +33,7 @@ setup(
     download_url = "https://github.com/yohanboniface/redis-limpyd/tags",
     packages = find_packages(exclude=["tests.*", "tests"]),
     include_package_data=True,
-    install_requires=get_requirements('requirements.txt'),
+    install_requires=install_requires,
     platforms=["any"],
     zip_safe=True,
 

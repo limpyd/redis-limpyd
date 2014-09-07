@@ -1,3 +1,1 @@
 redis==2.9.1
-argparse
-unittest2
