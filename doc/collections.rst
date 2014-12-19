@@ -11,7 +11,7 @@ If fields are indexed, it's possible to make query to retrieve many of them, usi
 The filtering has some limitations:
 
 - you can only filter on fields with `indexable` and/or `unique` attributes set to True
-- you can only filter on full values (`limyd` doesn't provide filters like "startswith", "contains"...)
+- you can only filter on full values (`limpyd` doesn't provide filters like "startswith", "contains"...)
 - all filters are "and"ed
 - no "not" (only able to find mathing fields, not to exlude some)
 - no "join" (filter on one model only)
