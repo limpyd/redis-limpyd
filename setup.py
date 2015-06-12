@@ -8,9 +8,18 @@ import sys
 
 import limpyd
 
+# The `session` argument for the `parse_requirements` function is available (but
+# optional) in pip 1.5, and mandatory in next versions
+try:
+    from pip.download import PipSession
+except ImportError:
+    parse_args = {}
+else:
+    parse_args = {'session': PipSession()}
+
 
 def get_requirements(source):
-    install_reqs = parse_requirements(source)
+    install_reqs = parse_requirements(source, **parse_args)
     return set([str(ir.req) for ir in install_reqs])
 
 
