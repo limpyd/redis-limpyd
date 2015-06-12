@@ -1,3 +1,7 @@
+V 0.2.2  2015-06-12
+
+    * Compatibility with pip 6+
+
 V 0.2.1  2015-01-12
 
     * Stop using dev version of "future"
