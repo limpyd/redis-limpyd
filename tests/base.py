@@ -19,6 +19,8 @@ test_database = RedisDatabase(**TEST_CONNECTION_SETTINGS)
 
 class LimpydBaseTest(unittest.TestCase):
 
+    COUNT_LOCK_COMMANDS = 3
+
     database = test_database
 
     @property

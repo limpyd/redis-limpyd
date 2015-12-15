@@ -99,19 +99,19 @@ class HashFieldTest(BaseModelTest):
     def test_hsetnx_should_index_only_if_value_is_new(self):
         obj = self.model()
         obj.headers.hset('to', 'two@three.org')
-        with self.assertNumCommands(5):
-            # three calls for lock
+        with self.assertNumCommands(2 + self.COUNT_LOCK_COMMANDS):
             # one for setting value
             # one for indexing
+            # + n for the lock
             obj.headers.hsetnx('from', 'one@two.org')
 
         # Chech value has been changed
         self.assertEqual(obj.headers.hget('from'), 'one@two.org')
 
-        with self.assertNumCommands(4):
-            # three calls for lock
+        with self.assertNumCommands(1 + self.COUNT_LOCK_COMMANDS):
             # one for hsetnx, which should not set
-            # one for indexing
+            # none for indexing, the value didn't hange
+            # + n for the lock
             obj.headers.hsetnx('from', 'three@four.org')
 
         # Chech value has not been changed

@@ -59,9 +59,9 @@ class IndexableListFieldTest(BaseModelTest):
 
         obj.field.lpush('foo', 'bar')
 
-        with self.assertNumCommands(5):
-            # check that we had only 5 commands: one for lpop, one for deindexing the value
-            # + 3 for the lock (set at the biginning, check/unset at the end))
+        with self.assertNumCommands(2 + self.COUNT_LOCK_COMMANDS):
+            # check that we had only 2 commands: one for lpop, one for deindexing the value
+            # + n for the lock (set at the biginning, check/unset at the end))
             bar = obj.field.lpop()
 
         self.assertEqual(bar, 'bar')
@@ -79,9 +79,9 @@ class IndexableListFieldTest(BaseModelTest):
         # add a value to really test pushx
         obj.field.lpush('foo')
         # then test pushx
-        with self.assertNumCommands(5):
-            # check that we had only 5 comands, one for the rpushx, one for indexing the value
-            # + 3 for the lock (set at the biginning, check/unset at the end))
+        with self.assertNumCommands(2 + self.COUNT_LOCK_COMMANDS):
+            # check that we had only 2 comands, one for the rpushx, one for indexing the value
+            # + n for the lock (set at the biginning, check/unset at the end))
             obj.field.rpushx('bar')
 
         # test list and collection, to be sure
@@ -94,9 +94,9 @@ class IndexableListFieldTest(BaseModelTest):
         obj.field.lpush('foo', 'bar', 'foo',)
 
         #remove all foo
-        with self.assertNumCommands(5):
-            # check that we had only 5 comands, one for the lrem, one for indexing the value
-            # + 3 for the lock (set at the biginning, check/unset at the end))
+        with self.assertNumCommands(2 + self.COUNT_LOCK_COMMANDS):
+            # check that we had only 2 comands, one for the lrem, one for indexing the value
+            # + n for the lock (set at the biginning, check/unset at the end))
             obj.field.lrem(0, 'foo')
 
         # no more foo in the list
@@ -109,14 +109,14 @@ class IndexableListFieldTest(BaseModelTest):
         obj.field.rpush('foo')
 
         # remove foo at the start
-        with self.assertNumCommands(11):
+        with self.assertNumCommands(8 + self.COUNT_LOCK_COMMANDS):
             # we did a lot of calls to reindex, just check this:
             # - 1 lrange to get all values before the lrem
             # - 3 srem to deindex the 3 values (even if two values are the same)
             # - 1 lrem call
             # - 1 lrange to get all values after the rem
             # - 2 sadd to index the two remaining values
-            # - 3 for the lock (set at the biginning, check/unset at the end))
+            # + n for the lock (set at the biginning, check/unset at the end))
             obj.field.lrem(1, 'foo')
 
         # still a foo in the list
@@ -129,13 +129,13 @@ class IndexableListFieldTest(BaseModelTest):
         obj.field.lpush('foo')
 
         # replace foo with bar
-        with self.assertNumCommands(7):
+        with self.assertNumCommands(4 + self.COUNT_LOCK_COMMANDS):
             # we should have 7 calls:
             # - 1 lindex to get the current value
             # - 1 to deindex this value
             # - 1 for the lset call
             # - 1 to index the new value
-            # - 3 for the lock (set at the biginning, check/unset at the end))
+            # + n for the lock (set at the biginning, check/unset at the end))
             obj.field.lset(0, 'bar')
 
         # check collections
@@ -144,12 +144,12 @@ class IndexableListFieldTest(BaseModelTest):
         self.assertCollection([obj._pk], field="bar")
 
         # replace an inexisting value will raise, without (de)indexing anything)
-        with self.assertNumCommands(5):
-            # we should have 5 calls:
+        with self.assertNumCommands(2 + self.COUNT_LOCK_COMMANDS):
+            # we should have 2 calls:
             # - 1 lindex to get the current value, which is None (out f range) so
             #   nothing to deindex
             # - 1 for the lset call
-            # + 3 for the lock (set at the biginning, check/unset at the end))
+            # + n for the lock (set at the biginning, check/unset at the end))
             with self.assertRaises(RedisError):
                 obj.field.lset(1, 'baz')
 
@@ -186,13 +186,13 @@ class IndexableListFieldTest(BaseModelTest):
     def test_ltrim_should_deindex_and_reindex(self):
         obj = self.model()
         obj.field.rpush("foo", "bar", "baz", "faz")
-        with self.assertNumCommands(12):
-            # 3 for lock
+        with self.assertNumCommands(9 + self.COUNT_LOCK_COMMANDS):
             # 1 for getting all values to deindex
             # 4 for deindexing all values
             # 1 for command
             # 1 for getting remaining values
             # 2 for indexing remaining values
+            # + n for the lock
             obj.field.ltrim(1, 2)  # keep bar and baz, remove others
         self.assertEqual(obj.field.proxy_get(), ["bar", "baz"])
         self.assertCollection([], field="foo")

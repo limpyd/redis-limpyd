@@ -122,12 +122,12 @@ class IndexableStringFieldTest(BaseModelTest):
         vegetable = self.model()
         vegetable.pip.set(10)
         self.assertCollection([vegetable._pk], pip=10)
-        with self.assertNumCommands(7):
+        with self.assertNumCommands(4 + self.COUNT_LOCK_COMMANDS):
             # Check number of queries
-            # - 3 for lock
             # - 2 for getting old value and deindexing it
             # - 1 for decr
             # - 1 for reindex
+            # + n for the lock
             vegetable.pip.decr()
         self.assertCollection([], pip=10)
         self.assertCollection([vegetable._pk], pip=9)
@@ -136,12 +136,12 @@ class IndexableStringFieldTest(BaseModelTest):
         vegetable = self.model()
         vegetable.pip.set(10)
         self.assertCollection([vegetable._pk], pip=10)
-        with self.assertNumCommands(7):
+        with self.assertNumCommands(4 + self.COUNT_LOCK_COMMANDS):
             # Check number of queries
-            # - 3 for lock
             # - 2 for getting old value and deindexing it
             # - 1 for decr
             # - 1 for reindex
+            # + n for the lock
             vegetable.pip.incr(3)
         self.assertCollection([], pip=10)
         self.assertCollection([vegetable._pk], pip=13)
@@ -150,12 +150,12 @@ class IndexableStringFieldTest(BaseModelTest):
         vegetable = self.model()
         vegetable.pip.set("10.3")
         self.assertCollection([vegetable._pk], pip="10.3")
-        with self.assertNumCommands(7):
+        with self.assertNumCommands(4 + self.COUNT_LOCK_COMMANDS):
             # Check number of queries
-            # - 3 for lock
             # - 2 for getting old value and deindexing it
             # - 1 for decr
             # - 1 for reindex
+            # + n for the lock
             vegetable.pip.incrbyfloat("3.9")
         self.assertCollection([], pip="10.3")
         self.assertCollection([vegetable._pk], pip="14.2")
@@ -164,10 +164,10 @@ class IndexableStringFieldTest(BaseModelTest):
         vegetable = self.model()
         vegetable.name.setnx('aubergine')
         self.assertCollection([vegetable._pk], name='aubergine')
-        with self.assertNumCommands(4):
+        with self.assertNumCommands(1 + self.COUNT_LOCK_COMMANDS):
             # Check number of queries
-            # - 3 for lock
             # - 1 for setnx
+            # + n for the lock
             vegetable.name.setnx('pepper')
         self.assertCollection([], name='pepper')
 
@@ -175,12 +175,12 @@ class IndexableStringFieldTest(BaseModelTest):
         vegetable = self.model()
         vegetable.name.setnx('aubergine')
         self.assertCollection([vegetable._pk], name='aubergine')
-        with self.assertNumCommands(8):
+        with self.assertNumCommands(5 + self.COUNT_LOCK_COMMANDS):
             # Check number of queries
-            # - 3 for lock
             # - 2 for deindex (getting value from redis)
             # - 1 for setrange
             # - 2 for reindex (getting value from redis)
+            # + n for the lock
             vegetable.name.setrange(2, 'gerb')
         self.assertEqual(vegetable.name.get(), 'augerbine')
         self.assertCollection([], name='aubergine')
@@ -188,12 +188,12 @@ class IndexableStringFieldTest(BaseModelTest):
 
     def test_setbit_should_deindex_and_reindex(self):
         vegetable = self.model(name="aubergine", pip='@')  # @ = 0b01000000
-        with self.assertNumCommands(8):
+        with self.assertNumCommands(5 + self.COUNT_LOCK_COMMANDS):
             # Check number of queries
-            # - 3 for lock
             # - 2 for deindex (getting value from redis)
             # - 1 for setbit
             # - 2 for reindex (getting value from redis)
+            # + n for the lock
             vegetable.pip.setbit(3, 1)  # 01010000 => P
         self.assertEqual(vegetable.pip.get(), 'P')
         self.assertCollection([], pip='@')
