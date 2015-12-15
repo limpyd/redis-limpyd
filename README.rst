@@ -93,7 +93,7 @@ Extentions
 * A bundle of great extensions: `Limpyd-extensions <https://github.com/twidi/redis-limpyd-extensions>`_
 * A queue/task/job manager: `Limpyd-jobs <https://github.com/twidi/redis-limpyd-jobs>`_
 
-.. |PyPI Version| image:: https://pypip.in/v/redis-limpyd/badge.png
+.. |PyPI Version| image:: https://img.shields.io/pypi/v/redis-limpyd.png
    :target: https://pypi.python.org/pypi/redis-limpyd
 .. |Build Status| image:: https://travis-ci.org/yohanboniface/redis-limpyd.png
    :target: https://travis-ci.org/yohanboniface/redis-limpyd
