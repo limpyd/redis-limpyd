@@ -15,7 +15,8 @@ If you want to help, please fork (`master` or a feature branch, not `develop`) a
 Install
 =======
 
-Python 2.6, 2.7, 3.3 and 3.4 are supported.
+Python version 2.6, 2.7, 3.3 and 3.4 are supported.
+Redis-py versions >= 2.9.1, < 2.11 are supported.
 
 .. code:: bash
 
