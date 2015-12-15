@@ -1,10 +1,24 @@
 language: python
+sudo: false
+cache:
+  directories:
+    - $HOME/.cache/pip
+
 python:
-  - "2.6"
-  - "2.7"
-  - "3.3"
-  - "3.4"
-install: "pip install ."
+ - "2.6"
+ - "2.7"
+ - "3.3"
+ - "3.4"
+
+env:
+ - REDIS="redis==2.9.1"
+ - REDIS="redis==2.10.5"
+
+install:
+- "pip install ."
+- "pip install $REDIS"
+
 script: "python run_tests.py"
+
 services:
   - redis-server

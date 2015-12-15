@@ -33,18 +33,18 @@ class IndexableSortedSetFieldTest(BaseModelTest):
         self.assertCollection([], field='bar')
 
         # add another value
-        with self.assertNumCommands(5):
-            # check that only 5 commands occured: zadd + index of value
-            # + 3 for the lock (set at the biginning, check/unset at the end))
+        with self.assertNumCommands(2 + self.COUNT_LOCK_COMMANDS):
+            # check that only 2 commands occured: zadd + index of value
+            # + n for the lock (set at the biginning, check/unset at the end))
             obj.field.zadd(2.0, 'bar')
         # check collections
         self.assertCollection([obj._pk], field='foo')
         self.assertCollection([obj._pk], field='bar')
 
         # remove a value
-        with self.assertNumCommands(5):
-            # check that only 5 commands occured: zrem + deindex of value
-            # + 3 for the lock (set at the biginning, check/unset at the end))
+        with self.assertNumCommands(2 + self.COUNT_LOCK_COMMANDS):
+            # check that only 2 commands occured: zrem + deindex of value
+            # + n for the lock (set at the biginning, check/unset at the end))
             obj.field.zrem('foo')
         # check collections
         self.assertCollection([], field='foo')
@@ -61,9 +61,9 @@ class IndexableSortedSetFieldTest(BaseModelTest):
         # add a value, to check that its index is not updated
         obj.field.zadd(ignorable=1)
 
-        with self.assertNumCommands(5):
-            # check that we had only 5 commands: one for zincr, one for indexing the value
-            # + 3 for the lock (set at the biginning, check/unset at the end))
+        with self.assertNumCommands(2 + self.COUNT_LOCK_COMMANDS):
+            # check that we had only 2 commands: one for zincr, one for indexing the value
+            # + n for the lock (set at the biginning, check/unset at the end))
             obj.field.zincrby('foo', 5.0)
 
         # check that the new value is indexed
@@ -78,14 +78,14 @@ class IndexableSortedSetFieldTest(BaseModelTest):
         obj.field.zadd(foo=1, bar=2, baz=3)
 
         # we remove two values
-        with self.assertNumCommands(10):
-            # check that we had 10 commands:
+        with self.assertNumCommands(7 + self.COUNT_LOCK_COMMANDS):
+            # check that we had 7 commands:
             # - 1 to get all existing values to deindex
             # - 3 to deindex all values
             # - 1 for the zremrange
             # - 1 to get all remaining values to index
             # - 1 to index the only remaining value
-            # - 3 for the lock (set at the biginning, check/unset at the end))
+            # + n for the lock (set at the biginning, check/unset at the end))
             obj.field.zremrangebyscore(1, 2)
 
         # check that all values are correctly indexed/deindexed
@@ -99,14 +99,14 @@ class IndexableSortedSetFieldTest(BaseModelTest):
         obj.field.zadd(foo=1, bar=2, baz=3, faz=4)
 
         # we remove two values
-        with self.assertNumCommands(12):
-            # check that we had 10 commands:
+        with self.assertNumCommands(9 + self.COUNT_LOCK_COMMANDS):
+            # check that we had 9 commands:
             # - 1 to get all existing values to deindex
             # - 4 to deindex all values
             # - 1 for the zremrangebyrank
             # - 1 to get all remaining values to index
             # - 2 to index the remaining values
-            # - 3 for the lock (set at the biginning, check/unset at the end))
+            # + n for the lock (set at the biginning, check/unset at the end))
             obj.field.zremrangebyrank(1, 2)
 
         # check that all values are correctly indexed/deindexed
@@ -122,12 +122,12 @@ class IndexableSortedSetFieldTest(BaseModelTest):
         self.assertCollection([obj._pk], field='foo')
 
         # we remove two values
-        with self.assertNumCommands(7):
+        with self.assertNumCommands(4 + self.COUNT_LOCK_COMMANDS):
             # check that we had 10 commands:
-            # - 3 for the lock (set at the biginning, check/unset at the end))
             # - 1 to get all existing values to deindex
             # - 2 to deindex all values
             # - 1 for the delete
+            # + n for the lock (set at the biginning, check/unset at the end))
             obj.field.delete()
 
         # check that all values are correctly indexed/deindexed

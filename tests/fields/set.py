@@ -52,9 +52,9 @@ class IndexableSetFieldTest(BaseModelTest):
 
         obj.field.sadd(*values)
 
-        with self.assertNumCommands(5):
-            # check that we had only 5 commands: one for spop, one for deindexing the value
-            # + 3 for the lock (set at the biginning, check/unset at the end))
+        with self.assertNumCommands(2 + self.COUNT_LOCK_COMMANDS):
+            # check that we had only 2 commands: one for spop, one for deindexing the value
+            # + n for the lock (set at the biginning, check/unset at the end))
             poped_value = obj.field.spop()
 
         values.remove(poped_value)
