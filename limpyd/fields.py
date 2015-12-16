@@ -9,8 +9,8 @@ from logging import getLogger
 from copy import copy
 
 from redis.exceptions import RedisError
-from redis.client import Lock
 
+from limpyd.database import Lock
 from limpyd.utils import make_key, normalize
 from limpyd.exceptions import *
 
