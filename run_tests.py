@@ -1,17 +1,16 @@
 #!/usr/bin/env python
 from __future__ import unicode_literals
 
+import argparse
+import importlib
+import os
 import sys
 if sys.version_info >= (2, 7):
     import unittest
 else:
     import unittest2 as unittest
 
-import argparse
-
-# FIXME: move tests in limpyd module, to prevent a relative import?
-from tests import base, model, utils, collection, lock, fields
-from tests.contrib import database, related, collection as contrib_collection
+import tests
 
 
 if __name__ == "__main__":
@@ -42,11 +41,19 @@ if __name__ == "__main__":
         suite = unittest.TestLoader().loadTestsFromNames(args.tests)
     else:
         # Run all the tests
+
         suites = []
-        default_mods = [base, model, utils, collection, lock, fields, ]
-        contrib_mods = [database, related, contrib_collection]
-        for mod in default_mods + contrib_mods:
-            suite = unittest.TestLoader().loadTestsFromModule(mod)
-            suites.append(suite)
+
+        tests_folder = os.path.dirname(tests.__file__)
+        for root, dirs, files in os.walk(tests_folder):
+            for file in files:
+                if not file.endswith('.py') or file == '__init__.py':
+                    continue
+                rel_path = os.path.relpath(os.path.join(root, file), start=tests_folder)
+                module_name = 'tests.' + rel_path.replace('/', '.').replace('\\', '.')[:-3]
+                module = importlib.import_module(module_name)
+                suite = unittest.TestLoader().loadTestsFromModule(module)
+                suites.append(suite)
+
         suite = unittest.TestSuite(suites)
     unittest.TextTestRunner(verbosity=args.verbosity).run(suite)
