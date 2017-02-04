@@ -66,7 +66,7 @@ So you can use it like this:
 Install
 =======
 
-Python versions 2.7, 3.3 and 3.4 are supported.
+Python versions 2.7 and 3.3 to 3.6 are supported.
 Redis-py versions >= 2.9.1, < 2.11 are supported.
 
 .. code:: bash
