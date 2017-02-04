@@ -23,10 +23,7 @@ def get_requirements(source):
     return set([str(ir.req) for ir in install_reqs])
 
 
-if sys.version_info >= (2, 7):
-    install_requires = get_requirements('requirements.txt'),
-else:
-    install_requires = get_requirements('requirements-2.6.txt'),
+install_requires = get_requirements('requirements.txt'),
 
 
 long_description = codecs.open('README.rst', "r", "utf-8").read()
@@ -57,7 +54,6 @@ setup(
         "Topic :: Software Development :: Libraries :: Python Modules",
         "Programming Language :: Python",
         "Programming Language :: Python :: 2",
-        "Programming Language :: Python :: 2.6",
         "Programming Language :: Python :: 2.7",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.3",

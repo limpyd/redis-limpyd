@@ -1,13 +1,8 @@
 # -*- coding:utf-8 -*-
 from __future__ import unicode_literals
 
-import sys
-if sys.version_info >= (2, 7):
-    import unittest
-else:
-    import unittest2 as unittest
-
 import time
+import unittest
 
 from limpyd import fields
 from limpyd.contrib.collection import ExtendedCollectionManager, SORTED_SCORE, DEFAULT_STORE_TTL

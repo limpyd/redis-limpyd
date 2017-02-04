@@ -4,15 +4,10 @@ from __future__ import unicode_literals
 from future import standard_library
 standard_library.install_hooks()
 
-import sys
-if sys.version_info >= (2, 7):
-    import unittest
-else:
-    import unittest2 as unittest
-
 from datetime import datetime
 import threading
 import time
+import unittest
 
 from limpyd import model
 from limpyd import fields

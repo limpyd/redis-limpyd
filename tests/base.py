@@ -3,10 +3,7 @@ from __future__ import unicode_literals
 from future.builtins import object
 
 import sys
-if sys.version_info >= (2, 7):
-    import unittest
-else:
-    import unittest2 as unittest
+import unittest
 
 from redis import VERSION as redispy_version
 
