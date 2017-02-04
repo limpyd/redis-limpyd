@@ -178,6 +178,11 @@ class DatabaseTest(LimpydBaseTest):
                 namespace = 'sub-tests'
             self.assertNotEqual(MainBike._name, Bike2._name)
 
+            with self.assertRaises(ImplementationError):
+                class Bike2(TestRedisModel):
+                    name = fields.StringField()
+                    namespace = 'sub-tests'
+
         sub_test()
 
     def test_database_could_transfer_its_models_to_another(self):

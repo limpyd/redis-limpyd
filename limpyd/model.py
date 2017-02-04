@@ -5,6 +5,7 @@ from future.utils import with_metaclass
 
 from logging import getLogger
 from copy import copy
+import inspect
 import threading
 
 from limpyd.fields import *
@@ -35,7 +36,16 @@ class MetaRedisModel(MetaRedisProxy):
             if not getattr(it, 'namespace', None):
                 it.namespace = ''
             it._name = ':'.join((it.namespace, name.lower()))
-            it.database._add_model(it)
+
+            # Get the caller (next frame in the stack), with it's source file and line number
+            # It will be used in ``database._add_model``, if a model with the same name
+            # already exists, to check if it's the same one.
+            it._creation_source = inspect.stack()[1][1:3]
+            it_in_db = it.database._add_model(it)
+            # If the returned model is not the same, it's the one from the database
+            # we already added for this name, so we use it
+            if it_in_db is not it:
+                return it_in_db
 
         # init (or get from parents) lists of redis fields
         _fields = list(it._fields) if hasattr(it, '_fields') else []
