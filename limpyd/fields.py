@@ -176,6 +176,8 @@ class RedisField(RedisProxyCommand):
         'attrs': ['name', '_instance', '_model', 'indexable', 'unique']
     }
     _unique_supported = True
+    _field_parts = 1
+
 
     def __init__(self, *args, **kwargs):
         """
@@ -823,6 +825,8 @@ class ListField(MultiValuesField):
 class HashField(MultiValuesField):
 
     _unique_supported = False
+    _field_parts = 2
+
     proxy_getter = "hgetall"
     proxy_setter = "hmset"
 

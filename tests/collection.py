@@ -138,6 +138,21 @@ class CollectionTest(CollectionBaseTest):
         # all groups by using the default manager
         self.assertEqual(len(list(Group.collection(manager=CollectionManager))), 2)
 
+    def test_number_of_parts_in_filter_key(self):
+        class MyEmail(TestRedisModel):
+            subject = fields.StringField(indexable=True)
+            headers = fields.HashField(indexable=True)
+
+        MyEmail.collection(subject='hello')
+        with self.assertRaises(ImplementationError):
+            MyEmail.collection(subject__building='hello')
+
+        MyEmail.collection(headers__from='you@moon.io')
+        with self.assertRaises(ImplementationError):
+            MyEmail.collection(headers='you@moon.io')
+        with self.assertRaises(ImplementationError):
+            MyEmail.collection(headers__from__age='you@moon.io')
+
 
 class SliceTest(CollectionBaseTest):
     """

@@ -308,6 +308,12 @@ class CollectionManager(object):
                 key_path = key.split('__')
                 field_name = key_path.pop(0)
                 field = self.cls.get_field(field_name)
+                if len(key_path) != field._field_parts - 1:
+                    raise ImplementationError(
+                        'Unexpected number of parts in filter %s for field %s.%s' % (
+                            key, field._model._name, field.name
+                        )
+                    )
                 self._lazy_collection['sets'].add(field.index_key(value, *key_path))
         return self
 
