@@ -175,6 +175,7 @@ class RedisField(RedisProxyCommand):
         'kwargs': ['lockable', 'default'],
         'attrs': ['name', '_instance', '_model', 'indexable', 'unique']
     }
+    _unique_supported = True
 
     def __init__(self, *args, **kwargs):
         """
@@ -187,6 +188,8 @@ class RedisField(RedisProxyCommand):
         self.indexable = kwargs.get("indexable", False)
         self.unique = kwargs.get("unique", False)
         if self.unique:
+            if not self._unique_supported:
+                raise ImplementationError('%s field cannot be unique' % self.__class__.__name__)
             if hasattr(self, "default"):
                 raise ImplementationError('Cannot set "default" and "unique" together!')
             self.indexable = True
@@ -819,6 +822,7 @@ class ListField(MultiValuesField):
 
 class HashField(MultiValuesField):
 
+    _unique_supported = False
     proxy_getter = "hgetall"
     proxy_setter = "hmset"
 

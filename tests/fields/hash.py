@@ -2,6 +2,7 @@
 from __future__ import unicode_literals
 
 from limpyd import fields
+from limpyd.exceptions import ImplementationError
 
 from ..model import TestRedisModel, BaseModelTest
 
@@ -182,3 +183,8 @@ class HashFieldTest(BaseModelTest):
         self.assertEqual(obj.headers.hlen(), 0)
         obj.headers.hmset(**headers)
         self.assertEqual(obj.headers.hlen(), 2)
+
+    def test_hashfields_cannot_be_unique(self):
+        with self.assertRaises(ImplementationError):
+            class TestUniquenessHashField(TestRedisModel):
+                data = fields.HashField(indexable=True, unique=True)
