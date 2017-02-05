@@ -102,13 +102,17 @@ class ExtendedCollectionManager(CollectionManager):
         Effectively retrieve data according to lazy_collection.
         If we have a stored collection, without any result, return an empty list
         """
-        if self.stored_key and not self._stored_len:
-            if self._len_mode:
-                self._len = 0
-                self._len_mode = False
-            self._slice = {}
-            return []
-        return super(ExtendedCollectionManager, self)._collection
+        old_slice_and_len_mode = None if self._slice is None else self._slice.copy(), self._len_mode
+        try:
+            if self.stored_key and not self._stored_len:
+                if self._len_mode:
+                    self._len = 0
+                    self._len_mode = False
+                self._slice = {}
+                return []
+            return super(ExtendedCollectionManager, self)._collection
+        finally:
+            self._slice, self._len_mode = old_slice_and_len_mode
 
     def _prepare_sets(self, sets):
         """
@@ -648,51 +652,56 @@ class ExtendedCollectionManager(CollectionManager):
         DEFAULT_STORE_TTL, which is 60 secondes. You can pass None if you don't
         want expiration.
         """
-        self._store = True
+        old_slice_and_len_mode = None if self._slice is None else self._slice.copy(), self._len_mode
+        try:
+            self._store = True
 
-        # save sort and values options
-        sort_options = None
-        if self._sort is not None:
-            sort_options = self._sort.copy()
-        values = None
-        if self._values is not None:
-            values = self._values
-            self._values = None
+            # save sort and values options
+            sort_options = None
+            if self._sort is not None:
+                sort_options = self._sort.copy()
+            values = None
+            if self._values is not None:
+                values = self._values
+                self._values = None
 
-        # create a key for storage
-        store_key = key or self._unique_key()
-        if self._sort is None:
-            self._sort = {}
-        self._sort['store'] = store_key
+            # create a key for storage
+            store_key = key or self._unique_key()
+            if self._sort is None:
+                self._sort = {}
+            self._sort['store'] = store_key
 
-        # if filter by pk, but without need to get "values", no redis call is done
-        # so force values to get a call to sort (to store result)
-        if self._lazy_collection['pks'] and not self._values:
-            self.values('pk')
+            # if filter by pk, but without need to get "values", no redis call is done
+            # so force values to get a call to sort (to store result)
+            if self._lazy_collection['pks'] and not self._values:
+                self.values('pk')
 
-        # call the collection
-        self._len_mode = False
-        self._collection
+            # call the collection
+            self._len_mode = False
+            self._collection
 
-        # restore sort and values options
-        self._store = False
-        self._sort = sort_options
-        self._values = values
+            # restore sort and values options
+            self._store = False
+            self._sort = sort_options
+            self._values = values
 
-        # create the new collection
-        stored_collection = self.__class__(self.cls)
-        stored_collection.from_stored(store_key)
+            # create the new collection
+            stored_collection = self.__class__(self.cls)
+            stored_collection.from_stored(store_key)
 
-        # apply ttl if needed
-        if ttl is not None:
-            self.cls.get_connection().expire(store_key, ttl)
+            # apply ttl if needed
+            if ttl is not None:
+                self.cls.get_connection().expire(store_key, ttl)
 
-        # set choices about instances/values from the current to the new collection
-        for attr in ('_instances', '_instances_skip_exist_test', '_values'):
-            setattr(stored_collection, attr, deepcopy(getattr(self, attr)))
+            # set choices about instances/values from the current to the new collection
+            for attr in ('_instances', '_instances_skip_exist_test', '_values'):
+                setattr(stored_collection, attr, deepcopy(getattr(self, attr)))
 
-        # finally return the new collection
-        return stored_collection
+            # finally return the new collection
+            return stored_collection
+
+        finally:
+            self._slice, self._len_mode = old_slice_and_len_mode
 
     def from_stored(self, key):
         """
