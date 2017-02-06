@@ -3,18 +3,12 @@ from __future__ import unicode_literals
 
 from limpyd import fields
 from limpyd.exceptions import ImplementationError
-
-from ..model import TestRedisModel, BaseModelTest
-
-
-class EmailTestModel(TestRedisModel):
-    headers = fields.HashField(indexable=True)
-    raw_headers = fields.HashField()
+from ..model import TestRedisModel, BaseModelTest, Email
 
 
 class HashFieldTest(BaseModelTest):
 
-    model = EmailTestModel
+    model = Email
 
     def test_hashfield_can_be_set_at_init(self):
         headers = {
