@@ -64,17 +64,17 @@ class ExtendedCollectionManager(CollectionManager):
             script['script_object'] = conn.register_script(script['lua'])
         return script['script_object'](keys=keys, args=args, client=conn)
 
-    def _list_to_set(self, list_field, set_key):
+    def _list_to_set(self, list_key, set_key):
         """
         Store all content of the given ListField in a redis set.
         Use scripting if available to avoid retrieving all values locally from
         the list before sending them back to the set
         """
         if self.cls.database.has_scripting():
-            self._call_script('list_to_set', keys=[list_field.key, set_key])
+            self._call_script('list_to_set', keys=[list_key, set_key])
         else:
-            self.cls.get_connection().sadd(set_key, *list_field.lmembers())
-
+            conn = self.cls.get_connection()
+            conn.sadd(set_key, *conn.lrange(list_key, 0, -1))
 
     @property
     def _collection(self):
@@ -101,19 +101,47 @@ class ExtendedCollectionManager(CollectionManager):
         As the new "intersect" method can accept different types of "set", we
         have to handle them because we must return only keys of redis sets.
         """
+
+        if self.stored_key and not self.stored_key_exists():
+            raise DoesNotExist('This collection is based on a previous one, '
+                               'stored at a key that does not exist anymore.')
+
         conn = self.cls.get_connection()
 
         all_sets = set()
         tmp_keys = set()
         only_one_set = len(sets) == 1
 
-        if self.stored_key and not self.stored_key_exists():
-            raise DoesNotExist('This collection is based on a previous one, '
-                               'stored at a key that does not exist anymore.')
+        def add_key(key, key_type=None, is_tmp=False):
+            if not key_type:
+                key_type = conn.type(key)
+            if key_type == 'set':
+                all_sets.add(key)
+            elif key_type == 'zset':
+                all_sets.add(key)
+                self._has_sortedsets = True
+            elif key_type == 'list':
+                if only_one_set:
+                    # we only have this list, use it directly
+                    all_sets.add(key)
+                else:
+                    # many sets, convert the list to a simple redis set
+                    tmp_key = self._unique_key()
+                    self._list_to_set(key, tmp_key)
+                    add_key(tmp_key, 'set', True)
+            elif key_type == 'none':
+                # considered as an empty set
+                 all_sets.add(key)
+            else:
+                raise ValueError('Cannot use redis key %s of type %s for filtering' % (
+                    key, key_type
+                ))
+            if is_tmp:
+                tmp_keys.add(key)
 
         for set_ in sets:
             if isinstance(set_, str):
-                all_sets.add(set_)
+                add_key(set_)
             elif isinstance(set_, ExtendedFilter):
                 # We have a RedisModel and we'll use its pk, or a RedisField
                 # (single value) and we'll use its value
@@ -126,31 +154,22 @@ class ExtendedCollectionManager(CollectionManager):
                 else:
                     raise ValueError(u'Invalide filter value for %s: %s' % (field_name, value))
                 key = field.index_key(val)
-                all_sets.add(key)
+                add_key(key)
             elif isinstance(set_, SetField):
                 # Use the set key. If we need to intersect, we'll use
                 # sunionstore, and if not, store accepts set
-                all_sets.add(set_.key)
+                add_key(set_.key, 'set')
             elif isinstance(set_, SortedSetField):
                 # Use the sorted set key. If we need to intersect, we'll use
                 # zinterstore, and if not, store accepts zset
-                all_sets.add(set_.key)
+                add_key(set_.key, 'zset')
             elif isinstance(set_, (ListField, _StoredCollection)):
-                if only_one_set:
-                    # we only have this list, use it directly
-                    all_sets.add(set_.key)
-                else:
-                    # many sets, convert the list to a simple redis set
-                    tmp_key = self._unique_key()
-                    self._list_to_set(set_, tmp_key)
-                    tmp_keys.add(tmp_key)
-                    all_sets.add(tmp_key)
+                add_key(set_.key, 'list')
             elif isinstance(set_, tuple) and len(set_):
                 # if we got a list or set, create a redis set to hold its values
                 tmp_key = self._unique_key()
                 conn.sadd(tmp_key, *set_)
-                tmp_keys.add(tmp_key)
-                all_sets.add(tmp_key)
+                add_key(tmp_key, 'set', True)
 
         return all_sets, tmp_keys
 
@@ -167,7 +186,8 @@ class ExtendedCollectionManager(CollectionManager):
         Each "set" represent a list of pk, the final goal is to return only pks
         matching the intersection of all sets.
         A "set" can be:
-        - a string: considered as a redis set's name
+        - a string: considered as the name of a redis set, sorted set or list
+            (if a list, values will be stored in a temporary set)
         - a list, set or tuple: values will be stored in a temporary set
         - a SetField: we will directly use it's content on redis
         - a ListField or SortedSetField: values will be stored in a temporary
@@ -184,7 +204,8 @@ class ExtendedCollectionManager(CollectionManager):
             elif not isinstance(set_, (tuple, str, MultiValuesField, _StoredCollection)):
                 raise ValueError('%s is not a valid type of argument that can '
                                  'be used as a set. Allowed are: string (key '
-                                 'of a redis set), limpyd multi-values field ('
+                                 'of a redis set, sorted set or list), '
+                                 'limpyd multi-values field ('
                                  'SetField, ListField or SortedSetField), or '
                                  'real python set, list or tuple' % set_)
             if isinstance(set_, SortedSetField):

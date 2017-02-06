@@ -248,7 +248,7 @@ class IntersectTest(BaseTest):
         self.connection.sinterstore = IntersectTest.redis_sinterstore
         super(IntersectTest, self).tearDown()
 
-    def test_intersect_should_accept_string(self):
+    def test_intersect_should_accept_set_key_as_string(self):
         set_key = unique_key(self.connection)
         self.connection.sadd(set_key, 1, 2)
         collection = set(Group.collection().intersect(set_key))
@@ -259,6 +259,48 @@ class IntersectTest(BaseTest):
         self.connection.sadd(set_key, 1, 2, 10, 50)
         collection = set(Group.collection().intersect(set_key))
         self.assertEqual(collection, set(['1', '2']))
+
+    def test_intersect_should_accept_sortedset_key_as_string(self):
+        zset_key = unique_key(self.connection)
+        self.connection.zadd(zset_key, 1.0, 1, 2.0, 2)
+        collection = set(Group.collection().intersect(zset_key))
+        self.assertEqual(self.last_interstore_call['command'], 'zinterstore')
+        self.assertEqual(collection, set(['1', '2']))
+
+        zset_key = unique_key(self.connection)
+        self.connection.zadd(zset_key, 1.0, 1, 2.0, 2, 10.0, 10, 50.0, 50)
+        collection = set(Group.collection().intersect(zset_key))
+        self.assertEqual(collection, set(['1', '2']))
+
+    def test_intersect_should_accept_list_key_as_string(self):
+        list_key = unique_key(self.connection)
+        self.connection.lpush(list_key, 1, 2)
+        collection = set(Group.collection().intersect(list_key))
+        self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
+        self.assertEqual(collection, set(['1', '2']))
+
+        list_key = unique_key(self.connection)
+        self.connection.lpush(list_key, 1, 2, 10, 50)
+        collection = set(Group.collection().intersect(list_key))
+        self.assertEqual(collection, set(['1', '2']))
+
+    def test_intersect_should_not_accept_string_key_as_string(self):
+        str_key = unique_key(self.connection)
+        self.connection.set(str_key, 'foo')
+        with self.assertRaises(ValueError):
+            set(Group.collection().intersect(str_key))
+
+    def test_intersect_should_not_accept_hkey_key_as_string(self):
+        hash_key = unique_key(self.connection)
+        self.connection.hset(hash_key, 'foo', 'bar')
+        with self.assertRaises(ValueError):
+            set(Group.collection().intersect(hash_key))
+
+    def test_intersect_should_consider_non_existent_key_as_set(self):
+        no_key = unique_key(self.connection)
+        collection = set(Group.collection().intersect(no_key))
+        self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
+        self.assertEqual(collection, set())
 
     def test_intersect_should_accept_set(self):
         collection = set(Group.collection().intersect(set([1, 2])))
