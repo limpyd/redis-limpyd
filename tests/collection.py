@@ -11,7 +11,7 @@ from limpyd.collection import CollectionManager
 from limpyd.exceptions import *
 
 from .base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
-from .model import Boat, Bike, TestRedisModel
+from .model import Boat, Bike, Email, TestRedisModel
 
 
 class CollectionBaseTest(LimpydBaseTest):
@@ -70,6 +70,19 @@ class CollectionTest(CollectionBaseTest):
         hits_after = self.connection.info()['keyspace_hits']
         self.assertNotEqual(hits_before, hits_after)
 
+    def test_collection_should_work_with_eq_suffix(self):
+        without_suffix = set(Boat.collection(power="sail"))
+        with_suffix = set(Boat.collection(power__eq="sail"))
+        self.assertSetEqual(without_suffix, with_suffix)
+
+        Email(headers={'from': 'you@moon.io', 'to': 'someone@cassini.io'})
+        Email(headers={'from': 'you@mars.io', 'to': 'someone@cassini.io'})
+        Email(headers={'from': 'you@mars.io', 'to': 'me@world.org'})
+
+        without_suffix = set(Email.collection(headers__from="you@mars.io"))
+        with_suffix = set(Email.collection(headers__from__eq="you@mars.io"))
+        self.assertSetEqual(without_suffix, with_suffix)
+
     def test_collection_should_work_with_only_a_pk(self):
         hits_before = self.connection.info()['keyspace_hits']
         collection = list(Boat.collection(pk=1))
@@ -79,6 +92,19 @@ class CollectionTest(CollectionBaseTest):
 
         hits_before = self.connection.info()['keyspace_hits']
         collection = list(Boat.collection(pk=5))
+        hits_after = self.connection.info()['keyspace_hits']
+        self.assertEqual(collection, [])
+        self.assertEqual(hits_before + 1, hits_after)  # only a sismembers
+
+    def test_collection_should_work_with_only_a_pk_and_eq_suffix(self):
+        hits_before = self.connection.info()['keyspace_hits']
+        collection = list(Boat.collection(pk__eq=1))
+        hits_after = self.connection.info()['keyspace_hits']
+        self.assertEqual(collection, ['1'])
+        self.assertEqual(hits_before + 1, hits_after)  # only a sismembers
+
+        hits_before = self.connection.info()['keyspace_hits']
+        collection = list(Boat.collection(pk__eq=5))
         hits_after = self.connection.info()['keyspace_hits']
         self.assertEqual(collection, [])
         self.assertEqual(hits_before + 1, hits_after)  # only a sismembers

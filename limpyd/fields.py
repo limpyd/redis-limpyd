@@ -172,12 +172,12 @@ class RedisField(RedisProxyCommand):
     unique = False
     _copy_conf = {
         'args': [],
-        'kwargs': ['lockable', 'default'],
-        'attrs': ['name', '_instance', '_model', 'indexable', 'unique']
+        'kwargs': ['lockable', 'default', 'indexable', 'unique', ('indexes', 'index_classes')],
+        'attrs': ['name', '_instance', '_model']
     }
     _unique_supported = True
     _field_parts = 1
-
+    default_indexes = None
 
     def __init__(self, *args, **kwargs):
         """
@@ -196,11 +196,23 @@ class RedisField(RedisProxyCommand):
                 raise ImplementationError('Cannot set "default" and "unique" together!')
             self.indexable = True
 
-        self._reset_index_cache()
+        self._indexes = []
+
+        self.index_classes = kwargs.get('indexes', [])
+        if self.index_classes:
+            if not self.indexable:
+                raise ImplementationError('Cannot pass indexes if not indexable')
+            self._indexes = [index_class(field=self) for index_class in self.index_classes]
 
         # keep fields ordered
         self._creation_order = RedisField._creation_order
         RedisField._creation_order += 1
+
+    def get_default_indexes(self):
+        if self.__class__.default_indexes is not None:
+            return self.__class__.default_indexes
+        if hasattr(self, '_model'):
+            return self._model.get_default_indexes()
 
     def proxy_get(self):
         """
@@ -346,12 +358,22 @@ class RedisField(RedisProxyCommand):
         else:
             return self.connection.exists(key)
 
+    def _attach_default_indexes(self):
+        self.index_classes = self.get_default_indexes()[::1]
+        if not self.index_classes:
+            raise ImplementationError('%s field is indexable but has no indexes attached' %
+                                      self.__class__.__name__)
+        self._indexes = [index_class(field=self) for index_class in self.index_classes]
+
     def _attach_to_model(self, model):
         """
         Attach the current field to a model. Can be overriden to do something
         when a model is set
         """
         self._model = model
+        # add indexes for the fields at the model level (for collection)
+        if self.indexable and not self.index_classes:
+            self._attach_default_indexes()
 
     def _attach_to_instance(self, instance):
         """
@@ -360,6 +382,9 @@ class RedisField(RedisProxyCommand):
         """
         self._instance = instance
         self.lockable = self.lockable and instance.lockable
+        # add indexes for the field at the instance level (for indexing)
+        if self.indexable and not self.index_classes:
+            self._attach_default_indexes()
 
     def _call_command(self, name, *args, **kwargs):
         """
@@ -371,64 +396,30 @@ class RedisField(RedisProxyCommand):
                 try:
                     result = meth(name, *args, **kwargs)
                 except:
-                    self._rollback_index()
+                    self._rollback_indexes()
                     raise
                 else:
                     return result
                 finally:
-                    self._reset_index_cache()
+                    self._reset_indexes_caches()
         else:
             return meth(name, *args, **kwargs)
 
-    def _rollback_index(self):
+    def _rollback_indexes(self):
         """
         Restore the index in its previous status, using deindexed/indexed values
         temporarily stored.
         """
-        _indexed_keys = set(self._indexed_keys)
-        _deindexed_keys = set(self._deindexed_keys)
-        for key in _indexed_keys:
-            self.remove_index(key)
-        for key in _deindexed_keys:
-            self.add_index(key)
+        for index in self._indexes:
+            index._rollback()
 
-    def _reset_index_cache(self):
+    def _reset_indexes_caches(self):
         """
         Reset attributes used to store deindexed/indexed values, used to
         rollback the index when something failed.
         """
-        self._indexed_keys = set()
-        self._deindexed_keys = set()
-
-    def add_index(self, key):
-        """
-        Create an index key => instance.pk.
-        As traverse_commande is blind, and can't infer the final value from
-        commands like ``append`` or ``setrange``, we let the command process
-        then check the result, and raise before modifying the indexes if the
-        value was not unique, and then remove the key.
-        We should try a better algo because we can lose data if the
-        UniquenessError is raised.
-        """
-        if self.unique:
-            # Lets check if the index key already exist for another instance
-            index = self.connection.smembers(key)
-            if len(index) > 1:
-                # this may not happen !
-                raise UniquenessError("Multiple values indexed for unique field %s: %s" %
-                                      (self.name, index))
-            elif len(index) == 1:
-                indexed_instance_pk = index.pop()
-                if indexed_instance_pk != self._instance.pk.get():
-                    self.connection.delete(self.key)
-                    raise UniquenessError('Key %s already exists (for instance %s)' %
-                                          (key, indexed_instance_pk))
-        # Do index => create a key to be able to retrieve parent pk with
-        # current field value
-        log.debug("indexing %s with key %s" % (key, self._instance.pk.get()))
-        result = self.connection.sadd(key, self._instance.pk.get())
-        self._indexed_keys.add(key)
-        return result
+        for index in self._indexes:
+            index._reset_cache()
 
     def index(self, value=None):
         """
@@ -439,12 +430,12 @@ class RedisField(RedisProxyCommand):
         if value is None:
             value = self.proxy_get()
         if value is not None:
-            key = self.index_key(value)
-            self.add_index(key)
-
-    def remove_index(self, key):
-        self.connection.srem(key, self._instance.pk.get())
-        self._deindexed_keys.add(key)
+            needs_to_check_uniqueness = bool(self.unique)
+            for index in self._indexes:
+                index.add(value, check_uniqueness=needs_to_check_uniqueness and index.handle_uniqueness)
+                if needs_to_check_uniqueness and index.handle_uniqueness:
+                    # uniqueness check is done for this value
+                    needs_to_check_uniqueness = False
 
     def deindex(self, value=None):
         """
@@ -455,23 +446,25 @@ class RedisField(RedisProxyCommand):
         if value is None:
             value = self.proxy_get()
         if value is not None:
-            key = self.index_key(value)
-            self.remove_index(key)
+            for index in self._indexes:
+                index.remove(value)
 
-    def index_key(self, value, *args):
-        """
-        Return the redis key used to store all pk of objects having the given
-        value. It's the index's key.
-        """
-        # Ex. bikemodel:name:{bikename}
-        if not self.indexable:
-            raise ValueError("Field %s is not indexable, cannot ask its index_key" % self.name)
-        value = self.from_python(value)
-        return self.make_key(
-            self._model._name,
-            self.name,
-            value,
-        )
+    def get_unique_index(self):
+        assert self.unique, "Field not unique"
+
+        try:
+            return [index for index in self._indexes if index.handle_uniqueness][0]
+        except IndexError:
+            raise ImplementationError(
+                'Field %s.%s is unique but has no indexes capable of handling uniqueness' %
+                (self._model.__name__, self.name)
+            )
+
+    def check_uniqueness(self, value):
+        if not self.unique:
+            return
+        if value is not None:
+            self.get_unique_index().check_uniqueness(value)
 
     def from_python(self, value):
         """
@@ -617,8 +610,12 @@ class MultiValuesField(RedisField):
             values = self.proxy_get()
         for value in values:
             if value is not None:
-                key = self.index_key(value)
-                self.add_index(key)
+                needs_to_check_uniqueness = bool(self.unique)
+                for index in self._indexes:
+                    index.add(value, check_uniqueness=needs_to_check_uniqueness and index.handle_uniqueness)
+                    if needs_to_check_uniqueness and index.handle_uniqueness:
+                        # uniqueness check is done for this value
+                        needs_to_check_uniqueness = False
 
     def deindex(self, values=None):
         """
@@ -630,8 +627,15 @@ class MultiValuesField(RedisField):
             values = self.proxy_get()
         for value in values:
             if value is not None:
-                key = self.index_key(value)
-                self.remove_index(key)
+                for index in self._indexes:
+                    index.remove(value)
+
+    def check_uniqueness(self, values):
+        if not self.unique:
+            return
+        for value in values:
+            if value is not None:
+                self.get_unique_index().check_uniqueness(value)
 
 
 class SortedSetField(MultiValuesField):
@@ -881,21 +885,6 @@ class HashField(MultiValuesField):
         # redispy needs a list, not args
         return self._traverse_command(command, args)
 
-    def index_key(self, value, field_name):
-        """
-        Manage hash->field_name in the final key.
-        """
-        # Ex. email:headers:content_type:{content_type}
-        if not self.indexable:
-            raise ValueError("HashField %s is not indexable, cannot ask its index_key" % self.name)
-        value = self.from_python(value)
-        return self.make_key(
-            self._model._name,
-            self.name,
-            field_name,
-            value,
-        )
-
     def index(self, values=None):
         """
         Deal with dicts and field names.
@@ -906,8 +895,12 @@ class HashField(MultiValuesField):
             values = self.proxy_get()
         for field_name, value in iteritems(values):
             if value is not None:
-                key = self.index_key(value, field_name)
-                self.add_index(key)
+                needs_to_check_uniqueness = bool(self.unique)
+                for index in self._indexes:
+                    index.add(field_name, value, check_uniqueness=needs_to_check_uniqueness and index.handle_uniqueness)
+                    if needs_to_check_uniqueness and index.handle_uniqueness:
+                        # uniqueness check is done for this value
+                        needs_to_check_uniqueness = False
 
     def deindex(self, values=None):
         """
@@ -919,8 +912,8 @@ class HashField(MultiValuesField):
             values = self.proxy_get()
         for field_name, value in iteritems(values):
             if value is not None:
-                key = self.index_key(value, field_name)
-                self.remove_index(key)
+                for index in self._indexes:
+                    index.remove(field_name, value)
 
     def hexists(self, key):
         """
@@ -1033,7 +1026,7 @@ class PKField(SingleValueField):
         """
         if value is None:
             raise ValueError('The pk for %s is not "auto-increment", you must fill it' %
-                            self._model._name)
+                            self._model.__name__)
         value = self.normalize(value)
 
         # Check that this pk does not already exist
@@ -1135,7 +1128,7 @@ class AutoPKField(PKField):
         """
         if value is not None:
             raise ValueError('The pk for %s is "auto-increment", you must not fill it' %
-                            self._model._name)
+                            self._model.__name__)
         key = self._instance.make_key(self._model._name, 'max_pk')
         return self.normalize(self.connection.incr(key))
 

@@ -6,6 +6,7 @@ from future.builtins import object
 import redis
 
 from limpyd.exceptions import *
+from limpyd.indexes import EqualIndex
 
 from logging import getLogger
 log = getLogger(__name__)
@@ -30,12 +31,20 @@ class RedisDatabase(object):
     """
     _connections = {}  # class level cache
 
+    default_indexes = [EqualIndex]
+
     def __init__(self, **connection_settings):
         self._connection = None  # Instance level cache
         self.reset(**(connection_settings or DEFAULT_CONNECTION_SETTINGS))
         # _models keep an entry for each defined model on this database
         self._models = dict()
         super(RedisDatabase, self).__init__()
+
+    @classmethod
+    def get_default_indexes(cls):
+        if cls.default_indexes is not None:
+            return cls.default_indexes
+        return []
 
     def connect(self, **settings):
         """
