@@ -35,16 +35,6 @@ class ExtendedCollectionManager(CollectionManager):
                 return 1
             """,
         },
-        'zset_to_set': {
-            # add all members of the zset in a new set
-            'lua': """
-                redis.call('del', KEYS[2])
-                for i, member in ipairs(redis.call('zrange', KEYS[1], 0, -1)) do
-                    redis.call('sadd', KEYS[2], member)
-                end
-                return 1
-            """,
-        },
     }
 
     def __init__(self, cls):
@@ -85,16 +75,6 @@ class ExtendedCollectionManager(CollectionManager):
         else:
             self.cls.get_connection().sadd(set_key, *list_field.lmembers())
 
-    def _sortedset_to_set(self, sortedset_field, set_key):
-        """
-        Store all content of the given SortedSetField in a redis set.
-        Use scripting if available to avoid retrieving all values locally from
-        the sorted set before sending them back to the set
-        """
-        if self.cls.database.has_scripting():
-            self._call_script('zset_to_set', keys=[sortedset_field.key, set_key])
-        else:
-            self.cls.get_connection().sadd(set_key, *sortedset_field.zmembers())
 
     @property
     def _collection(self):
