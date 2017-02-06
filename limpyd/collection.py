@@ -308,6 +308,14 @@ class CollectionManager(object):
                 key_path = key.split('__')
                 field_name = key_path.pop(0)
                 field = self.cls.get_field(field_name)
+
+                if not field.indexable:
+                    raise ImplementationError(
+                        'Field %s.%s is not indexable' % (
+                            field._model._name, field.name
+                        )
+                    )
+
                 if len(key_path) != field._field_parts - 1:
                     raise ImplementationError(
                         'Unexpected number of parts in filter %s for field %s.%s' % (

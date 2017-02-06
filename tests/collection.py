@@ -45,7 +45,7 @@ class CollectionTest(CollectionBaseTest):
         self.assertEqual(len(list(Boat.collection(power="sail", launched=1966))), 1)
 
     def test_should_raise_if_filter_is_not_indexable_field(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ImplementationError):
             Boat.collection(length=15.1)
 
     def test_collection_should_be_lazy(self):
