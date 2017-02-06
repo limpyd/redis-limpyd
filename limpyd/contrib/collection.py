@@ -72,7 +72,7 @@ class ExtendedCollectionManager(CollectionManager):
         Use scripting if available to avoid retrieving all values locally from
         the list before sending them back to the set
         """
-        if self.cls.database.has_scripting():
+        if self.cls.database.support_scripting():
             self._call_script('list_to_set', keys=[list_key, set_key])
         else:
             conn = self.cls.get_connection()

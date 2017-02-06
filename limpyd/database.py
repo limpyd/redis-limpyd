@@ -131,21 +131,28 @@ class RedisDatabase(object):
             self._connection = self.connect()
         return self._connection
 
-    def has_scripting(self):
+    @property
+    def redis_version(self):
+        """Return the redis version as a tuple"""
+        if not hasattr(self, '_redis_version'):
+            self._redis_version = tuple(
+                map(int, self.connection.info().get('redis_version').split('.')[:3])
+            )
+        return self._redis_version
+
+    def support_scripting(self):
         """
         Returns True if scripting is available. Checks are done in the client
-        library (redis-py) AND the redis server. Resut is cached, so done only
+        library (redis-py) AND the redis server. Result is cached, so done only
         one time.
         """
-        if not hasattr(self, '_has_scripting'):
+        if not hasattr(self, '_support_scripting'):
             try:
-                version = float('%s.%s' %
-                    tuple(self.connection.info().get('redis_version').split('.')[:2]))
-                self._has_scripting = version >= 2.5 \
+                self._support_scripting = self.redis_version >= (2, 5) \
                     and hasattr(self.connection, 'register_script')
             except:
-                self._has_scripting = False
-        return self._has_scripting
+                self._support_scripting = False
+        return self._support_scripting
 
 
 class Lock(redis.client.Lock):

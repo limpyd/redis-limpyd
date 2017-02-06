@@ -350,7 +350,7 @@ class IntersectTest(BaseTest):
         collection = set(Group.collection().intersect(container.groups_list))
         self.assertEqual(collection, set(['1', '2']))
 
-    @unittest.skipUnless(test_database.has_scripting(), "Redis scripting not available")
+    @unittest.skipUnless(test_database.support_scripting(), "Redis scripting not available")
     def test_intersect_should_accept_listfield_via_scripting(self):
         container = GroupsContainer()
 
