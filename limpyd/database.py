@@ -154,6 +154,20 @@ class RedisDatabase(object):
                 self._support_scripting = False
         return self._support_scripting
 
+    def support_zrangebylex(self):
+        """
+        Returns True if zrangebylex is available. Checks are done in the client
+        library (redis-py) AND the redis server. Result is cached, so done only
+        one time.
+        """
+        if not hasattr(self, '_support_zrangebylex'):
+            try:
+                self._support_zrangebylex = self.redis_version >= (2, 8, 9) \
+                    and hasattr(self.connection, 'zrangebylex')
+            except:
+                self._support_zrangebylex = False
+        return self._support_zrangebylex
+
 
 class Lock(redis.client.Lock):
     """

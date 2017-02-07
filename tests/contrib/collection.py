@@ -8,8 +8,9 @@ from limpyd import fields
 from limpyd.contrib.collection import ExtendedCollectionManager, SORTED_SCORE, DEFAULT_STORE_TTL
 from limpyd.utils import unique_key
 from limpyd.exceptions import *
+from tests.indexes import TextRangeIndexTestModel
 
-from ..base import LimpydBaseTest, test_database
+from ..base import LimpydBaseTest, test_database, skip_if_no_zrangebylex
 from ..model import TestRedisModel, Boat as BaseBoat
 
 
@@ -83,6 +84,25 @@ class CompatibilityTest(BaseTest):
                                                       .sort(by='name', alpha=True))
         self.assertEqual(len(active_names), 2)
         self.assertEqual(active_names, ['bar', 'foo'])
+
+    @unittest.skipIf(*skip_if_no_zrangebylex)
+    def test_range_index_should_work(self):
+        class TextRangeIndexTestModelExtended(TextRangeIndexTestModel):
+            collection_manager = ExtendedCollectionManager
+
+        obj1 = TextRangeIndexTestModelExtended(name='foo', category='cat1')
+        pk1 = obj1.pk.get()
+        TextRangeIndexTestModelExtended(name='bar')
+        obj3 = TextRangeIndexTestModelExtended(name='foobar', category='cat1')
+        pk3 = obj3.pk.get()
+        TextRangeIndexTestModelExtended(name='foobar', category='cat2')
+        TextRangeIndexTestModelExtended(name='qux')
+
+        data = set(TextRangeIndexTestModelExtended.collection(name__gte='foo', category='cat1'))
+        self.assertEqual(data, {
+            pk1,  # foo and cat1
+            pk3,  # foobar and cat1
+        })
 
 
 class FieldOrModelAsValueForSortAndFilterTest(BaseTest):
