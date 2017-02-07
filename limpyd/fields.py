@@ -11,7 +11,7 @@ from copy import copy
 from redis.exceptions import RedisError
 
 from limpyd.database import Lock
-from limpyd.utils import make_key, normalize
+from limpyd.utils import cached_property, make_key, normalize
 from limpyd.exceptions import *
 
 log = getLogger(__name__)
@@ -196,13 +196,10 @@ class RedisField(RedisProxyCommand):
                 raise ImplementationError('Cannot set "default" and "unique" together!')
             self.indexable = True
 
-        self._indexes = []
-
         self.index_classes = kwargs.get('indexes', [])
         if self.index_classes:
             if not self.indexable:
                 raise ImplementationError('Cannot pass indexes if not indexable')
-            self._indexes = [index_class(field=self) for index_class in self.index_classes]
 
         # keep fields ordered
         self._creation_order = RedisField._creation_order
@@ -358,12 +355,34 @@ class RedisField(RedisProxyCommand):
         else:
             return self.connection.exists(key)
 
-    def _attach_default_indexes(self):
-        self.index_classes = self.get_default_indexes()[::1]
+    @cached_property
+    def _indexes(self):
+        """Instantiate the indexes only when asked
+
+        Returns
+        -------
+        list
+            An empty list if the field is not indexable, else a list of all indexes
+            tied to the field.
+            If no indexes where passed when creating the field, the default indexes
+            from the field/model/database will be used.
+            If still no index classes, it will raise
+
+        Raises
+        ------
+        ImplementationError
+            If no index classes available for this field
+
+        """
+        if not self.indexable:
+            return []
+        if not self.index_classes:
+            self.index_classes = self.get_default_indexes()[::1]
         if not self.index_classes:
             raise ImplementationError('%s field is indexable but has no indexes attached' %
                                       self.__class__.__name__)
-        self._indexes = [index_class(field=self) for index_class in self.index_classes]
+
+        return [index_class(field=self) for index_class in self.index_classes]
 
     def _attach_to_model(self, model):
         """
@@ -371,9 +390,6 @@ class RedisField(RedisProxyCommand):
         when a model is set
         """
         self._model = model
-        # add indexes for the fields at the model level (for collection)
-        if self.indexable and not self.index_classes:
-            self._attach_default_indexes()
 
     def _attach_to_instance(self, instance):
         """
@@ -382,9 +398,6 @@ class RedisField(RedisProxyCommand):
         """
         self._instance = instance
         self.lockable = self.lockable and instance.lockable
-        # add indexes for the field at the instance level (for indexing)
-        if self.indexable and not self.index_classes:
-            self._attach_default_indexes()
 
     def _call_command(self, name, *args, **kwargs):
         """
