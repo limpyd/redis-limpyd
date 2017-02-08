@@ -902,3 +902,132 @@ class TextRangeIndex(BaseRangeIndex):
         super(TextRangeIndex, self).call_script(
             key, tmp_key, key_type, start, end, exclude, *args
         )
+
+
+class NumberRangeIndex(BaseRangeIndex):
+
+    handled_suffixes = {None, 'eq', 'gt', 'gte', 'lt', 'lte'}
+    index_key_name = 'number-range'
+
+    lua_filter_script = {
+        # we extract members of the sorted-set via zrangebyscore
+        # and we add every pk to a set or zset depending on the asked type
+        # if a zset, we use the returned position as a score for each member
+        # we do this in block of 100 to avoid storing to many temporary things
+        # in memory
+        'lua': """
+            local source_key, dest_type, dest_key = KEYS[1], ARGV[1], KEYS[2]
+            local score_start, score_end = ARGV[2], ARGV[3]
+            local start, block_size = 0, 100
+
+            while true do
+                local members = redis.call('zrangebyscore', source_key, score_start, score_end, 'limit', start, block_size)
+                if members[1] == nil then -- nothing returned, we are done
+                    break
+                end
+                -- call sadd/zadd only if we have something to put in
+                if #members > 0 then  -- sadly, no "continue" in lua :(
+                    if dest_type == 'set' then
+                        redis.call('sadd', dest_key, unpack(members))
+                    else
+                        -- zadd expect args this way: score member score member ...
+                        local args = {}
+                        for i, member in ipairs(members) do
+                            args[2*i-1], args[2*i] = i-1, member
+                        end
+                        redis.call('zadd', dest_key, unpack(args))
+                    end
+                end
+                -- if we got less than the max, it means we are done
+                if members[block_size] == nil then
+                    break
+                end
+                -- loop again for the next block
+                start = start + block_size
+            end
+            -- return the key, because why not
+            return dest_key
+        """
+    }
+
+    def normalize_value(self, value):
+        """Prepare the given value to be stored in the index
+
+        For the parameters, see BaseIndex.normalize_value
+
+        Here we force the value to be a float, and force it to be 0
+        if it cannot be casted.
+
+        """
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return 0
+
+    def store(self, key, pk, value):
+        """Store the value/pk in the sorted set index
+
+        For the parameters, see BaseRangeIndex.store
+
+        We simple store the pk as a member of the sorted set with the value being the score
+        """
+
+        self.connection.zadd(key, value, pk)
+
+    def unstore(self, key, pk, value):
+        """Remove the value/pk from the sorted set index
+
+        For the parameters, see BaseRangeIndex.store
+
+        We simple remove the pk as a member from the sorted set
+        """
+
+        self.connection.zrem(key, pk)
+
+    def get_boundaries(self, filter_type, value):
+        """Compute the boundaries to pass to the sorted-set command depending of the filter type
+
+        The third return value, ``exclude`` is always ``None`` because we can easily restrict the
+        score to filter on in the sorted-set.
+
+        For the parameters, see BaseRangeIndex.store
+
+        Notes
+        -----
+        For zrangebyscore:
+        - `(` means "not included"
+        - `-inf` alone means "from the very beginning"
+        - `+inf` alone means "to the very end"
+        """
+
+        assert filter_type in self.handled_suffixes
+
+        start = '-inf'
+        end = '+inf'
+        exclude = None
+
+        if filter_type in (None, 'eq'):
+            # only one score
+            start = end = value
+
+        elif filter_type == 'gt':
+            start = '(%s' % value
+
+        elif filter_type == 'gte':
+            start = value
+
+        elif filter_type == 'lt':
+            end = '(%s' % value
+
+        elif filter_type == 'lte':
+            end = value
+
+        return start, end, exclude
+
+    def get_pks_for_filter(self, key, filter_type, value):
+        """Extract the pks from the zset key for the given type and value
+
+        For the parameters, see BaseRangeIndex.get_pks_for_filter
+        """
+        start, end, __ = self.get_boundaries(filter_type, value)  # we have nothing to exclude
+        return self.connection.zrangebyscore(key, start, end)

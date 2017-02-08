@@ -7,7 +7,7 @@ import unittest
 from limpyd import fields
 from limpyd.database import RedisDatabase
 from limpyd.exceptions import ImplementationError, UniquenessError
-from limpyd.indexes import EqualIndex, TextRangeIndex
+from limpyd.indexes import EqualIndex, TextRangeIndex, NumberRangeIndex
 
 from .base import LimpydBaseTest, TEST_CONNECTION_SETTINGS, skip_if_no_zrangebylex
 from .model import Bike, Email, TestRedisModel
@@ -167,9 +167,10 @@ class PassIndexesToField(LimpydBaseTest):
         self.assertEqual(set(TestPassIndexesModel3.collection(name='foo', name__reverse_eq='foo')), set())
 
 
-class TextRangeIndexTestModel(TestRedisModel):
+class RangeIndexTestModel(TestRedisModel):
     name = fields.StringField(indexable=True, indexes=[TextRangeIndex])
     category = fields.StringField(indexable=True)
+    value = fields.StringField(indexable=True, indexes=[NumberRangeIndex])
 
 
 @unittest.skipIf(*skip_if_no_zrangebylex)
@@ -177,15 +178,15 @@ class TextRangeIndexTestCase(LimpydBaseTest):
 
     def setUp(self):
         super(TextRangeIndexTestCase, self).setUp()
-        self.obj1 = TextRangeIndexTestModel(name='foo')
+        self.obj1 = RangeIndexTestModel(name='foo')
         self.pk1 = self.obj1.pk.get()
-        self.obj2 = TextRangeIndexTestModel(name='bar')
+        self.obj2 = RangeIndexTestModel(name='bar')
         self.pk2 = self.obj2.pk.get()
-        self.obj3 = TextRangeIndexTestModel(name='foobar')
+        self.obj3 = RangeIndexTestModel(name='foobar')
         self.pk3 = self.obj3.pk.get()
-        self.obj4 = TextRangeIndexTestModel(name='foobar')  # same as before
+        self.obj4 = RangeIndexTestModel(name='foobar')  # same as before
         self.pk4 = self.obj4.pk.get()
-        self.obj5 = TextRangeIndexTestModel(name='qux')
+        self.obj5 = RangeIndexTestModel(name='qux')
         self.pk5 = self.obj5.pk.get()
 
     def test_storage_key_for_single_field(self):
@@ -194,7 +195,7 @@ class TextRangeIndexTestCase(LimpydBaseTest):
         index = field._indexes[0]
         key = index.get_storage_key('foo')
 
-        self.assertEqual(key, 'tests:textrangeindextestmodel:name:text-range')
+        self.assertEqual(key, 'tests:rangeindextestmodel:name:text-range')
 
     def test_storage_key_for_hash_field(self):
         class TextRangeIndexTestModel1(TestRedisModel):
@@ -249,7 +250,7 @@ class TextRangeIndexTestCase(LimpydBaseTest):
 
     def test_get_filtered_key(self):
 
-        index = TextRangeIndexTestModel.get_field('name')._indexes[0]
+        index = RangeIndexTestModel.get_field('name')._indexes[0]
 
         with self.assertRaises(ImplementationError):
             index.get_filtered_key('gt', 'bar', accepted_key_types={'list'})
@@ -278,120 +279,120 @@ class TextRangeIndexTestCase(LimpydBaseTest):
 
     def test_eq(self):
         # without suffix
-        data = set(TextRangeIndexTestModel.collection(name__eq='foo'))
+        data = set(RangeIndexTestModel.collection(name='foo'))
         self.assertSetEqual(data, {self.pk1})
-        data = set(TextRangeIndexTestModel.collection(name__eq='foobar'))
+        data = set(RangeIndexTestModel.collection(name='foobar'))
         self.assertSetEqual(data, {self.pk3, self.pk4})
-        data = set(TextRangeIndexTestModel.collection(name__eq='barbar'))
+        data = set(RangeIndexTestModel.collection(name='barbar'))
         self.assertSetEqual(data, set())
 
         # with eq suffix
-        data = set(TextRangeIndexTestModel.collection(name__eq='foo'))
+        data = set(RangeIndexTestModel.collection(name__eq='foo'))
         self.assertSetEqual(data, {self.pk1})
-        data = set(TextRangeIndexTestModel.collection(name__eq='foobar'))
+        data = set(RangeIndexTestModel.collection(name__eq='foobar'))
         self.assertSetEqual(data, {self.pk3, self.pk4})
-        data = set(TextRangeIndexTestModel.collection(name__eq='barbar'))
+        data = set(RangeIndexTestModel.collection(name__eq='barbar'))
         self.assertSetEqual(data, set())
 
     def test_gt(self):
-        data = set(TextRangeIndexTestModel.collection(name__gt='foo'))
+        data = set(RangeIndexTestModel.collection(name__gt='foo'))
         self.assertSetEqual(data, {
             self.pk3,  # foobar gt foo
             self.pk4,  # foobar gt foo
             self.pk5,  # qux gt foo
         })
-        data = set(TextRangeIndexTestModel.collection(name__gt='foobar'))
+        data = set(RangeIndexTestModel.collection(name__gt='foobar'))
         self.assertSetEqual(data, {
             self.pk5,  # qux gt foo
         })
-        data = set(TextRangeIndexTestModel.collection(name__gt='qux'))
+        data = set(RangeIndexTestModel.collection(name__gt='qux'))
         self.assertSetEqual(data, set())
-        data = set(TextRangeIndexTestModel.collection(name__gt='zzz'))
+        data = set(RangeIndexTestModel.collection(name__gt='zzz'))
         self.assertSetEqual(data, set())
 
     def test_gte(self):
-        data = set(TextRangeIndexTestModel.collection(name__gte='foo'))
+        data = set(RangeIndexTestModel.collection(name__gte='foo'))
         self.assertSetEqual(data, {
             self.pk1,  # foo gte foo
             self.pk3,  # foobar gte foo
             self.pk4,  # foobar gte foo
             self.pk5,  # qux gte foo
         })
-        data = set(TextRangeIndexTestModel.collection(name__gte='foobar'))
+        data = set(RangeIndexTestModel.collection(name__gte='foobar'))
         self.assertSetEqual(data, {
             self.pk3,  # foobar gte foo
             self.pk4,  # foobar gte foo
             self.pk5,  # qux gte foo
         })
-        data = set(TextRangeIndexTestModel.collection(name__gte='qux'))
+        data = set(RangeIndexTestModel.collection(name__gte='qux'))
         self.assertSetEqual(data, {
             self.pk5,  # qux gte qux
         })
-        data = set(TextRangeIndexTestModel.collection(name__gte='zzz'))
+        data = set(RangeIndexTestModel.collection(name__gte='zzz'))
         self.assertSetEqual(data, set())
 
     def test_lt(self):
-        data = set(TextRangeIndexTestModel.collection(name__lt='foo'))
+        data = set(RangeIndexTestModel.collection(name__lt='foo'))
         self.assertSetEqual(data, {
             self.pk2,  # bar lt foo
         })
-        data = set(TextRangeIndexTestModel.collection(name__lt='foobar'))
+        data = set(RangeIndexTestModel.collection(name__lt='foobar'))
         self.assertSetEqual(data, {
             self.pk2,  # bar lt foobar
             self.pk1,  # foo lt foobar
         })
-        data = set(TextRangeIndexTestModel.collection(name__lt='bar'))
+        data = set(RangeIndexTestModel.collection(name__lt='bar'))
         self.assertSetEqual(data, set())
-        data = set(TextRangeIndexTestModel.collection(name__lt='aaa'))
+        data = set(RangeIndexTestModel.collection(name__lt='aaa'))
         self.assertSetEqual(data, set())
 
     def test_lte(self):
-        data = set(TextRangeIndexTestModel.collection(name__lte='foo'))
+        data = set(RangeIndexTestModel.collection(name__lte='foo'))
         self.assertSetEqual(data, {
             self.pk2,  # bar lte foo
             self.pk1,  # foo lte foo
         })
-        data = set(TextRangeIndexTestModel.collection(name__lte='foobar'))
+        data = set(RangeIndexTestModel.collection(name__lte='foobar'))
         self.assertSetEqual(data, {
             self.pk2,  # bar lte foobar
             self.pk1,  # foo lte foobar
             self.pk3,  # foobar lte foobar
             self.pk4,  # foobar lte foobar
         })
-        data = set(TextRangeIndexTestModel.collection(name__lte='bar'))
+        data = set(RangeIndexTestModel.collection(name__lte='bar'))
         self.assertSetEqual(data, {
             self.pk2,  # bar lte bar
         })
-        data = set(TextRangeIndexTestModel.collection(name__lte='aaa'))
+        data = set(RangeIndexTestModel.collection(name__lte='aaa'))
         self.assertSetEqual(data, set())
 
     def test_startswith(self):
-        data = set(TextRangeIndexTestModel.collection(name__startswith='foo'))
+        data = set(RangeIndexTestModel.collection(name__startswith='foo'))
         self.assertSetEqual(data, {
             self.pk1,  # foo startswith foo
             self.pk3,  # foobar startswith foo
             self.pk4,  # foobar startswith foo
         })
-        data = set(TextRangeIndexTestModel.collection(name__startswith='foobar'))
+        data = set(RangeIndexTestModel.collection(name__startswith='foobar'))
         self.assertSetEqual(data, {
             self.pk3,  # foobar startswith foobar
             self.pk4,  # foobar startswith foobar
         })
-        data = set(TextRangeIndexTestModel.collection(name__startswith='quz'))
+        data = set(RangeIndexTestModel.collection(name__startswith='quz'))
         self.assertSetEqual(data, set())
 
     def test_many_filters(self):
-        data = set(TextRangeIndexTestModel.collection(name__gt='bar', name__lte='foobar'))
+        data = set(RangeIndexTestModel.collection(name__gt='bar', name__lte='foobar'))
         self.assertSetEqual(data, {
             self.pk1,  # foo gt bar, lte foobar
             self.pk3,  # foobar gt bar, lte foobar
             self.pk4,  # foobar gt bar, lte foobar
         })
-        data = set(TextRangeIndexTestModel.collection(name__lt='foo', name__lte='foo'))
+        data = set(RangeIndexTestModel.collection(name__lt='foo', name__lte='foo'))
         self.assertEqual(data, {
             self.pk2,  # bar is the only one lt foo and lte foo
         })
-        data = set(TextRangeIndexTestModel.collection(name__gte='foobar', name__lt='foo'))
+        data = set(RangeIndexTestModel.collection(name__gte='foobar', name__lt='foo'))
         self.assertEqual(data, set())
 
         self.obj1.category.set('cat1')
@@ -400,10 +401,239 @@ class TextRangeIndexTestCase(LimpydBaseTest):
 
         with self.assertRaises(ImplementationError):
             # not the right index for category
-            TextRangeIndexTestModel.collection(name__gte='foo', category__startswith='cat')
+            RangeIndexTestModel.collection(name__gte='foo', category__startswith='cat')
 
-        data = set(TextRangeIndexTestModel.collection(name__gte='foo', category='cat1'))
+        data = set(RangeIndexTestModel.collection(name__gte='foo', category='cat1'))
         self.assertEqual(data, {
-            self.pk1,  # foo and cat1
-            self.pk3,  # foobar and cat1
+            self.pk1,  # foo, and cat1
+            self.pk3,  # foobar, and cat1
+        })
+
+
+@unittest.skipIf(*skip_if_no_zrangebylex)
+class NumberRangeIndexTestCase(LimpydBaseTest):
+
+    def setUp(self):
+        super(NumberRangeIndexTestCase, self).setUp()
+        self.obj1 = RangeIndexTestModel(value=-15)
+        self.pk1 = self.obj1.pk.get()
+        self.obj2 = RangeIndexTestModel(value=-25)
+        self.pk2 = self.obj2.pk.get()
+        self.obj3 = RangeIndexTestModel(value=30)
+        self.pk3 = self.obj3.pk.get()
+        self.obj4 = RangeIndexTestModel(value=30)  # same as before
+        self.pk4 = self.obj4.pk.get()
+        self.obj5 = RangeIndexTestModel(value=123)
+        self.pk5 = self.obj5.pk.get()
+
+    def test_storage_key_for_single_field(self):
+
+        field = self.obj1.get_field('value')
+        index = field._indexes[0]
+        key = index.get_storage_key(-25)
+
+        self.assertEqual(key, 'tests:rangeindextestmodel:value:number-range')
+
+    def test_storage_key_for_hash_field(self):
+        class NumberRangeIndexTestModel1(TestRedisModel):
+            data = fields.HashField(indexable=True, indexes=[NumberRangeIndex])
+
+        obj = NumberRangeIndexTestModel1(data={'foo': 123})
+
+        field = obj.get_field('data')
+        index = field._indexes[0]
+        key = index.get_storage_key('foo', 123)
+
+        self.assertEqual(key, 'tests:numberrangeindextestmodel1:data:foo:number-range')
+
+    def test_stored_data(self):
+
+        field = self.obj1.get_field('value')
+        index = field._indexes[0]
+        key = index.get_storage_key(None)  # value not used in this index for the storage key
+
+        key_type = self.connection.type(key)
+        self.assertEqual(key_type, 'zset')
+
+        data = self.connection.zrange(key, 0, -1, withscores=True)
+
+        # all entries should:
+        # - have the value as score
+        # - be returned in a score order
+        # - have the pk
+        self.assertEqual(data, [
+            (self.pk2, -25.0),
+            (self.pk1, -15.0),
+            (self.pk3, 30.0),
+            (self.pk4, 30.0),
+            (self.pk5, 123.0),
+        ])
+
+    def test_uniqueness(self):
+        class NumberRangeIndexTestModel2(TestRedisModel):
+            value = fields.StringField(indexable=True, unique=True, indexes=[TextRangeIndex])
+
+        # first object with -15
+        NumberRangeIndexTestModel2(value=-15)
+
+        # new object with 30 but update to -15: should fail
+        obj = NumberRangeIndexTestModel2(value=30)
+        with self.assertRaises(UniquenessError):
+            obj.value.set(-15)
+
+        # new object with -15: should fail
+        with self.assertRaises(UniquenessError):
+            NumberRangeIndexTestModel2(value=-15)
+
+    def test_get_filtered_key(self):
+
+        index = RangeIndexTestModel.get_field('value')._indexes[0]
+
+        with self.assertRaises(ImplementationError):
+            index.get_filtered_key('gt', -25, accepted_key_types={'list'})
+
+        index_key, key_type, is_tmp = index.get_filtered_key('gt', -25, accepted_key_types={'set'})
+        self.assertEqual(self.connection.type(index_key), 'set')
+        self.assertEqual(key_type, 'set')
+        self.assertTrue(is_tmp)
+        data = self.connection.smembers(index_key)
+        self.assertEqual(data, {
+            self.pk1,  # -15 > -25
+            self.pk3,  # 30 > -25
+            self.pk4,  # 30 > -25
+            self.pk5,  # 123 > -25
+        })
+
+        index_key, key_type, is_tmp = index.get_filtered_key('lte', -15, accepted_key_types={'zset'})
+        self.assertEqual(self.connection.type(index_key), 'zset')
+        self.assertEqual(key_type, 'zset')
+        self.assertTrue(is_tmp)
+        data = self.connection.zrange(index_key, 0, -1, withscores=1)
+        self.assertEqual(data, [
+            (self.pk2, 0.0),  # -25 <= -15
+            (self.pk1, 1.0),  # -15 <= -15
+        ])
+
+    def test_eq(self):
+        # without suffix
+        data = set(RangeIndexTestModel.collection(value=-15))
+        self.assertSetEqual(data, {self.pk1})
+        data = set(RangeIndexTestModel.collection(value=30))
+        self.assertSetEqual(data, {self.pk3, self.pk4})
+        data = set(RangeIndexTestModel.collection(value=17))
+        self.assertSetEqual(data, set())
+
+        # with eq suffix
+        data = set(RangeIndexTestModel.collection(value__eq=-15))
+        self.assertSetEqual(data, {self.pk1})
+        data = set(RangeIndexTestModel.collection(value__eq=30))
+        self.assertSetEqual(data, {self.pk3, self.pk4})
+        data = set(RangeIndexTestModel.collection(value__eq=15))
+        self.assertSetEqual(data, set())
+
+    def test_gt(self):
+        data = set(RangeIndexTestModel.collection(value__gt=-15))
+        self.assertSetEqual(data, {
+            self.pk3,  # 30 > -15
+            self.pk4,  # 30 > -15
+            self.pk5,  # 123 > -15
+        })
+        data = set(RangeIndexTestModel.collection(value__gt=30))
+        self.assertSetEqual(data, {
+            self.pk5,  # 123 > -15
+        })
+        data = set(RangeIndexTestModel.collection(value__gt=123))
+        self.assertSetEqual(data, set())
+        data = set(RangeIndexTestModel.collection(value__gt=1000))
+        self.assertSetEqual(data, set())
+
+    def test_gte(self):
+        data = set(RangeIndexTestModel.collection(value__gte=-15))
+        self.assertSetEqual(data, {
+            self.pk1,  # -15 >= -15
+            self.pk3,  # 30 >= -15
+            self.pk4,  # 30 >= -15
+            self.pk5,  # 123 >= -15
+        })
+        data = set(RangeIndexTestModel.collection(value__gte=30))
+        self.assertSetEqual(data, {
+            self.pk3,  # 30 >= -15
+            self.pk4,  # 30 >= -15
+            self.pk5,  # 123 >= -15
+        })
+        data = set(RangeIndexTestModel.collection(value__gte=123))
+        self.assertSetEqual(data, {
+            self.pk5,  # 123 >= 123
+        })
+        data = set(RangeIndexTestModel.collection(value__gte=1000))
+        self.assertSetEqual(data, set())
+
+    def test_lt(self):
+        data = set(RangeIndexTestModel.collection(value__lt=-15))
+        self.assertSetEqual(data, {
+            self.pk2,  # -25 < -15
+        })
+        data = set(RangeIndexTestModel.collection(value__lt=30))
+        self.assertSetEqual(data, {
+            self.pk2,  # -25 < 30
+            self.pk1,  # -15 < 30
+        })
+        data = set(RangeIndexTestModel.collection(value__lt=-25))
+        self.assertSetEqual(data, set())
+        data = set(RangeIndexTestModel.collection(value__lt=-123))
+        self.assertSetEqual(data, set())
+
+    def test_lte(self):
+        data = set(RangeIndexTestModel.collection(value__lte=-15))
+        self.assertSetEqual(data, {
+            self.pk2,  # -25 <= -15
+            self.pk1,  # -15 <= -15
+        })
+        data = set(RangeIndexTestModel.collection(value__lte=30))
+        self.assertSetEqual(data, {
+            self.pk2,  # -25 <= 30
+            self.pk1,  # 20 <= 30
+            self.pk3,  # 30 <= 30
+            self.pk4,  # 30 <= 30
+        })
+        data = set(RangeIndexTestModel.collection(value__lte=-25))
+        self.assertSetEqual(data, {
+            self.pk2,  # -25 <= 10
+        })
+        data = set(RangeIndexTestModel.collection(value__lte=-123))
+        self.assertSetEqual(data, set())
+
+    def test_many_filters(self):
+        data = set(RangeIndexTestModel.collection(value__gt=-25, value__lte=30))
+        self.assertSetEqual(data, {
+            self.pk1,  # -15 > -25, <= 30
+            self.pk3,  # 30 > -25, <= 30
+            self.pk4,  # 30 > -25, <= 30
+        })
+        data = set(RangeIndexTestModel.collection(value__lt=-15, value__lte=-15))
+        self.assertEqual(data, {
+            self.pk2,  # -25 is the only one < -15 and <= -15
+        })
+        data = set(RangeIndexTestModel.collection(value__gte=30, value__lt=-15))
+        self.assertEqual(data, set())
+
+        self.obj1.category.set('cat1')
+        self.obj1.name.set('foo')
+        self.obj3.category.set('cat1')
+        self.obj4.category.set('cat2')
+
+        with self.assertRaises(ImplementationError):
+            # not the right index for category
+            RangeIndexTestModel.collection(value__gte=-15, category__startswith='cat')
+
+        data = set(RangeIndexTestModel.collection(value__gte=-15, category='cat1'))
+        self.assertEqual(data, {
+            self.pk1,  # -15 and cat1
+            self.pk3,  # 30 and cat1
+        })
+
+        # three index types
+        data = set(RangeIndexTestModel.collection(value__gte=-15, category='cat1', name__lte='fooa'))
+        self.assertEqual(data, {
+            self.pk1,  # -15, and cat1, and foo lte fooa
         })

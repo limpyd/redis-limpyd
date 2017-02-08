@@ -8,7 +8,7 @@ from limpyd import fields
 from limpyd.contrib.collection import ExtendedCollectionManager, SORTED_SCORE, DEFAULT_STORE_TTL
 from limpyd.utils import unique_key
 from limpyd.exceptions import *
-from tests.indexes import TextRangeIndexTestModel
+from tests.indexes import RangeIndexTestModel
 
 from ..base import LimpydBaseTest, test_database, skip_if_no_zrangebylex
 from ..model import TestRedisModel, Boat as BaseBoat
@@ -87,7 +87,7 @@ class CompatibilityTest(BaseTest):
 
     @unittest.skipIf(*skip_if_no_zrangebylex)
     def test_range_index_should_work(self):
-        class TextRangeIndexTestModelExtended(TextRangeIndexTestModel):
+        class TextRangeIndexTestModelExtended(RangeIndexTestModel):
             collection_manager = ExtendedCollectionManager
 
         obj1 = TextRangeIndexTestModelExtended(name='foo', category='cat1')
