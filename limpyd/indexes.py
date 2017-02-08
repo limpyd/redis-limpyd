@@ -403,102 +403,19 @@ class EqualIndex(BaseIndex):
         self._deindexed_values.add(tuple(args))
 
 
-class TextRangeIndex(BaseIndex):
-    """Index allowing to filter on something greater/less than a value
+class BaseRangeIndex(BaseIndex):
+    """Base of indexes using sorted-set to do range filtering (lt, gte...)"""
 
-    We use the zrangebylex redis command that was created for this very purpose
-
-    See Also
-    ---------
-    https://redis.io/topics/indexes#lexicographical-indexes
-
-    """
-
-    handled_suffixes = {None, 'eq', 'gt', 'gte', 'lt', 'lte', 'startswith'}
     handle_uniqueness = True
-    index_key_name = 'text-range'
-
-    separator = u':%s-SEPARATOR:' % index_key_name.upper()
-
-    lua_filter_script = {
-        # we extract members of the sorted-set via zrangebylex
-        # then we split the value and pk, on the separator
-        # if the value is the one in exclude, we ignore it
-        # and we add every pk to a set or zset depending on the asked type
-        # if a zset, we use the returned position as a score for each member
-        # we do this in block of 100 to avoid storing to many temporary things
-        # in memory
-        'lua': """
-            local source_key, dest_type, dest_key = KEYS[1], ARGV[1], KEYS[2]
-            local lex_start, lex_end = ARGV[3], ARGV[4]
-            local separator, exclude = ARGV[2],  ARGV[5]
-            local start, block_size = 0, 100
-
-            while true do
-                local members = redis.call('zrangebylex', source_key, lex_start, lex_end, 'limit', start, block_size)
-                if members[1] == nil then -- nothing returned, we are done
-                    break
-                end
-                local result, nb_results = {}, 0;
-                for i, member in ipairs(members) do
-                    -- split to get value and pk (do it reverse to split on the last separator only)
-                    local first_pos, last_pos = member:reverse():find(separator:reverse(), 1, true)
-                    first_pos = member:len() - last_pos  -- real position of last separator
-
-                    -- only add if nothing to exclude, or the rest is not the exclude
-                    if not exclude or member:sub(1, first_pos) ~= exclude then
-                        nb_results = nb_results + 1
-                        result[nb_results] = member:sub(first_pos + separator:len() + 1)
-                    end
-                end
-                -- call sadd/zadd only if we have something to put in
-                if nb_results > 0 then  -- sadly, no "continue" in lua :(
-                    if dest_type == 'set' then
-                        redis.call('sadd', dest_key, unpack(result))
-                    else
-                        -- zadd expect args this way: score member score member ...
-                        local args = {}
-                        for i, member in ipairs(result) do
-                            args[2*i-1], args[2*i] = i-1, member
-                        end
-                        redis.call('zadd', dest_key, unpack(args))
-                    end
-                end
-                -- if we got less than the max, it means we are done
-                if members[block_size] == nil then
-                    break
-                end
-                -- loop again for the next block
-                start = start + block_size
-            end
-            -- return the key, because why not
-            return dest_key
-        """
-    }
-
-    def __init__(self, field):
-        super(TextRangeIndex, self).__init__(field)
-
-        try:
-            model = self.model
-        except AttributeError:
-            # index not yet tied to an field tied to a model
-            pass
-        else:
-            if not self.model.database.support_zrangebylex():
-                raise LimpydException(
-                    'Your redis version %s does not seems to support ZRANGEBYLEX '
-                    'so range indexes are not usable' % (
-                        '.'.join(str(part) for part in self.model.database.redis_version)
-                    )
-                )
+    index_key_name = NotImplemented
+    lua_filter_script = NotImplemented
 
     def get_storage_key(self, *args):
         """Return the redis key where to store the index for the given "value" (`args`)
 
         For this index, we store all PKs having for a field in the same sorted-set.
         Key has this form:
-        model-name:field-name:sub-field-name:text-range
+        model-name:field-name:sub-field-name:index-key-name
         The ':sub-field-name part' is repeated for each entry in *args that is not the final value
 
         Parameters
@@ -547,6 +464,295 @@ class TextRangeIndex(BaseIndex):
 
         self.assert_pks_uniqueness(pks, pk, value)
 
+    def add(self, *args, **kwargs):
+        """Add the instance tied to the field for the given "value" (via `args`) to the index
+
+        For the parameters, see ``BaseIndex.add``
+
+        Notes
+        -----
+        This method calls the ``store`` method that should be overridden in subclasses
+        to store in the index sorted-set key
+
+        """
+
+        check_uniqueness = kwargs.get('check_uniqueness', True)
+
+        if self.field.unique and check_uniqueness:
+            self.check_uniqueness(*args)
+
+        key = self.get_storage_key(*args)
+
+        args = list(args)
+        value = args[-1]
+
+        pk = self.instance.pk.get()
+        logger.debug("adding %s to index %s" % (pk, key))
+        self.store(key, pk, value)
+        self._indexed_values.add(tuple(args))
+
+    def store(self, key, pk, value):
+        """Store the value/pk in the sorted set index
+
+        Parameters
+        ----------
+        key: str
+            The name of the sorted-set key
+        pk: str
+            The primary key of the instance having the given value
+        value: any
+            The value to use
+
+        """
+        raise NotImplementedError
+
+    def remove(self, *args):
+        """Remove the instance tied to the field for the given "value" (via `args`) from the index
+
+        For the parameters, see ``BaseIndex.remove``
+
+        Notes
+        -----
+        This method calls the ``unstore`` method that should be overridden in subclasses
+        to remove data from the index sorted-set key
+
+        """
+
+        key = self.get_storage_key(*args)
+
+        args = list(args)
+        value = args[-1]
+
+        pk = self.instance.pk.get()
+        logger.debug("removing %s from index %s" % (pk, key))
+        self.unstore(key, pk, value)
+        self._deindexed_values.add(tuple(args))
+
+    def unstore(self, key, pk, value):
+        """Remove the value/pk from the sorted set index
+
+        Parameters
+        ----------
+        key: str
+            The name of the sorted-set key
+        pk: str
+            The primary key of the instance having the given value
+        value: any
+            The value to use
+
+        """
+        raise NotImplementedError
+
+    def get_boundaries(self, filter_type, value):
+        """Compute the boundaries to pass to the sorted-set command depending of the filter type
+
+        Parameters
+        ----------
+        filter_type: str
+            One of the filter suffixes in ``self.handled_suffixes``
+        value: str
+            The normalized value for which we want the boundaries
+
+        Returns
+        -------
+        tuple
+            A tuple with three entries, the begin and the end of the boundaries to pass
+            to sorted-set command, and in third a value to exclude from the result when
+            querying the sorted-set
+
+        """
+
+        raise ImplementationError
+
+    def call_script(self, key, tmp_key, key_type, start, end, exclude, *args):
+        """Call the lua scripts with given keys and args
+
+        Parameters
+        -----------
+        key: str
+            The key of the index sorted-set
+        tmp_key: str
+            The final temporary key where to store the filtered primary keys
+        key_type: str
+            The type of temporary key to use, either 'set' or 'zset'
+        start: str
+            The "start" argument to pass to the filtering sorted-set command
+        end: str
+            The "end" argument to pass to the filtering sorted-set command
+        exclude: any
+            A value to exclude from the filtered pks to save to the temporary key
+        args: list
+            Any other argument to be passed by a subclass will be passed as addition
+            args to the script.
+
+        """
+        self.model.database.call_script(
+            # be sure to use the script dict at the class level
+            # to avoid registering it many times
+            script_dict=self.__class__.lua_filter_script,
+            keys=[key, tmp_key],
+            args=[key_type, start, end, exclude] + list(args)
+        )
+
+    def get_filtered_key(self, suffix, *args, **kwargs):
+        """Returns the index key for the given args "value" (`args`)
+
+        Parameters
+        ----------
+        kwargs: dict
+            use_lua: bool
+                Default to ``True``, if scripting is supported.
+                If ``True``, the process of reading from the sorted-set, extracting
+                the primary keys, excluding some values if needed, and putting the
+                primary keys in a set or zset, is done in lua at the redis level.
+                Else, data is fetched, manipulated here, then returned to redis.
+
+        For the other parameters, see ``BaseIndex.get_filtered_key``
+
+        """
+
+        accepted_key_types = kwargs.get('accepted_key_types', None)
+
+        if accepted_key_types\
+                and 'set' not in accepted_key_types and 'zset' not in accepted_key_types:
+            raise ImplementationError(
+                '%s can only return keys of type "set" or "zset"' % self.__class__.__name__
+            )
+
+        use_lua = self.model.database.support_scripting() and kwargs.get('use_lua', True)
+
+        key = self.get_storage_key(*args)
+        tmp_key = unique_key(self.connection)
+        key_type = 'set' if not accepted_key_types or 'set' in accepted_key_types else 'zset'
+        value = self.normalize_value(list(args)[-1])
+
+        if use_lua:
+            start, end, exclude = self.get_boundaries(suffix, value)
+            self.call_script(key, tmp_key, key_type, start, end, exclude)
+        else:
+            pks = self.get_pks_for_filter(key, suffix, value)
+            if pks:
+                if key_type == 'set':
+                    self.connection.sadd(tmp_key, *pks)
+                else:
+                    self.connection.zadd(tmp_key, **{pk: idx for idx, pk in enumerate(pks)})
+
+        return tmp_key, key_type, True
+
+    def get_pks_for_filter(self, key, filter_type, value):
+        """Extract the pks from the zset key for the given type and value
+
+        This is used for the uniqueness check and for the filtering if scripting
+        is not used
+
+        Parameters
+        ----------
+        key: str
+            The key of the redis sorted-set to use
+        filter_type: str
+            One of ``self.handled_suffixes``
+        value:
+            The normalized value for which we want the pks
+
+        Returns
+        -------
+        list
+            The list of instances PKs extracted from the sorted set
+
+        """
+
+        raise NotImplementedError
+
+
+class TextRangeIndex(BaseRangeIndex):
+    """Index allowing to filter on something greater/less than a value
+
+    We use the zrangebylex redis command that was created for this very purpose
+
+    See Also
+    ---------
+    https://redis.io/topics/indexes#lexicographical-indexes
+
+    """
+
+    handled_suffixes = {None, 'eq', 'gt', 'gte', 'lt', 'lte', 'startswith'}
+    index_key_name = 'text-range'
+    separator = u':%s-SEPARATOR:' % index_key_name.upper()
+
+    lua_filter_script = {
+        # we extract members of the sorted-set via zrangebylex
+        # then we split the value and pk, on the separator
+        # if the value is the one in exclude, we ignore it
+        # and we add every pk to a set or zset depending on the asked type
+        # if a zset, we use the returned position as a score for each member
+        # we do this in block of 100 to avoid storing to many temporary things
+        # in memory
+        'lua': """
+            local source_key, dest_type, dest_key = KEYS[1], ARGV[1], KEYS[2]
+            local lex_start, lex_end = ARGV[2], ARGV[3]
+            local exclude, separator = ARGV[4], ARGV[5]
+            local start, block_size = 0, 100
+
+            while true do
+                local members = redis.call('zrangebylex', source_key, lex_start, lex_end, 'limit', start, block_size)
+                if members[1] == nil then -- nothing returned, we are done
+                    break
+                end
+                local result, nb_results = {}, 0;
+                for i, member in ipairs(members) do
+                    -- split to get value and pk (do it reverse to split on the last separator only)
+                    local first_pos, last_pos = member:reverse():find(separator:reverse(), 1, true)
+                    first_pos = member:len() - last_pos  -- real position of last separator
+
+                    -- only add if nothing to exclude, or the rest is not the exclude
+                    if not exclude or member:sub(1, first_pos) ~= exclude then
+                        nb_results = nb_results + 1
+                        result[nb_results] = member:sub(first_pos + separator:len() + 1)
+                    end
+                end
+                -- call sadd/zadd only if we have something to put in
+                if nb_results > 0 then  -- sadly, no "continue" in lua :(
+                    if dest_type == 'set' then
+                        redis.call('sadd', dest_key, unpack(result))
+                    else
+                        -- zadd expect args this way: score member score member ...
+                        local args = {}
+                        for i, member in ipairs(result) do
+                            args[2*i-1], args[2*i] = i-1, member
+                        end
+                        redis.call('zadd', dest_key, unpack(args))
+                    end
+                end
+                -- if we got less than the max, it means we are done
+                if members[block_size] == nil then
+                    break
+                end
+                -- loop again for the next block
+                start = start + block_size
+            end
+            -- return the key, because why not
+            return dest_key
+        """
+    }
+
+    def __init__(self, field):
+        """Check that the database supports the zrangebylex redis command"""
+        super(TextRangeIndex, self).__init__(field)
+
+        try:
+            model = self.model
+        except AttributeError:
+            # index not yet tied to an field tied to a model
+            pass
+        else:
+            if not self.model.database.support_zrangebylex():
+                raise LimpydException(
+                    'Your redis version %s does not seems to support ZRANGEBYLEX '
+                    'so range indexes are not usable' % (
+                        '.'.join(str(part) for part in self.model.database.redis_version)
+                    )
+                )
+
     def _prepare_value_for_storage(self, value, pk):
         """Prepare the value to be stored in the zset: value and pk separated
 
@@ -584,64 +790,35 @@ class TextRangeIndex(BaseIndex):
         pk = parts.pop()
         return self.separator.join(parts), pk
 
-    def add(self, *args, **kwargs):
-        """Add the instance tied to the field for the given "value" (via `args`) to the index
+    def store(self, key, pk, value):
+        """Store the value/pk in the sorted set index
 
-        For the parameters, see ``BaseIndex.add``
+        For the parameters, see BaseRangeIndex.store
+
+        We add a string "value:pk" to the storage sorted-set, with a score of 0.
+        Then when filtering will get then lexicographical ordered
+        And we'll later be able to extract the pk for each returned values
 
         """
 
-        check_uniqueness = kwargs.get('check_uniqueness', True)
-
-        if self.field.unique and check_uniqueness:
-            self.check_uniqueness(*args)
-
-        key = self.get_storage_key(*args)
-
-        args = list(args)
-        value = args[-1]
-
-        # We add a string "value:pk" to the storage sorted-set, with a score of 0.
-        # Then when filtering will get then lexicographical ordered
-        # And we'll later be able to extract the pk for each returned values
-
-        pk = self.instance.pk.get()
-        logger.debug("adding %s to index %s" % (pk, key))
         self.connection.zadd(key, 0, self._prepare_value_for_storage(value, pk))
-        self._indexed_values.add(tuple(args))
 
-    def remove(self, *args):
-        """Remove the instance tied to the field for the given "value" (via `args`) from the index
+    def unstore(self, key, pk, value):
+        """Remove the value/pk from the sorted set index
 
-        For the parameters, see ``BaseIndex.remove``
-
+        For the parameters, see BaseRangeIndex.store
         """
 
-        key = self.get_storage_key(*args)
-
-        args = list(args)
-        value = args[-1]
-
-        pk = self.instance.pk.get()
-        logger.debug("removing %s from index %s" % (pk, key))
         self.connection.zrem(key, self._prepare_value_for_storage(value, pk))
-        self._deindexed_values.add(tuple(args))
 
-    def get_lex_boundaries(self, filter_type, value):
+    def get_boundaries(self, filter_type, value):
         """Compute the boundaries to pass to zrangebylex depending of the filter type
 
-        Parameters
-        ----------
-        filter_type: str
-            One of the filter suffixes in ``self.handled_suffixes``
-        value: str
-            The normalized value for which we want the boundaries
+        The third return value, ``exclude`` is ``None`` except for the filters
+        `lt` and `gt` because we cannot explicitly exclude it when
+         querying the sorted-set
 
-        Returns
-        -------
-        tuple
-            A tuple with two entries, the begin and the end of the boundaries to pass
-            to zrangebylex
+        For the parameters, see BaseRangeIndex.store
 
         Notes
         -----
@@ -649,13 +826,16 @@ class TextRangeIndex(BaseIndex):
         - `(` means "not included"
         - `[` means "included"
         - `\xff` is the last char, it allows to say "starting with"
+        - `-` alone means "from the very beginning"
+        - `+` alone means "to the very end"
 
         """
 
         assert filter_type in self.handled_suffixes
 
-        start = '-'  # from the very start
-        end = '+'  # to the very end
+        start = '-'
+        end = '+'
+        exclude = None
 
         if filter_type in (None, 'eq'):
             # we include the separator to only get the members with the exact value
@@ -665,14 +845,16 @@ class TextRangeIndex(BaseIndex):
         elif filter_type == 'gt':
             # starting at the value, excluded
             start = u'(%s' % value
+            exclude = value
 
         elif filter_type == 'gte':
             # starting at the value, included
             start = u'[%s' % value
 
-        if filter_type == 'lt':
+        elif filter_type == 'lt':
             # ending with the value, excluded
             end = u'(%s' % value
+            exclude = value
 
         elif filter_type == 'lte':
             # ending with the value, included (but not starting with, hence the separator)
@@ -684,91 +866,39 @@ class TextRangeIndex(BaseIndex):
             start = u'[%s' % value
             end = start.encode('utf-8') + b'\xff'
 
-        return start, end
+        return start, end, exclude
 
     def get_pks_for_filter(self, key, filter_type, value):
         """Extract the pks from the zset key for the given type and value
 
-        It is used by the uniqueness check to extract the pks for the given value
-
-        Parameters
-        ----------
-        key: str
-            The key of the redis sorted-set to use
-        filter_type: str
-            One of ``self.handled_suffixes``
-        value:
-            The normalized value for which we want the pks
-
-        Returns
-        -------
-        list
-            The list of instances PKs extracted from the sorted set
-
+        For the parameters, see BaseRangeIndex.get_pks_for_filter
         """
-        start, end = self.get_lex_boundaries(filter_type, value)
+        start, end, exclude = self.get_boundaries(filter_type, value)
         members = self.connection.zrangebylex(key, start, end)
-        if filter_type in ('lt', 'gt'):
+        if exclude is not None:
             # special case where we don't want the exact given value, but we cannot
             # exclude it from the sorted set directly
             return [
                 member_pk
                 for member_value, member_pk in
                 [self._extract_value_from_storage(member) for member in members]
-                if member_value != value
+                if member_value != exclude
             ]
         else:
             return [self._extract_value_from_storage(member)[-1] for member in members]
 
-    def get_filtered_key(self, suffix, *args, **kwargs):
-        """Returns the index key for the given args "value" (`args`)
+    def call_script(self, key, tmp_key, key_type, start, end, exclude, *args):
+        """Call the lua scripts with given keys and args
 
-        Parameters
-        ----------
-        kwargs: dict
-            use_lua: bool
-            Default to ``True``, if scripting is supported.
-            If ``True``, the process of reading from the sorted-set, extracting
-            the primary keys, excluding some values if needed, and putting the
-            primary keys in a set or zset, is done in lua at the redis level.
-            Else, data is fetched, manipulated here, then returned to redis.
+        We add the separator to the arguments to be passed to the script
 
-        For the other parameters, see ``BaseIndex.get_filtered_key``
+        For the parameters, see BaseRangeIndex.call_script
 
         """
 
-        accepted_key_types = kwargs.get('accepted_key_types', None)
+        args = list(args)
+        args.append(self.separator)
 
-        if accepted_key_types\
-                and 'set' not in accepted_key_types and 'zset' not in accepted_key_types:
-            raise ImplementationError(
-                '%s can only return keys of type "set" or "zset"' % self.__class__.__name__
-            )
-
-        use_lua = self.model.database.support_scripting() and kwargs.get('use_lua', True)
-
-        key = self.get_storage_key(*args)
-        tmp_key = unique_key(self.connection)
-        key_type = 'set' if not accepted_key_types or 'set' in accepted_key_types else 'zset'
-        value = self.normalize_value(list(args)[-1])
-
-        if use_lua:
-            start, end = self.get_lex_boundaries(suffix, value)
-            self.model.database.call_script(
-                # be sure to use the script dict at the class level
-                # to avoid registering it many times
-                script_dict=self.__class__.lua_filter_script,
-                keys=[key, tmp_key],
-                args=[key_type, self.separator, start, end,
-                      value if suffix in {'lt', 'gt'} else None],
-            )
-
-        else:
-            pks = self.get_pks_for_filter(key, suffix, value)
-            if pks:
-                if key_type == 'set':
-                    self.connection.sadd(tmp_key, *pks)
-                else:
-                    self.connection.zadd(tmp_key, **{pk: idx for idx, pk in enumerate(pks)})
-
-        return tmp_key, key_type, True
+        super(TextRangeIndex, self).call_script(
+            key, tmp_key, key_type, start, end, exclude, *args
+        )
