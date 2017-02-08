@@ -720,33 +720,6 @@ class TextRangeIndex(BaseIndex):
         else:
             return [self._extract_value_from_storage(member)[-1] for member in members]
 
-    @classmethod
-    def run_filter_script(cls, keys, args, connection):
-        """Do the filtering on redis via lua
-
-        Parameters
-        ----------
-        keys: list
-            The keys touched by the script, all strings:
-            - the index sorted-set
-            - the result set or sorted-set
-        args: list
-            Other arguments needed by the script, all strings:
-            - type of result: 'set' or 'zset'
-            - the separator
-            - the start boundary for zrangebylex
-            - the end boundary for zrangebylex
-            - value to ignore in the result (for lt/gt filter type)
-        connection
-            The redis connection to use (as this is a class method)
-
-        The first time this is called, the script is registered at the redis level.
-
-        """
-        if 'script_object' not in cls.lua_filter_script:
-            cls.lua_filter_script['script_object'] = connection.register_script(cls.lua_filter_script['lua'])
-        return cls.lua_filter_script['script_object'](keys=keys, args=args, client=connection)
-
     def get_filtered_key(self, suffix, *args, **kwargs):
         """Returns the index key for the given args "value" (`args`)
 
@@ -781,10 +754,13 @@ class TextRangeIndex(BaseIndex):
 
         if use_lua:
             start, end = self.get_lex_boundaries(suffix, value)
-            self.run_filter_script(
+            self.model.database.call_script(
+                # be sure to use the script dict at the class level
+                # to avoid registering it many times
+                script_dict=self.__class__.lua_filter_script,
                 keys=[key, tmp_key],
-                args=[key_type, self.separator, start, end, value if suffix in {'lt', 'gt'} else None],
-                connection=self.connection
+                args=[key_type, self.separator, start, end,
+                      value if suffix in {'lt', 'gt'} else None],
             )
 
         else:

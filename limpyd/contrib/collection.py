@@ -53,23 +53,6 @@ class ExtendedCollectionManager(CollectionManager):
 
         self._values = None  # Will store parameters used to retrieve values
 
-    def _call_script(self, script_name, keys=None, args=None):
-        """
-        Call the given script. The first time we call a script, we register it
-        to speed up later calls. Registration is done on the class because it's
-        independant of the instance (self) (redis-py will handle the case of
-        different redis servers)
-        """
-        if keys is None:
-            keys = []
-        if args is None:
-            args = []
-        conn = self.cls.get_connection()
-        script = self.__class__.scripts[script_name]
-        if 'script_object' not in script:
-            script['script_object'] = conn.register_script(script['lua'])
-        return script['script_object'](keys=keys, args=args, client=conn)
-
     def _list_to_set(self, list_key, set_key):
         """
         Store all content of the given ListField in a redis set.
@@ -77,7 +60,12 @@ class ExtendedCollectionManager(CollectionManager):
         the list before sending them back to the set
         """
         if self.cls.database.support_scripting():
-            self._call_script('list_to_set', keys=[list_key, set_key])
+            self.cls.database.call_script(
+                # be sure to use the script dict at the class level
+                # to avoid registering it many times
+                script_dict=self.__class__.scripts['list_to_set'],
+                keys=[list_key, set_key]
+            )
         else:
             conn = self.cls.get_connection()
             conn.sadd(set_key, *conn.lrange(list_key, 0, -1))

@@ -168,6 +168,37 @@ class RedisDatabase(object):
                 self._support_zrangebylex = False
         return self._support_zrangebylex
 
+    def call_script(self, script_dict, keys=None, args=None):
+        """Call a redis script with keys and args
+
+        The first time we call a script, we register it to speed up later calls.
+        We expect a dict with a ``lua`` key having the script, and the dict will be
+        updated with a ``script_object`` key, with the content returned by the
+        the redis-py ``register_script`` command.
+
+        Parameters
+        ----------
+        script_dict: dict
+            A dict with a ``lua`` entry containing the lua code. A new key, ``script_object``
+            will be added after that.
+        keys: list of str
+            List of the keys that will be read/updated by the lua script
+        args: list of str
+            List of all the args expected by the script.
+
+        Returns
+        -------
+        Anything that will be returned by the script
+
+        """
+        if keys is None:
+            keys = []
+        if args is None:
+            args = []
+        if 'script_object' not in script_dict:
+            script_dict['script_object'] = self.connection.register_script(script_dict['lua'])
+        return script_dict['script_object'](keys=keys, args=args, client=self.connection)
+
 
 class Lock(redis.client.Lock):
     """
