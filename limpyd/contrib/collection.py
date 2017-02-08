@@ -53,13 +53,17 @@ class ExtendedCollectionManager(CollectionManager):
 
         self._values = None  # Will store parameters used to retrieve values
 
-    def _call_script(self, script_name, keys=[], args=[]):
+    def _call_script(self, script_name, keys=None, args=None):
         """
         Call the given script. The first time we call a script, we register it
         to speed up later calls. Registration is done on the class because it's
         independant of the instance (self) (redis-py will handle the case of
         different redis servers)
         """
+        if keys is None:
+            keys = []
+        if args is None:
+            args = []
         conn = self.cls.get_connection()
         script = self.__class__.scripts[script_name]
         if 'script_object' not in script:

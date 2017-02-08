@@ -406,6 +406,8 @@ class EqualIndex(BaseIndex):
 class TextRangeIndex(BaseIndex):
     """Index allowing to filter on something greater/less than a value
 
+    We use the zrangebylex redis command that was created for this very purpose
+
     See Also
     ---------
     https://redis.io/topics/indexes#lexicographical-indexes
@@ -417,6 +419,62 @@ class TextRangeIndex(BaseIndex):
     index_key_name = 'text-range'
 
     separator = u':%s-SEPARATOR:' % index_key_name.upper()
+
+    lua_filter_script = {
+        # we extract members of the sorted-set via zrangebylex
+        # then we split the value and pk, on the separator
+        # if the value is the one in exclude, we ignore it
+        # and we add every pk to a set or zset depending on the asked type
+        # if a zset, we use the returned position as a score for each member
+        # we do this in block of 100 to avoid storing to many temporary things
+        # in memory
+        'lua': """
+            local source_key, dest_type, dest_key = KEYS[1], ARGV[1], KEYS[2]
+            local lex_start, lex_end = ARGV[3], ARGV[4]
+            local separator, exclude = ARGV[2],  ARGV[5]
+            local start, block_size = 0, 100
+
+            while true do
+                local members = redis.call('zrangebylex', source_key, lex_start, lex_end, 'limit', start, block_size)
+                if members[1] == nil then -- nothing returned, we are done
+                    break
+                end
+                local result, nb_results = {}, 0;
+                for i, member in ipairs(members) do
+                    -- split to get value and pk (do it reverse to split on the last separator only)
+                    local first_pos, last_pos = member:reverse():find(separator:reverse(), 1, true)
+                    first_pos = member:len() - last_pos  -- real position of last separator
+
+                    -- only add if nothing to exclude, or the rest is not the exclude
+                    if not exclude or member:sub(1, first_pos) ~= exclude then
+                        nb_results = nb_results + 1
+                        result[nb_results] = member:sub(first_pos + separator:len() + 1)
+                    end
+                end
+                -- call sadd/zadd only if we have something to put in
+                if nb_results > 0 then  -- sadly, no "continue" in lua :(
+                    if dest_type == 'set' then
+                        redis.call('sadd', dest_key, unpack(result))
+                    else
+                        -- zadd expect args this way: score member score member ...
+                        local args = {}
+                        for i, member in ipairs(result) do
+                            args[2*i-1], args[2*i] = i-1, member
+                        end
+                        redis.call('zadd', dest_key, unpack(args))
+                    end
+                end
+                -- if we got less than the max, it means we are done
+                if members[block_size] == nil then
+                    break
+                end
+                -- loop again for the next block
+                start = start + block_size
+            end
+            -- return the key, because why not
+            return dest_key
+        """
+    }
 
     def __init__(self, field):
         super(TextRangeIndex, self).__init__(field)
@@ -662,13 +720,47 @@ class TextRangeIndex(BaseIndex):
         else:
             return [self._extract_value_from_storage(member)[-1] for member in members]
 
+    @classmethod
+    def run_filter_script(cls, keys, args, connection):
+        """Do the filtering on redis via lua
+
+        Parameters
+        ----------
+        keys: list
+            The keys touched by the script, all strings:
+            - the index sorted-set
+            - the result set or sorted-set
+        args: list
+            Other arguments needed by the script, all strings:
+            - type of result: 'set' or 'zset'
+            - the separator
+            - the start boundary for zrangebylex
+            - the end boundary for zrangebylex
+            - value to ignore in the result (for lt/gt filter type)
+        connection
+            The redis connection to use (as this is a class method)
+
+        The first time this is called, the script is registered at the redis level.
+
+        """
+        if 'script_object' not in cls.lua_filter_script:
+            cls.lua_filter_script['script_object'] = connection.register_script(cls.lua_filter_script['lua'])
+        return cls.lua_filter_script['script_object'](keys=keys, args=args, client=connection)
+
     def get_filtered_key(self, suffix, *args, **kwargs):
         """Returns the index key for the given args "value" (`args`)
 
-        For the parameters, see ``BaseIndex.get_filtered_key``
+        Parameters
+        ----------
+        kwargs: dict
+            use_lua: bool
+            Default to ``True``, if scripting is supported.
+            If ``True``, the process of reading from the sorted-set, extracting
+            the primary keys, excluding some values if needed, and putting the
+            primary keys in a set or zset, is done in lua at the redis level.
+            Else, data is fetched, manipulated here, then returned to redis.
 
-        For now, the values are retrieved from redis then put back in a redis set/zset.
-        This should be done via redis scripting if possible.
+        For the other parameters, see ``BaseIndex.get_filtered_key``
 
         """
 
@@ -680,17 +772,27 @@ class TextRangeIndex(BaseIndex):
                 '%s can only return keys of type "set" or "zset"' % self.__class__.__name__
             )
 
-        key = self.get_storage_key(*args)
-        pks = self.get_pks_for_filter(key, suffix, self.normalize_value(list(args)[-1]))
+        use_lua = self.model.database.support_scripting() and kwargs.get('use_lua', True)
 
+        key = self.get_storage_key(*args)
         tmp_key = unique_key(self.connection)
-        if not accepted_key_types or 'set' in accepted_key_types:
+        key_type = 'set' if not accepted_key_types or 'set' in accepted_key_types else 'zset'
+        value = self.normalize_value(list(args)[-1])
+
+        if use_lua:
+            start, end = self.get_lex_boundaries(suffix, value)
+            self.run_filter_script(
+                keys=[key, tmp_key],
+                args=[key_type, self.separator, start, end, value if suffix in {'lt', 'gt'} else None],
+                connection=self.connection
+            )
+
+        else:
+            pks = self.get_pks_for_filter(key, suffix, value)
             if pks:
-                self.connection.sadd(tmp_key, *pks)
-            key_type = 'set'
-        elif 'zset' in accepted_key_types:
-            if pks:
-                self.connection.zadd(tmp_key, **{pk: idx for idx, pk in enumerate(pks)})
-            key_type = 'zset'
+                if key_type == 'set':
+                    self.connection.sadd(tmp_key, *pks)
+                else:
+                    self.connection.zadd(tmp_key, **{pk: idx for idx, pk in enumerate(pks)})
 
         return tmp_key, key_type, True
