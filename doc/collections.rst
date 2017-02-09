@@ -233,6 +233,59 @@ And, of course, you can use fields with different indexes in the same query:
     >>> Person.collection(birth_year__gte=1960, lastname='Doe', nickname__startswith='S').instances()
     [<[4] Susan "Sue" Doe (1960)>]
 
+If you want to use an index with a different behavior, you can use the `configure` class method of the index. Note that you can also create a new class by yourself but we provide this ability.
+
+It accepts one or many arguments (`prefix`, `transform` and `handle_uniqueness`) and returns a new index class to be passed to the `indexes` argument of the field.
+
+About the `prefix` argument:
+
+If you use two indexes accepting the same suffix, for example `eq`, you can specify which one to use on the collection by assigning a prefix to the index:
+
+.. code:: python
+
+    >>> class MyModel(model.RedisModel):
+    ...     myfield = fields.StringField(indexable=True, indexes=[
+    ...         EqualIndex,
+    ...         MyOtherIndex.configure(prefix='foo')
+    ...     ])
+
+Then to query:
+
+.. code:: python
+
+    >>> MyModel.collection(myfield='bar')  # will use EqualIndex
+    >>> MyModel.collection(myfield__foo='bar')  # will use MyOtherIndex
+
+About the `transform` argument:
+
+If you want to index on a value different than the one stored on the field, you can transform it by assigning a transform function to the index.
+
+This function accepts a value as argument ("normalized", ie converted to string or to float for `NumberRangeIndex`) and should return the value
+to store.
+
+.. code:: python
+
+    >>> def reverse_value(value):
+    ...     return value[::-1]
+
+    >>> class MyModel(model.RedisModel):
+    ...     myfield = fields.StringField(indexable=True, indexes=[EqualIndex.configure(transform=reverse_value)])
+
+Then you query with the expected transformed value:
+
+.. code:: python
+
+    >>> MyModel.collection(myfield__foo='rab')
+
+Note that the argument of this function must be named `value`. If you need this function to behave like a method of the index class, you can make it accepts
+two arguments, `self` and `value`.
+
+About the `handle_uniqueness` argument:
+
+It will simply override the default value set on the index class. Useful if your `transform` function make the value not suitable to check uniqueness, so you can pass it to `False`.
+
+Note that if your field is marked as `unique`, you'll need to have at least one index capable of handling uniqueness.
+
 
 Laziness
 ========
