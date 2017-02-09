@@ -112,8 +112,8 @@ class BaseIndex(object):
         for args in deindexed_values:
             self.add(*args, check_uniqueness=False)
 
-    def get_filtered_key(self, suffix, *args, **kwargs):
-        """Returns the index key for the given args
+    def get_filtered_keys(self, suffix, *args, **kwargs):
+        """Returns the index keys to be used by the collection for the given args
 
         Parameters
         -----------
@@ -136,15 +136,16 @@ class BaseIndex(object):
 
         Returns
         -------
-        tuple
-            A tuple with three entries
-            - str
-                The redis key to use
-            - str
-                The redis type of the key
-            - bool
-                True if the key is a temporary key that must be deleted
-                after the computation of the collection
+        list of tuple
+            An index may return many keys. So it's a list with, each one being
+            a tuple with three entries:
+                - str
+                    The redis key to use
+                - str
+                    The redis type of the key
+                - bool
+                    True if the key is a temporary key that must be deleted
+                    after the computation of the collection
 
         """
         raise NotImplementedError
@@ -282,10 +283,10 @@ class EqualIndex(BaseIndex):
         """
         return value
 
-    def get_filtered_key(self, suffix, *args, **kwargs):
+    def get_filtered_keys(self, suffix, *args, **kwargs):
         """Return the set used by the index for the given "value" (`args`)
 
-        For the parameters, see ``BaseIndex.get_filtered_key``
+        For the parameters, see ``BaseIndex.get_filtered_keys``
 
         """
 
@@ -296,7 +297,7 @@ class EqualIndex(BaseIndex):
                 '%s can only return keys of type "set"' % self.__class__.__name__
             )
 
-        return self.get_storage_key(transform_value=False, *args), 'set', False
+        return [(self.get_storage_key(transform_value=False, *args), 'set', False)]
 
     def get_storage_key(self, *args, **kwargs):
         """Return the redis key where to store the index for the given "value" (`args`)
@@ -594,7 +595,7 @@ class BaseRangeIndex(BaseIndex):
             args=[key_type, start, end, exclude] + list(args)
         )
 
-    def get_filtered_key(self, suffix, *args, **kwargs):
+    def get_filtered_keys(self, suffix, *args, **kwargs):
         """Returns the index key for the given args "value" (`args`)
 
         Parameters
@@ -607,7 +608,7 @@ class BaseRangeIndex(BaseIndex):
                 primary keys in a set or zset, is done in lua at the redis level.
                 Else, data is fetched, manipulated here, then returned to redis.
 
-        For the other parameters, see ``BaseIndex.get_filtered_key``
+        For the other parameters, see ``BaseIndex.get_filtered_keys``
 
         """
 
@@ -637,7 +638,7 @@ class BaseRangeIndex(BaseIndex):
                 else:
                     self.connection.zadd(tmp_key, **{pk: idx for idx, pk in enumerate(pks)})
 
-        return tmp_key, key_type, True
+        return [(tmp_key, key_type, True)]
 
     def get_pks_for_filter(self, key, filter_type, value):
         """Extract the pks from the zset key for the given type and value
