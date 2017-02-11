@@ -1,7 +1,7 @@
 # -*- coding:utf-8 -*-
 from __future__ import unicode_literals
 
-from limpyd.indexes import BaseIndex
+from limpyd.indexes import BaseIndex, NumberRangeIndex, TextRangeIndex
 from limpyd.utils import cached_property
 
 
@@ -208,3 +208,45 @@ class MultiIndexes(BaseIndex):
         for index in self._indexes:
             if index.can_handle_suffix(suffix):
                 return index.get_filtered_keys(suffix, *args, **kwargs)
+
+
+# This is a multi-indexes managing the different parts of a date in the format YYYY-MM-SS
+DateIndexParts = MultiIndexes.compose([
+    NumberRangeIndex.configure(prefix='year', transform=lambda value: value[:4], handle_uniqueness=False, name='YearIndex'),
+    NumberRangeIndex.configure(prefix='month', transform=lambda value: value[5:7], handle_uniqueness=False, name='MonthIndex'),
+    NumberRangeIndex.configure(prefix='day', transform=lambda value: value[8:10], handle_uniqueness=False, name='DayIndex'),
+], name='DateIndexParts')
+
+# A simple TextRangeIndex to filter on a date  in the format YYYY-MM-SS
+DateRangeIndex = TextRangeIndex.configure(key='date', transform=lambda value: value[:10], name='DateRangeIndex')
+
+# A full usable index for fields holding dates (without time)
+DateIndex = MultiIndexes.compose([DateRangeIndex, DateIndexParts], name='DateIndex')
+
+# This is a multi-indexes managing the different parts of a tine in the format HH:MM:SS
+TimeIndexParts = MultiIndexes.compose([
+    NumberRangeIndex.configure(prefix='hour', transform=lambda value: value[0:2], handle_uniqueness=False, name='HourIndex'),
+    NumberRangeIndex.configure(prefix='minute', transform=lambda value: value[3:5], handle_uniqueness=False, name='MinuteIndex'),
+    NumberRangeIndex.configure(prefix='second', transform=lambda value: value[6:8], handle_uniqueness=False, name='SecondIndex'),
+], name='TimeIndexParts')
+
+# A simple TextRangeIndex to filter on a date  in the format HH:MM:SS
+TimeRangeIndex = TextRangeIndex.configure(key='time', transform=lambda value: value[:8], name='TimeRangeIndex')
+
+# A full usable index for fields holding times (without date)
+TimeIndex = MultiIndexes.compose([TimeRangeIndex, TimeIndexParts], name='TimeIndex')
+
+# A full usable index for fields holding dates+times, without filtering on hour/min/sec
+# but only full field, full date and full time, and year, month, day
+DateSimpleTimeIndex = MultiIndexes.compose([
+    TextRangeIndex.configure(key='full', name='FullDateTimeRangeIndex'),
+    DateRangeIndex.configure(prefix='date'),
+    DateIndexParts,
+    TimeRangeIndex.configure(prefix='time', transform=lambda value: value[11:])  # pass only time
+], name='DateSimpleTimeIndex', transform=lambda value: value[:19])
+
+# A full usable index for fields holding dates+times, with full filtering capabilities
+DateTimeIndex = MultiIndexes.compose([
+    DateSimpleTimeIndex,
+    TimeIndexParts.configure(transform=lambda value: value[11:]),
+], name='DateTimeIndex')
