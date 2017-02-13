@@ -455,7 +455,10 @@ class CollectionManager(object):
             if by.startswith('-'):
                 parameters['desc'] = True
                 by = by[1:]
-            if self.cls.has_field(by):
+            if self.cls._field_is_pk(by):
+                # don't use field, the final set, which contains pks, will be sorted directly
+                del parameters['by']
+            elif self.cls.has_field(by):
                 # if we have a field, use its redis wildcard form
                 field = self.cls.get_field(by)
                 parameters['by'] = field.sort_wildcard
@@ -466,7 +469,7 @@ class CollectionManager(object):
         Parameters:
         `by`: pass either a field name or a wildcard string to sort on
               prefix with `-` to make a desc sort.
-        `alpha`: set it to True to sort lexicographilcally instead of numerically.
+        `alpha`: set it to True to sort lexicographically instead of numerically.
         """
         parameters = self._coerce_by_parameter(parameters)
         self._sort = parameters

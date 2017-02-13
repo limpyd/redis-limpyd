@@ -238,7 +238,7 @@ class SortTest(CollectionBaseTest):
             ['1', '2', '3', '4']
         )
 
-    def test_sort_should_be_scliceable(self):
+    def test_sort_should_be_sliceable(self):
         self.assertEqual(
             list(Boat.collection().sort()[1:3]),
             ['2', '3']
@@ -315,6 +315,62 @@ class SortTest(CollectionBaseTest):
         boats = list(Boat.collection(pk=1, name="Pen Duick I").sort())
         self.assertEqual(len(boats), 1)
         self.assertEqual(boats[0], '1')
+
+    def test_sort_by_pk_should_work(self):
+
+        class Plane(TestRedisModel):
+            my_pk = fields.PKField()
+            name = fields.InstanceHashField()
+            is_first = fields.InstanceHashField(indexable=True)
+
+        Plane(pk=2, name='Concorde', is_first=0)
+        Plane(pk=1, name='Wright Flyer', is_first=1)
+        Plane(pk=10, name='Air Force One', is_first=0)
+
+        pks = ['1', '2', '10']
+        revpks = pks[::-1]
+        self.assertListEqual(list(Plane.collection().sort()), pks)
+        self.assertListEqual(list(Plane.collection().sort(desc=True)), revpks)
+        self.assertListEqual(list(Plane.collection().sort(by='pk')), pks)
+        self.assertListEqual(list(Plane.collection().sort(by='-pk')), revpks)
+        self.assertListEqual(list(Plane.collection().sort(by='my_pk')), pks)
+        self.assertListEqual(list(Plane.collection().sort(by='-my_pk')), revpks)
+
+        pks = ['1', '10', '2']
+        revpks = pks[::-1]
+        self.assertListEqual(list(Plane.collection().sort(alpha=True)), pks)
+        self.assertListEqual(list(Plane.collection().sort(alpha=True, desc=True)), revpks)
+        self.assertListEqual(list(Plane.collection().sort(by='pk', alpha=True)), pks)
+        self.assertListEqual(list(Plane.collection().sort(by='-pk', alpha=True)), revpks)
+        self.assertListEqual(list(Plane.collection().sort(by='my_pk', alpha=True)), pks)
+        self.assertListEqual(list(Plane.collection().sort(by='-my_pk', alpha=True)), revpks)
+
+        pks = ['2', '10']
+        revpks = pks[::-1]
+        self.assertListEqual(list(Plane.collection(is_first=0).sort()), pks)
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(desc=True)), revpks)
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(by='pk')), pks)
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(by='-pk')), revpks)
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(by='my_pk')), pks)
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(by='-my_pk')), revpks)
+
+        pks = ['10', '2']
+        revpks = pks[::-1]
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(alpha=True)), pks)
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(alpha=True, desc=True)), revpks)
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(by='pk', alpha=True)), pks)
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(by='-pk', alpha=True)), revpks)
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(by='my_pk', alpha=True)), pks)
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(by='-my_pk', alpha=True)), revpks)
+
+        for plane in Plane.collection().instances():
+            plane.delete()
+
+        for pk in ('8123', '8674', '7402', '87'):
+            Plane(pk=pk)
+
+        sorted_pks = list(Plane.collection().sort())
+        self.assertListEqual(sorted_pks, ['87', '7402', '8123', '8674'])
 
 
 class InstancesTest(CollectionBaseTest):

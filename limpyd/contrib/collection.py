@@ -510,8 +510,8 @@ class ExtendedCollectionManager(CollectionManager):
                 for key in ('get', 'store'):
                     if key in sort_options:
                         self._sort_by_sortedset[key] = sort_options.pop(key)
-        if not sort_options:
-            sort_options = None
+            if not sort_options:
+                sort_options = None
         return sort_options
 
     def _get_final_set(self, sets, pk, sort_options):

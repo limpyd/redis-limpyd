@@ -105,6 +105,9 @@ Example:
     >>> Person.collection().sort(by='birth_year')
     ['3', '1', '4', '2']
 
+Note: using `by='pk'` (or the real name of the pk field) is the same as not using `by`: it will sort by primary keys,
+using a numeric filter (use `alpha=True` if your pk is not numeric)
+
 
 Instantiating
 =============
