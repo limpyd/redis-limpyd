@@ -545,7 +545,7 @@ All of these new capabilities are described below:
 
 
 Retrieving values
-=================
+-----------------
 
 If you don't want only primary keys, but instances are too much, or too slow, you can ask the collection to return values with two methods: `values` and `values_list` (inspired by django)
 
@@ -752,6 +752,164 @@ An example to show all of this, based on the previous example (see `Sort by scor
     >>> # or remove this expire time ?
     >>> my_database.connection.persist(store_key)
 
+
+Multi-indexes
+=============
+
+If you found yourself adding the same indexes many times to different fields, the `MultiIndexes` class provided in `limpyd.contrib.indexes` can be useful.
+
+Its aim is to let the field only have one index, but in the background, many indexes are managed. The `DateTimeIndex` presented later in this document is a good example of this and the different accepted arguments.
+
+Usage
+-----
+
+This works by composition: you compose one index with many ones. So simply call the `compose` class method of the `MultiIndexes` classes:
+
+.. code:: python
+
+    >>> EqualAndRangeIndex = MultiIndexes.compose([EqualIndex, TextRangeIndex])
+
+
+You can pass some arguments to change the behavior:
+
+name
+""""
+
+The call to `MultiIndexes.compose` will create a new class. The name will be the name of the new class, instead of `MultiIndexes`.
+
+key
+***
+
+If you have many indexes based on the same index class (for example `TextRangeIndex`), if they are not prefixed, they will share the same index key. This collision is in general not wanted.
+So pass the `key` argument to compose with any string you want.
+
+transform
+"""""""""
+Each index can accept a transform argument, a callable, but also the multi-indexes. The one passed to `compose` will be applied before the ones on the indexes it contains.
+
+DateTimeIndex
+-------------
+
+The `limpyd.contrib.indexes` module provides a `DateTimeIndex` (and other friends). In this section we'll explain how it is constructed using only the `configure` method of the normal indexes, and
+the `compose` method of `MultiIndexes`
+
+Goal
+""""
+
+We'll store date+times in the format `YYYY-MM-SS HH:MM:SS`.
+
+We want to be able to:
+- filter on an exact date+time
+- filter on ranges on the date+time
+- filter on dates
+- filter on times
+- filter on dates parts (year, month, day)
+- filter on times parts (hour, minute, second)
+
+Date and time parts
+"""""""""""""""""""
+
+Let's separate the date, and the time into `YYYY-MM-SS` and `HH:MM:SS`.
+
+How to filter only on the year of a date: we want to extract the 4 first characters, and filter it as number, using `NumberRangeIndex`:
+
+Also, we don't want uniqueness on this index, and we want to prefix the part to be able to filter with `myfield__year=`
+
+So this part could be:
+
+.. code:: python
+
+    >>> NumberRangeIndex.configure(prefix='year', transform=lambda value: value[:4], handle_uniqueness=False, name='YearIndex')
+
+Doing the same for the month and day, and composing a multi-indexes with the three, we have:
+
+.. code:: python
+
+    >>> DateIndexParts = MultiIndexes.compose([
+    ...     NumberRangeIndex.configure(prefix='year', transform=lambda value: value[:4], handle_uniqueness=False, name='YearIndex'),
+    ...     NumberRangeIndex.configure(prefix='month', transform=lambda value: value[5:7], handle_uniqueness=False, name='MonthIndex'),
+    ...     NumberRangeIndex.configure(prefix='day', transform=lambda value: value[8:10], handle_uniqueness=False, name='DayIndex'),
+    ... ], name='DateIndexParts')
+
+If we do the same for the time only (assuming a time field without date), we have:
+
+.. code:: python
+
+    >>> TimeIndexParts = MultiIndexes.compose([
+    ...     NumberRangeIndex.configure(prefix='hour', transform=lambda value: value[0:2], handle_uniqueness=False, name='HourIndex'),
+    ...     NumberRangeIndex.configure(prefix='minute', transform=lambda value: value[3:5], handle_uniqueness=False, name='MinuteIndex'),
+    ...     NumberRangeIndex.configure(prefix='second', transform=lambda value: value[6:8], handle_uniqueness=False, name='SecondIndex'),
+    ... ], name='TimeIndexParts')
+
+Range indexes
+"""""""""""""
+
+If we want to filter not only on parts but also on the full date with a `TextRangeIndex`, to be able to do `date_field__gt=2015`, we'll need another index.
+
+We don't want to use a prefix, but if we have another `TextRangeIndex` on the field, we need a key:
+
+.. code:: python
+
+    >>> DateRangeIndex = TextRangeIndex.configure(key='date', transform=lambda value: value[:10], name='DateRangeIndex')
+
+
+The same for the time:
+
+.. code:: python
+
+    >>> TimeRangeIndex = TextRangeIndex.configure(key='time', transform=lambda value: value[:8], name='TimeRangeIndex')
+
+
+We don't keep theses two indexes apart from the `DateIndexParts` and `TimeIndexParts` because we'll need them independently later to prefix them when used together.
+
+
+Full indexes
+""""""""""""
+
+But if we wan't full indexes for dates and times, including the range and the parts, we can easily compose them:
+
+.. code:: python
+
+    >>> DateIndex = MultiIndexes.compose([DateRangeIndex, DateIndexParts], name='DateIndex')
+    >>> TimeIndex = MultiIndexes.compose([TimeRangeIndex, TimeIndexParts], name='TimeIndex')
+
+
+Now that we have all that is needed for fields that manage date OR time, we'll combine them. three things to take in consideration:
+
+- we'll have two `TextRangeIndex`, one for date one for time. So we need to explicitly prefix the filter, to be able to do `datetime_field__date__gt=2015` and `datetime_field__time__gt=15:`.
+- we'll have to extract the date and time separately
+- we'll need a `TextRangeIndex` to filter on the whole datetime to be able do to `datetime_field__gt='2015-12-21 15:'`
+
+In the first time, we'll want an index without the time parts, to allow filtering and the three "ranges" (full, date, and time), but only on date parts, not time parts. It can be useful if you know you won't have to search on this.
+
+So, to summarize, we need:
+
+- a `TextRangeIndex` for the full datetime
+- the `DateRangeIndex`, prefixed
+- the `DateIndexParts`
+- the `TimeRangeIndex`, prefixed
+
+Which gives us:
+
+.. code:: python
+
+    >>> DateSimpleTimeIndex = MultiIndexes.compose([
+    ...     TextRangeIndex.configure(key='full', name='FullDateTimeRangeIndex'),
+    ...     DateRangeIndex.configure(prefix='date'),
+    ...     DateIndexParts,
+    ...     TimeRangeIndex.configure(prefix='time', transform=lambda value: value[11:])  # pass only time
+    ... ], name='DateSimpleTimeIndex', transform=lambda value: value[:19])  # restrict on date+time
+
+And to have the same with the time parts, simply compose a new index with the last one and the `TimeIndexPart`:
+
+.. code:: python
+
+    >>> DateTimeIndex = MultiIndexes.compose([
+    ...     DateSimpleTimeIndex,
+    ...     TimeIndexParts.configure(transform=lambda value: value[11:]),  # pass only time
+    ... ], name='DateTimeIndex')
+
+And we're done!
 
 .. _Redis: http://redis.io
 .. _redis-py: https://github.com/andymccurdy/redis-py

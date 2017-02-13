@@ -2,12 +2,14 @@
 from __future__ import absolute_import
 from __future__ import unicode_literals
 
+import unittest
+
 from limpyd import fields
 from limpyd.contrib.indexes import MultiIndexes, DateIndex, DateTimeIndex, TimeIndex
 from limpyd.exceptions import ImplementationError, UniquenessError
 from limpyd.indexes import BaseIndex, NumberRangeIndex, TextRangeIndex, EqualIndex
 
-from ..base import LimpydBaseTest
+from ..base import LimpydBaseTest, skip_if_no_zrangebylex
 from ..indexes import ReverseEqualIndex
 from ..model import TestRedisModel
 
@@ -177,6 +179,7 @@ class DateTimeModelTest(TestRedisModel):
     unique_datetime = fields.InstanceHashField(indexable=True, indexes=[DateTimeIndex], unique=True)
 
 
+@unittest.skipIf(*skip_if_no_zrangebylex)
 class DateTimeIndexesTestCase(LimpydBaseTest):
 
     def test_date_index(self):
