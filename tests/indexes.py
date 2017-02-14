@@ -675,3 +675,429 @@ class NumberRangeIndexTestCase(LimpydBaseTest):
         self.assertEqual(data, {
             self.pk1,  # -15, and cat1, and foo lte fooa
         })
+
+
+class CleanTestCase(LimpydBaseTest):
+
+    def test_equal_index(self):
+
+        class CleanModel1(TestRedisModel):
+            field = fields.StringField(indexable=True)
+            other_field = fields.StringField(indexable=True)
+            key_field = fields.StringField(indexable=True, indexes=[EqualIndex.configure(key='foo')])
+            prefix_field = fields.StringField(indexable=True, indexes=[EqualIndex.configure(prefix='bar')])
+            key_prefix_field = fields.StringField(indexable=True, indexes=[EqualIndex.configure(key='baz', prefix='qux')])
+            hash_field = fields.HashField(indexable=True)
+            two_indexes_field = fields.StringField(indexable=True, indexes=[
+                EqualIndex.configure(prefix='one'),
+                EqualIndex.configure(prefix='two', transform=lambda value: value[::-1]),
+            ])
+
+        pk1 = CleanModel1(
+            field='a', other_field='aa', key_field='aaa', prefix_field='aaaa', key_prefix_field='aaaaa',
+            hash_field={'aaaaaa1': 'AAAAAA1', 'aaaaaa2': 'AAAAAA2'},
+            two_indexes_field='aaaaaaX',
+        ).pk.get()
+        pk2 = CleanModel1(
+            field='b', other_field='bb', key_field='bbb', prefix_field='bbbb', key_prefix_field='bbbbb',
+            hash_field={'bbbbbb1': 'BBBBBB1', 'bbbbbb2': 'BBBBBB2'},
+            two_indexes_field='bbbbbbX',
+        ).pk.get()
+
+        ### check simple index
+        index = CleanModel1.get_field('field')._indexes[0]
+
+        # check we have the keys
+        self.assertSetEqual(index.get_all_storage_keys(), {
+            'tests:cleanmodel1:field:a',
+            'tests:cleanmodel1:field:b',
+        })
+
+        # check that they are deleted
+        index.clear()
+        self.assertSetEqual(set(CleanModel1.collection(field='a')), set())
+
+        # but index for other fields are still present
+        self.assertSetEqual(set(CleanModel1.collection(other_field='aa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(key_field='aaa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(prefix_field__bar='aaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(key_prefix_field__qux='aaaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(hash_field__aaaaaa1='AAAAAA1')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(hash_field__aaaaaa2='AAAAAA2')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(two_indexes_field__one='aaaaaaX')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(two_indexes_field__two='Xaaaaaa')), {pk1})
+
+        # check the index is rebuilt
+        index.rebuild()
+        self.assertSetEqual(set(CleanModel1.collection(field='a')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(field='b')), {pk2})
+
+        # now for index with key
+        index = CleanModel1.get_field('key_field')._indexes[0]
+
+        # check we have the keys
+        self.assertSetEqual(index.get_all_storage_keys(), {
+            'tests:cleanmodel1:key_field:foo:aaa',
+            'tests:cleanmodel1:key_field:foo:bbb',
+        })
+
+        # check that they are deleted
+        index.clear()
+        self.assertSetEqual(set(CleanModel1.collection(key_field='aaa')), set())
+
+        # but index for other fields are still present
+        self.assertSetEqual(set(CleanModel1.collection(other_field='aa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(field='a')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(prefix_field__bar='aaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(key_prefix_field__qux='aaaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(hash_field__aaaaaa1='AAAAAA1')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(hash_field__aaaaaa2='AAAAAA2')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(two_indexes_field__one='aaaaaaX')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(two_indexes_field__two='Xaaaaaa')), {pk1})
+
+        # check the index is rebuilt
+        index.rebuild()
+        self.assertSetEqual(set(CleanModel1.collection(key_field='aaa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(key_field='bbb')), {pk2})
+
+        ### now for index with prefix
+        index = CleanModel1.get_field('prefix_field')._indexes[0]
+
+        # check we have the keys
+        self.assertSetEqual(index.get_all_storage_keys(), {
+            'tests:cleanmodel1:prefix_field:bar:aaaa',
+            'tests:cleanmodel1:prefix_field:bar:bbbb',
+        })
+
+        # check that they are deleted
+        index.clear()
+        self.assertSetEqual(set(CleanModel1.collection(prefix_field__bar='aaaa')), set())
+
+        # but index for other fields are still present
+        self.assertSetEqual(set(CleanModel1.collection(other_field='aa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(field='a')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(key_field='aaa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(key_prefix_field__qux='aaaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(hash_field__aaaaaa1='AAAAAA1')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(hash_field__aaaaaa2='AAAAAA2')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(two_indexes_field__one='aaaaaaX')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(two_indexes_field__two='Xaaaaaa')), {pk1})
+
+        # check the index is rebuilt
+        index.rebuild()
+        self.assertSetEqual(set(CleanModel1.collection(prefix_field__bar='aaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(prefix_field__bar='bbbb')), {pk2})
+
+        ### now for index with key and prefix
+        index = CleanModel1.get_field('key_prefix_field')._indexes[0]
+
+        # check we have the keys
+        self.assertSetEqual(index.get_all_storage_keys(), {
+            'tests:cleanmodel1:key_prefix_field:qux:baz:aaaaa',
+            'tests:cleanmodel1:key_prefix_field:qux:baz:bbbbb',
+        })
+
+        # check that they are deleted
+        index.clear()
+        self.assertSetEqual(set(CleanModel1.collection(key_prefix_field__qux='aaaaa')), set())
+
+        # but index for other fields are still present
+        self.assertSetEqual(set(CleanModel1.collection(other_field='aa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(field='a')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(key_field='aaa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(prefix_field__bar='aaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(hash_field__aaaaaa1='AAAAAA1')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(hash_field__aaaaaa2='AAAAAA2')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(two_indexes_field__one='aaaaaaX')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(two_indexes_field__two='Xaaaaaa')), {pk1})
+
+        # check the index is rebuilt
+        index.rebuild()
+        self.assertSetEqual(set(CleanModel1.collection(key_prefix_field__qux='aaaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(key_prefix_field__qux='bbbbb')), {pk2})
+
+        ### now for index for hashfield
+        index = CleanModel1.get_field('hash_field')._indexes[0]
+
+        # check we have the keys
+        self.assertSetEqual(index.get_all_storage_keys(), {
+            'tests:cleanmodel1:hash_field:aaaaaa1:AAAAAA1',
+            'tests:cleanmodel1:hash_field:aaaaaa2:AAAAAA2',
+            'tests:cleanmodel1:hash_field:bbbbbb1:BBBBBB1',
+            'tests:cleanmodel1:hash_field:bbbbbb2:BBBBBB2',
+        })
+
+        # check that they are deleted
+        index.clear()
+        self.assertSetEqual(set(CleanModel1.collection(hash_field__aaaaaa1='AAAAAA1')), set())
+        self.assertSetEqual(set(CleanModel1.collection(hash_field__aaaaaa2='AAAAAA2')), set())
+        self.assertSetEqual(set(CleanModel1.collection(hash_field__bbbbbb1='BBBBBB1')), set())
+        self.assertSetEqual(set(CleanModel1.collection(hash_field__bbbbbb2='BBBBBB2')), set())
+
+        # but index for other fields are still present
+        self.assertSetEqual(set(CleanModel1.collection(other_field='aa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(field='a')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(key_field='aaa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(prefix_field__bar='aaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(key_prefix_field__qux='aaaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(two_indexes_field__one='aaaaaaX')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(two_indexes_field__two='Xaaaaaa')), {pk1})
+
+        # check the index is rebuilt
+        index.rebuild()
+        self.assertSetEqual(set(CleanModel1.collection(hash_field__aaaaaa1='AAAAAA1')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(hash_field__aaaaaa2='AAAAAA2')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(hash_field__bbbbbb1='BBBBBB1')), {pk2})
+        self.assertSetEqual(set(CleanModel1.collection(hash_field__bbbbbb2='BBBBBB2')), {pk2})
+
+        ### now for multi-indexes
+        index = CleanModel1.get_field('two_indexes_field')._indexes[1]  # the reverse one
+
+        # check we have the keys
+        self.assertSetEqual(index.get_all_storage_keys(), {
+            'tests:cleanmodel1:two_indexes_field:two:Xaaaaaa',
+            'tests:cleanmodel1:two_indexes_field:two:Xbbbbbb',
+        })
+
+        # check that they are deleted
+        index.clear()
+        self.assertSetEqual(set(CleanModel1.collection(two_indexes_field__two='Xaaaaaa')), set())
+
+        # but other index still present
+        self.assertSetEqual(set(CleanModel1.collection(two_indexes_field__one='aaaaaaX')), {pk1})
+
+        # check the index is rebuilt
+        index.rebuild()
+        self.assertSetEqual(set(CleanModel1.collection(two_indexes_field__two='Xaaaaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel1.collection(two_indexes_field__one='aaaaaaX')), {pk1})
+
+        # and other index still present
+        self.assertSetEqual(set(CleanModel1.collection(two_indexes_field__one='aaaaaaX')), {pk1})
+
+        # both methods cannot be called from instance index
+        with self.assertRaises(AssertionError):
+            CleanModel1().get_field('field')._indexes[0].clear()
+        with self.assertRaises(AssertionError):
+            CleanModel1().get_field('field')._indexes[0].rebuild()
+
+    @unittest.skipIf(*skip_if_no_zrangebylex)
+    def test_range_index(self):
+
+        class CleanModel2(TestRedisModel):
+            field = fields.StringField(indexable=True, indexes=[TextRangeIndex])
+            other_field = fields.StringField(indexable=True, indexes=[TextRangeIndex])
+            key_field = fields.StringField(indexable=True, indexes=[TextRangeIndex.configure(key='foo')])
+            prefix_field = fields.StringField(indexable=True, indexes=[TextRangeIndex.configure(prefix='bar')])
+            key_prefix_field = fields.StringField(indexable=True, indexes=[TextRangeIndex.configure(key='baz', prefix='qux')])
+            hash_field = fields.HashField(indexable=True, indexes=[TextRangeIndex])
+            two_indexes_field = fields.StringField(indexable=True, indexes=[
+                TextRangeIndex.configure(prefix='one'),
+                TextRangeIndex.configure(prefix='two', transform=lambda value: value[::-1]),
+            ])
+
+        pk1 = CleanModel2(
+            field='a', other_field='aa', key_field='aaa', prefix_field='aaaa', key_prefix_field='aaaaa',
+            hash_field={'aaaaaa1': 'AAAAAA1', 'aaaaaa2': 'AAAAAA2'},
+            two_indexes_field='aaaaaaX',
+        ).pk.get()
+        pk2 = CleanModel2(
+            field='b', other_field='bb', key_field='bbb', prefix_field='bbbb', key_prefix_field='bbbbb',
+            hash_field={'bbbbbb1': 'BBBBBB1', 'bbbbbb2': 'BBBBBB2'},
+            two_indexes_field='bbbbbbX',
+        ).pk.get()
+
+        ### check simple index
+        index = CleanModel2.get_field('field')._indexes[0]
+
+        # check we have the keys
+        self.assertSetEqual(index.get_all_storage_keys(), {
+            'tests:cleanmodel2:field:text-range',
+        })
+
+        # check that they are deleted
+        index.clear()
+        self.assertSetEqual(set(CleanModel2.collection(field='a')), set())
+
+        # but index for other fields are still present
+        self.assertSetEqual(set(CleanModel2.collection(other_field='aa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(key_field='aaa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(prefix_field__bar='aaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(key_prefix_field__qux='aaaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(hash_field__aaaaaa1='AAAAAA1')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(hash_field__aaaaaa2='AAAAAA2')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(two_indexes_field__one='aaaaaaX')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(two_indexes_field__two='Xaaaaaa')), {pk1})
+
+        # check the index is rebuilt
+        index.rebuild()
+        self.assertSetEqual(set(CleanModel2.collection(field='a')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(field='b')), {pk2})
+
+        # now for index with key
+        index = CleanModel2.get_field('key_field')._indexes[0]
+
+        # check we have the keys
+        self.assertSetEqual(index.get_all_storage_keys(), {
+            'tests:cleanmodel2:key_field:foo',
+        })
+
+        # check that they are deleted
+        index.clear()
+        self.assertSetEqual(set(CleanModel2.collection(key_field='aaa')), set())
+
+        # but index for other fields are still present
+        self.assertSetEqual(set(CleanModel2.collection(other_field='aa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(field='a')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(prefix_field__bar='aaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(key_prefix_field__qux='aaaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(hash_field__aaaaaa1='AAAAAA1')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(hash_field__aaaaaa2='AAAAAA2')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(two_indexes_field__one='aaaaaaX')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(two_indexes_field__two='Xaaaaaa')), {pk1})
+
+        # check the index is rebuilt
+        index.rebuild()
+        self.assertSetEqual(set(CleanModel2.collection(key_field='aaa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(key_field='bbb')), {pk2})
+
+        ### now for index with prefix
+        index = CleanModel2.get_field('prefix_field')._indexes[0]
+
+        # check we have the keys
+        self.assertSetEqual(index.get_all_storage_keys(), {
+            'tests:cleanmodel2:prefix_field:bar:text-range',
+        })
+
+        # check that they are deleted
+        index.clear()
+        self.assertSetEqual(set(CleanModel2.collection(prefix_field__bar='aaaa')), set())
+
+        # but index for other fields are still present
+        self.assertSetEqual(set(CleanModel2.collection(other_field='aa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(field='a')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(key_field='aaa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(key_prefix_field__qux='aaaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(hash_field__aaaaaa1='AAAAAA1')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(hash_field__aaaaaa2='AAAAAA2')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(two_indexes_field__one='aaaaaaX')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(two_indexes_field__two='Xaaaaaa')), {pk1})
+
+        # check the index is rebuilt
+        index.rebuild()
+        self.assertSetEqual(set(CleanModel2.collection(prefix_field__bar='aaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(prefix_field__bar='bbbb')), {pk2})
+
+        ### now for index with key and prefix
+        index = CleanModel2.get_field('key_prefix_field')._indexes[0]
+
+        # check we have the keys
+        self.assertSetEqual(index.get_all_storage_keys(), {
+            'tests:cleanmodel2:key_prefix_field:qux:baz',
+        })
+
+        # check that they are deleted
+        index.clear()
+        self.assertSetEqual(set(CleanModel2.collection(key_prefix_field__qux='aaaaa')), set())
+
+        # but index for other fields are still present
+        self.assertSetEqual(set(CleanModel2.collection(other_field='aa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(field='a')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(key_field='aaa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(prefix_field__bar='aaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(hash_field__aaaaaa1='AAAAAA1')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(hash_field__aaaaaa2='AAAAAA2')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(two_indexes_field__one='aaaaaaX')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(two_indexes_field__two='Xaaaaaa')), {pk1})
+
+        # check the index is rebuilt
+        index.rebuild()
+        self.assertSetEqual(set(CleanModel2.collection(key_prefix_field__qux='aaaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(key_prefix_field__qux='bbbbb')), {pk2})
+
+        ### now for index for hashfield
+        index = CleanModel2.get_field('hash_field')._indexes[0]
+
+        # check we have the keys
+        self.assertSetEqual(index.get_all_storage_keys(), {
+            'tests:cleanmodel2:hash_field:aaaaaa1:text-range',
+            'tests:cleanmodel2:hash_field:aaaaaa2:text-range',
+            'tests:cleanmodel2:hash_field:bbbbbb1:text-range',
+            'tests:cleanmodel2:hash_field:bbbbbb2:text-range',
+        })
+
+        # check that they are deleted
+        index.clear()
+        self.assertSetEqual(set(CleanModel2.collection(hash_field__aaaaaa1='AAAAAA1')), set())
+        self.assertSetEqual(set(CleanModel2.collection(hash_field__aaaaaa2='AAAAAA2')), set())
+        self.assertSetEqual(set(CleanModel2.collection(hash_field__bbbbbb1='BBBBBB1')), set())
+        self.assertSetEqual(set(CleanModel2.collection(hash_field__bbbbbb2='BBBBBB2')), set())
+
+        # but index for other fields are still present
+        self.assertSetEqual(set(CleanModel2.collection(other_field='aa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(field='a')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(key_field='aaa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(prefix_field__bar='aaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(key_prefix_field__qux='aaaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(two_indexes_field__one='aaaaaaX')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(two_indexes_field__two='Xaaaaaa')), {pk1})
+
+        # check the index is rebuilt
+        index.rebuild()
+        self.assertSetEqual(set(CleanModel2.collection(hash_field__aaaaaa1='AAAAAA1')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(hash_field__aaaaaa2='AAAAAA2')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(hash_field__bbbbbb1='BBBBBB1')), {pk2})
+        self.assertSetEqual(set(CleanModel2.collection(hash_field__bbbbbb2='BBBBBB2')), {pk2})
+
+        ### now for multi-indexes
+        index = CleanModel2.get_field('two_indexes_field')._indexes[1]  # the reverse one
+
+        # check we have the keys
+        self.assertSetEqual(index.get_all_storage_keys(), {
+            'tests:cleanmodel2:two_indexes_field:two:text-range',
+        })
+
+        # check that they are deleted
+        index.clear()
+        self.assertSetEqual(set(CleanModel2.collection(two_indexes_field__two='Xaaaaaa')), set())
+
+        # but other index still present
+        self.assertSetEqual(set(CleanModel2.collection(two_indexes_field__one='aaaaaaX')), {pk1})
+
+        # check the index is rebuilt
+        index.rebuild()
+        self.assertSetEqual(set(CleanModel2.collection(two_indexes_field__two='Xaaaaaa')), {pk1})
+        self.assertSetEqual(set(CleanModel2.collection(two_indexes_field__one='aaaaaaX')), {pk1})
+
+        # and other index still present
+        self.assertSetEqual(set(CleanModel2.collection(two_indexes_field__one='aaaaaaX')), {pk1})
+
+    def test_from_field(self):
+
+        class CleanModel3(TestRedisModel):
+            two_indexes_field = fields.StringField(indexable=True, indexes=[
+                EqualIndex.configure(prefix='one'),
+                EqualIndex.configure(prefix='two', transform=lambda value: value[::-1]),
+            ])
+
+        pk1 = CleanModel3(two_indexes_field='aX').pk.get()
+        pk2 = CleanModel3(two_indexes_field='bX').pk.get()
+
+        # we clear all indexes
+        CleanModel3.get_field('two_indexes_field').clear_indexes()
+        self.assertSetEqual(set(CleanModel3.collection(two_indexes_field__one='aX')), set())
+        self.assertSetEqual(set(CleanModel3.collection(two_indexes_field__two='Xa')), set())
+        self.assertSetEqual(set(CleanModel3.collection(two_indexes_field__one='bX')), set())
+        self.assertSetEqual(set(CleanModel3.collection(two_indexes_field__two='Xb')), set())
+
+        # and rebuild them
+        CleanModel3.get_field('two_indexes_field').rebuild_indexes()
+        self.assertSetEqual(set(CleanModel3.collection(two_indexes_field__one='aX')), {pk1})
+        self.assertSetEqual(set(CleanModel3.collection(two_indexes_field__two='Xa')), {pk1})
+        self.assertSetEqual(set(CleanModel3.collection(two_indexes_field__one='bX')), {pk2})
+        self.assertSetEqual(set(CleanModel3.collection(two_indexes_field__two='Xb')), {pk2})
+
+        # this doesn't work from an instance
+        with self.assertRaises(AssertionError):
+            CleanModel3().two_indexes_field.clear_indexes()
+        with self.assertRaises(AssertionError):
+            CleanModel3().two_indexes_field.rebuild_indexes()

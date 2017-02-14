@@ -215,6 +215,20 @@ class BaseIndex(object):
         return self.field._model
 
     @property
+    def attached_to_model(self):
+        """Tells if the current index is the one attached to the model field, not instance field"""
+        try:
+            if not bool(self.model):
+                return False
+        except AttributeError:
+            return False
+        else:
+            try:
+                return not bool(self.instance)
+            except AttributeError:
+                return True
+
+    @property
     def instance(self):
         """Shortcut to get the instance tied to the field tied to this index"""
         return self.field._instance
@@ -375,6 +389,105 @@ class BaseIndex(object):
         """
         raise NotImplementedError
 
+    def get_all_storage_keys(self):
+        """Returns the keys to be removed by `clear` in aggressive mode
+
+        Returns
+        -------
+        set
+            The set of all keys that matches the keys used by this index.
+
+        """
+        raise NotImplementedError
+
+    def clear(self, chunk_size=1000, aggressive=False):
+        """Will deindex all the value for the current field
+
+        Parameters
+        ----------
+        chunk_size: int
+            Default to 1000, it's the number of instances to load at once if not in aggressive mode.
+        aggressive: bool
+            Default to ``False``. When ``False``, the actual collection of instances will
+            be ran through to deindex all the values.
+            But when ``True``, the database keys will be scanned to find keys that matches the
+            pattern of the keys used by the index. This is a lot faster and may find forsgotten keys.
+            But may also find keys not related to the index.
+            Should be set to ``True`` if you are not sure about the already indexed values.
+
+        Raises
+        ------
+        AssertionError
+            If called from an index tied to an instance field. It must be called from the model field
+
+        Examples
+        --------
+
+        >>> MyModel.get_field('myfield')._indexes[0].clear()
+
+        """
+        assert self.attached_to_model, \
+            '`clear` can only be called on an index attached to the model field'
+
+        if aggressive:
+            keys = self.get_all_storage_keys()
+            with self.model.database.pipeline(transaction=False) as pipe:
+                for key in keys:
+                    pipe.delete(key)
+                pipe.execute()
+
+        else:
+            start = 0
+            while True:
+                instances = self.model.collection().sort().instances(skip_exist_test=True)[start:start + chunk_size]
+                for instance in instances:
+                    field = instance.get_instance_field(self.field.name)
+                    value = field.proxy_get()
+                    if value is not None:
+                        field.deindex(value, only_index=self)
+
+                if len(instances) < chunk_size:  # not enough data, it means we are done
+                    break
+
+                start += chunk_size
+
+    def rebuild(self, chunk_size=1000, aggressive_clear=False):
+        """Rebuild the whole index for this field.
+
+        Parameters
+        ----------
+        chunk_size: int
+            Default to 1000, it's the number of instances to load at once.
+        aggressive_clear: bool
+            Will be passed to the `aggressive` argument of the `clear` method.
+            If `False`, all values will be normally deindexed. If `True`, the work
+            will be done at low level, scanning for keys that may match the ones used by the index
+
+        Examples
+        --------
+
+        >>> MyModel.get_field('myfield')._indexes[0].rebuild()
+
+        """
+        assert self.attached_to_model, \
+            '`rebuild` can only be called on an index attached to the model field'
+
+        self.clear(chunk_size=chunk_size, aggressive=aggressive_clear)
+
+        start = 0
+        while True:
+            instances = self.model.collection().sort().instances(skip_exist_test=True)[start:start + chunk_size]
+            for instance in instances:
+                field = instance.get_instance_field(self.field.name)
+                value = field.proxy_get()
+                if value is not None:
+                    field.index(value, only_index=self)
+
+            if len(instances) < chunk_size:  # not enough data, it means we are done
+                break
+
+            start += chunk_size
+
 
 class EqualIndex(BaseIndex):
     """Default simple equal index."""
@@ -442,6 +555,35 @@ class EqualIndex(BaseIndex):
         parts.append(normalized_value)
 
         return self.field.make_key(*parts)
+
+    def get_all_storage_keys(self):
+        """Returns the keys to be removed by `clear` in aggressive mode
+
+        For the parameters, see BaseIndex.get_all_storage_keys
+
+        """
+
+        parts1 = [
+            self.model._name,
+            self.field.name,
+        ]
+
+        parts2 = parts1 + ['*']  # for indexes taking args, like for hashfields
+
+        if self.prefix:
+            parts1.append(self.prefix)
+            parts2.append(self.prefix)
+
+        if self.key:
+            parts1.append(self.key)
+            parts2.append(self.key)
+
+        parts1.append('*')
+        parts2.append('*')
+
+        return self.model.database.scan_keys(self.field.make_key(*parts1)).union(
+            self.model.database.scan_keys(self.field.make_key(*parts2))
+        )
 
     def check_uniqueness(self, *args, **kwargs):
         """Check if the given "value" (via `args`) is unique or not.
@@ -547,6 +689,32 @@ class BaseRangeIndex(BaseIndex):
             parts.append(self.key)
 
         return self.field.make_key(*parts)
+
+    def get_all_storage_keys(self):
+        """Returns the keys to be removed by `clear` in aggressive mode
+
+        For the parameters, see BaseIndex.get_all_storage_keys
+
+        """
+
+        parts1 = [
+            self.model._name,
+            self.field.name,
+        ]
+
+        parts2 = parts1 + ['*']  # for indexes taking args, like for hashfields
+
+        if self.prefix:
+            parts1.append(self.prefix)
+            parts2.append(self.prefix)
+
+        if self.key:
+            parts1.append(self.key)
+            parts2.append(self.key)
+
+        return self.model.database.scan_keys(self.field.make_key(*parts1)).union(
+            self.model.database.scan_keys(self.field.make_key(*parts2))
+        )
 
     def prepare_value_for_storage(self, value, pk):
         """Prepare the value to be stored in the zset

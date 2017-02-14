@@ -169,6 +169,48 @@ class MultiIndexesTestCase(LimpydBaseTest):
             {pk2}
         )
 
+    def test_cleaning(self):
+
+        index_class = MultiIndexes.compose([
+            EqualIndex.configure(
+                prefix='first_letter',
+                transform=lambda v: v[0] if v else '',
+                handle_uniqueness=False
+            ),
+            EqualIndex
+        ])
+
+        class MultiIndexTestModel2(TestRedisModel):
+            name = fields.StringField(indexable=True, indexes=[index_class], unique=True)
+
+        pk1 = MultiIndexTestModel2(name="foo").pk.get()
+        pk2 = MultiIndexTestModel2(name="bar").pk.get()
+
+        index = MultiIndexTestModel2.get_field('name')._indexes[0]
+
+        # check the keys, we should have the ones from both included index
+        keys = index.get_all_storage_keys()
+        self.assertSetEqual(keys, {
+            'tests:multiindextestmodel2:name:foo',
+            'tests:multiindextestmodel2:name:bar',
+            'tests:multiindextestmodel2:name:first_letter:b',
+            'tests:multiindextestmodel2:name:first_letter:f',
+        })
+
+        # clear the index
+        index.clear()
+
+        # we should have nothing indexed
+        self.assertSetEqual(set(MultiIndexTestModel2.collection(name='foo')), set())
+        self.assertSetEqual(set(MultiIndexTestModel2.collection(name__first_letter='b')), set())
+
+        # rebuild it
+        index.rebuild()
+
+        # everything should be indexed
+        self.assertSetEqual(set(MultiIndexTestModel2.collection(name='foo')), {pk1})
+        self.assertSetEqual(set(MultiIndexTestModel2.collection(name__first_letter='b')), {pk2})
+
 
 class DateTimeModelTest(TestRedisModel):
     date = fields.InstanceHashField(indexable=True, indexes=[DateIndex])

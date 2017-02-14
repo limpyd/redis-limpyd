@@ -199,6 +199,29 @@ class RedisDatabase(object):
             script_dict['script_object'] = self.connection.register_script(script_dict['lua'])
         return script_dict['script_object'](keys=keys, args=args, client=self.connection)
 
+    def scan_keys(self, pattern):
+        """Take a pattern expected by the redis `scan` command and return all mathing keys
+
+        Parameters
+        ----------
+        pattern: str
+            The pattern of keys to look for
+
+        Returns
+        -------
+        set
+            Set of all the keys found with this pattern
+
+        """
+        cursor = 0
+        all_keys = set()
+        while True:
+            cursor, keys = self.connection.scan(cursor, pattern)
+            all_keys.update(keys)
+            if not cursor or cursor == '0':  # string for redis.py < 2.10
+                break
+        return all_keys
+
 
 class Lock(redis.client.Lock):
     """
