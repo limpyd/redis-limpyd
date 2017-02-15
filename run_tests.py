@@ -56,4 +56,7 @@ if __name__ == "__main__":
                 suites.append(suite)
 
         suite = unittest.TestSuite(suites)
-    unittest.TextTestRunner(verbosity=args.verbosity).run(suite)
+
+    result = unittest.TextTestRunner(verbosity=args.verbosity).run(suite)
+
+    sys.exit(not result.wasSuccessful())
