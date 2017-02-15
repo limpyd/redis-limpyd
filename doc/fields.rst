@@ -3,9 +3,9 @@
 Fields
 ******
 
-The core module of `limpyd` provides 6 fields types, matching the ones in Redis_:
+The core module of ``limpyd`` provides 6 fields types, matching the ones in Redis_:
 
-- StringField_, for the main data type in `Redis`, strings
+- StringField_, for the main data type in Redis_, strings
 - HashField_, for dicts
 - InstanceHashField_, for hashes
 - SetField_, for sets
@@ -17,9 +17,9 @@ You can also manage primary keys with these too fields:
 - PKField_, based on StringField_
 - AutoPKField_, same as PKField_ but auto-incremented.
 
-All these fields can be indexed, and they manage the keys for you (they take the same arguments as the real Redis_ ones, as defined in the `StrictRedis` class of redis-py_, but without the `key` parameter).
+All these fields can be indexed, and they manage the keys for you (they take the same arguments as the real Redis_ ones, as defined in the ``StrictRedis`` class of redis-py_, but without the ``key`` parameter).
 
-Another thing all fields have in common, is the way to delete them: use the `delete` method on a field, and both the field and its value will be removed from Redis_.
+Another thing all fields have in common, is the way to delete them: use the ``delete`` method on a field, and both the field and its value will be removed from Redis_.
 
 
 Field attributes
@@ -27,7 +27,8 @@ Field attributes
 
 When adding fields to a model, you can configure it with some attributes:
 
-**default**
+default
+-------
 
 It's possible to set default values for fields of type StringField_ and InstanceHashField_:
 
@@ -45,13 +46,14 @@ It's possible to set default values for fields of type StringField_ and Instance
 When setting a default value, the field will be saved when creating the instance. If you defined a PKField_ (not AutoPKField_), don't forget to pass a value for it when creating the instance, it's needed to store other fields.
 
 
-**indexable**
+indexable
+---------
 
 Sometimes getting objects from Redis_ by its primary key is not what you want. You may want to search for objects with a specific value for a specific field.
 
-By setting the `indexable` argument to True when defining the field, this functionnality is automatically activated, and you'll be able to retrieve objects by filtering on this field using :doc:`collections`.
+By setting the ``indexable`` argument to ``True`` when defining the field, this feature is automatically activated, and you'll be able to retrieve objects by filtering on this field using :doc:`collections`.
 
-To activate it, just set the `indexable` argument to True:
+To activate it, just set the ``indexable`` argument to ``True``:
 
 .. code:: python
 
@@ -60,17 +62,16 @@ To activate it, just set the `indexable` argument to True:
         foo = fields.StringField(indexable=True)
         bar = fields.StringField()
 
-In this example you will be able to filter on the field `foo` but not on `bar`.
+In this example you will be able to filter on the field ``foo`` but not on ``bar``.
 
-See :doc:`collections` to know how to filter objects.
+When updating an indexable field, a lock is acquired on Redis on this field, for all instances of the model. It isn't possible for this to use pipeline or redis scripting, because both need to know in advance the keys to update, but we don't always know since keys for indexes may be based on values. So all *writing* operations on an indexable field are protected, to ensure consistency if many threads, process, servers are working on the same Redis database.
 
-When updating an indexable field, a lock is acquired on Redis on this field, for all instances of the model. It wasn't possible to use pipeline or redis scripting, because both need to know in advance keys to update, but we don't always know since keys for indexes are based on values. So a all *writing* operations on an indexable field are protected, to ensure consistensy if many threads, process, servers are working on the same redis database.
+If you are sure you have only one thread, or you don't want to ensure consistency, you can disable locking by setting to ``False`` the ``lockable`` argument when creating a field, or the ``lockable`` attribute of a model to inactive the lock for all of its fields.
 
-If you are sure you have only one thread, or you don't want to ensure consistency, you can disable locking by setting to False the `lockable` argument when creating a field, or the `lockable` attribute of a model to inactive the lock for all of its fields.
+unique
+------
 
-**unique**
-
-The `unique` argument is the same as the `indexable` one, except it will ensure that you can't have multiple objects with the same value for some fields. `unique` fields are also indexed, and can be filtered, as for the `indexable` argument.
+The ``unique`` argument is the same as the ``indexable`` one, except it will ensure that you can't have multiple objects with the same value for some fields. ``unique`` fields are also indexed, and can be filtered, as for the ``indexable`` argument.
 
 Example:
 
@@ -86,14 +87,20 @@ Example:
     >>> example2 = Example(foo='FOO', bar='BAR')
     UniquenessError: Key :example:bar:BAR already exists (for instance 1)
 
-See :doc:`collections` to know how to filter objects, as for `indexable`.
+See :doc:`collections` to know how to filter objects, as for ``indexable``.
 
-**lockable**
+indexes
+-------
 
-You can set this argument to False if you don't want a lock to be acquired on this field for all instances of the model. See `indexable` for more informations about locking.
+This allow to change the default index used, or use many of them. See the "Indexing" section in :doc:`collections` to know more.
 
-If not specified, it's default to True, except if the `lockable` attribute of the model is False, in which case it's forced to False for all fields.
 
+lockable
+--------
+
+You can set this argument to ``False`` if you don't want a lock to be acquired on this field for all instances of the model. See ``indexable`` for more information about locking.
+
+If not specified, it's default to ``True``, except if the ``lockable`` attribute of the model is ``False``, in which case it's forced to ``False`` for all fields.
 
 
 Field types
@@ -104,7 +111,7 @@ Field types
 StringField
 -----------
 
-StringField_ based fields allow the storage of strings, but some `Redis string commands <http://redis.io/commands#string>`_ allow to treat them as integer, float [1]_ or bits.
+StringField_ based fields allow the storage of strings, but some `Redis string commands`_ allow to treat them as integer, float [1]_ or bits.
 
 Example:
 
@@ -131,26 +138,28 @@ You can use this model like this:
 
 The StringField_ type support these `Redis string commands`_:
 
-**Getters:**
+Getters
+"""""""
 
-- `bitcount`
-- `get`
-- `getbit`
-- `getrange`
-- `getset`
-- `strlen`
+- ``bitcount``
+- ``get``
+- ``getbit``
+- ``getrange``
+- ``getset``
+- ``strlen``
 
-**Modifiers:**
+Modifiers
+"""""""""
 
-- `append`
-- `decr`
-- `getset`
-- `incr`
-- `incrbyfloat` [1]_
-- `set`
-- `setbit`
-- `setnx`
-- `setrange`
+- ``append``
+- ``decr``
+- ``getset``
+- ``incr``
+- ``incrbyfloat`` [1]_
+- ``set``
+- ``setbit``
+- ``setnx``
+- ``setrange``
 
 
 .. _HashField:
@@ -158,7 +167,7 @@ The StringField_ type support these `Redis string commands`_:
 HashField
 ---------
 
-HashField allows storage of a dict in Redis.
+HashField_ allows storage of a dict in Redis.
 
 Example:
 
@@ -174,34 +183,36 @@ Example:
     >>> email.headers.hget('from')
     'foo@bar.com'
 
-Supported commands:
+The HashField_ type support these `Redis hash commands`_:
 
-**Getters:**
+Getters
+"""""""
 
-- `hget`
-- `hgetall`
-- `hmget`
-- `hkeys`
-- `hvals`
-- `hexists`
-- `hlen`
+- ``hget``
+- ``hgetall``
+- ``hmget``
+- ``hkeys``
+- ``hvals``
+- ``hexists``
+- ``hlen``
 
 
-**Modifiers:**
+Modifiers
+"""""""""
 
-- `hdel`
-- `hmset`
-- `hsetnx`
-- `hset`
-- `hincrby`
-- `hincrbyfloat` [1]_
+- ``hdel``
+- ``hmset``
+- ``hsetnx``
+- ``hset``
+- ``hincrby``
+- ``hincrbyfloat`` [1]_
 
 .. _InstanceHashField:
 
 InstanceHashField
 -----------------
 
-As for StringField_, InstanceHashField_ based fields allow the storage of strings. But all the `InstanceHashField` fields of an instance are stored in the same Redis_ hash, the name of the field being the key in the hash.
+As for StringField_, InstanceHashField_ based fields allow the storage of strings. But all the InstanceHashField_ fields of an instance are stored in the same Redis_ hash, the name of the field being the key in the hash.
 
 To fully use the power of Redis_ hashes, we also provide two methods to get and set multiples field in one operation (see hmget_ and hmset_). It's usually cheaper to store fields in hash that in strings. And it's faster to set/retrieve them using these two commands.
 
@@ -220,25 +231,30 @@ Example with simple commands:
     >>> example.foo.hget()
     'FOO'
 
-The InstanceHashField_ type support these `Redis hash commands <http://redis.io/commands#hash>`_:
+The InstanceHashField_ type support these `Redis hash commands`_:
 
-**Getters:**
+Getters
+"""""""
 
-- hget
+- ``hget``
 
-**Modifiers:**
+Modifiers
+"""""""""
 
-- `hincrby`
-- `hincrbyfloat` [1]_
-- `hset`
-- `hsetnx`
+- ``hincrby``
+- ``hincrbyfloat`` [1]_
+- ``hset``
+- ``hsetnx``
 
-**Deleter:**
+Deleter
+"""""""
 
-* Note that to delete the value of a InstanceHashField_, you can use the `hdel` command, which do the same as the main `delete` one.
-* See also hdel_ on the model to delete many InstanceHashField_ at once
+To delete the value of a InstanceHashField_, you can use the ``hdel`` command, which do the same as the main ```delete``` one.
 
-**Multi:**
+See also hdel_ on the model to delete many InstanceHashField_ at once
+
+Multi
+"""""
 
 The following commands are not called on the fields themselves, but on an instance:
 
@@ -253,7 +269,7 @@ The following commands are not called on the fields themselves, but on an instan
 .. _InstanceHashField-hmget:
 
 hmget
-"""""
+'''''
 
 hmget_ is called directly on an instance, and expects a list of field names to retrieve.
 
@@ -290,10 +306,9 @@ It's up to you to associate names and values, but you can find an example below:
     {'bar': 'BAR', 'foo': 'FOO'}
 
 hmset
-"""""
+'''''
 
-hmset_ is the reverse of hmget_, and also called directly on an instance, and expects
-named arguments with field names as keys, and new values to set as values.
+hmset_ is the reverse of hmget_, and also called directly on an instance, and expects named arguments with field names as keys, and new values to set as values.
 
 Example (with same model as for hmget_):
 
@@ -306,10 +321,11 @@ Example (with same model as for hmget_):
     ['FOO', 'BAR']
 
 hdel
-""""
+''''
+
 hdel_ is called directly on an instance, and expects a list of field names to delete.
 
-The result will be, as in Redis_, the number of field really deleted (non-filled ones won't be counted).
+The result will be, as in Redis_, the number of field really deleted (ie fields without any stored value won't be taken into account).
 
 .. code:: python
 
@@ -331,9 +347,10 @@ Note that you can also call hdel_ on an InstanceHashField_ itself, without param
     1
 
 hgetall
-"""""""
+'''''''
 
-hgetall_ must be called directly on an instance, and will return a dictionary containing names and values of all InstanceHashField with a stored value.
+hgetall_ must be called directly on an instance, and will return a dictionary containing names and values of all InstanceHashField_ with a stored value.
+
 If a field has no stored value, it will not appear in the result of hgetall_.
 
 Example (with same model as for hmget_):
@@ -348,10 +365,12 @@ Example (with same model as for hmget_):
     {bar': 'BAR'}
 
 hkeys
-"""""
+'''''
 
-hkeys_ must be called on an instance and will return the name of all the InstanceHashField with a stored value.
+hkeys_ must be called on an instance and will return the name of all the InstanceHashField_ with a stored value.
+
 If a field has no stored value, it will not appear in the result of hkeys_.
+
 Note that the result is not ordered in any way.
 
 Example (with same model as for hmget_):
@@ -366,10 +385,12 @@ Example (with same model as for hmget_):
     ['bar']
 
 hvals
-"""""
+'''''
 
-hkeys_ must be called on an instance and will return the value of all the InstanceHashField with a stored value.
+hkeys_ must be called on an instance and will return the value of all the InstanceHashField_ with a stored value.
+
 If a field has no stored value, it will not appear in the result of hvals_.
+
 Note that the result is not ordered in any way.
 
 Example (with same model as for hmget_):
@@ -384,8 +405,10 @@ Example (with same model as for hmget_):
     ['BAR']
 
 hlen
-""""
-hlen_ must be called on an instance and will return the number of InstanceHashField with a stored value.
+''''
+
+hlen_ must be called on an instance and will return the number of InstanceHashField_ with a stored value.
+
 If a field has no stored value, it will not be count in the result of hlen_.
 
 Example (with same model as for hmget_):
@@ -438,18 +461,20 @@ You can use this model like this:
 
 The SetField_ type support these `Redis set commands <http://redis.io/commands#set>`_:
 
-**Getters:**
+Getters
+"""""""
 
-- `scard`
-- `sismember`
-- `smembers`
-- `srandmember`
+- ``scard``
+- ``sismember``
+- ``smembers``
+- ``srandmember``
 
-**Modifiers:**
+Modifiers
+"""""""""
 
-- `sadd`
-- `spop`
-- `srem`
+- ``sadd``
+- ``spop``
+- ``srem``
 
 
 .. _ListField:
@@ -490,24 +515,26 @@ You can use this model like this:
 
 The ListField_ type support these `Redis list commands <http://redis.io/commands#list>`_:
 
-**Getters:**
+Getters
+"""""""
 
-- `lindex`
-- `llen`
-- `lrange`
+- ``lindex``
+- ``llen``
+- ``lrange``
 
-**Modifiers:**
+Modifiers
+"""""""""
 
-- `linsert`
-- `lpop`
-- `lpush`
-- `lpushx`
-- `lrem`
-- `lset`
-- `ltrim`
-- `rpop`
-- `rpush`
-- `rpushx`
+- ``linsert``
+- ``lpop``
+- ``lpush``
+- ``lpushx``
+- ``lrem``
+- ``lset``
+- ``ltrim``
+- ``rpop``
+- ``rpush``
+- ``rpushx``
 
 
 .. _SortedSetfield:
@@ -548,25 +575,27 @@ You can use this model like this:
 
 The SortedSetField_ type support these `Redis sorted set commands <http://redis.io/commands#sorted_set>`_:
 
-**Getters:**
+Getters
+"""""""
 
-- `zcard`
-- `zcount`
-- `zrange`
-- `zrangebyscore`
-- `zrank`
-- `zrevrange`
-- `zrevrangebyscore`
-- `zrevrank`
-- `zscore`
+- ``zcard``
+- ``zcount``
+- ``zrange``
+- ``zrangebyscore``
+- ``zrank``
+- ``zrevrange``
+- ``zrevrangebyscore``
+- ``zrevrank``
+- ``zscore``
 
-**Modifiers:**
+Modifiers
+"""""""""
 
-- `zadd`
-- `zincrby`
-- `zrem`
-- `zremrangebyrank`
-- `zremrangebyscore`
+- ``zadd``
+- ``zincrby``
+- ``zrem``
+- ``zremrangebyrank``
+- ``zremrangebyscore``
 
 
 .. _PKField:
@@ -580,7 +609,7 @@ A PK can contain any sort of string you want: simple integers, float [1]_, long 
 
 If you want a PKField which will be automatically filled, and auto-incremented, see AutoPKField_. Otherwise, with standard PKField_, you must assign a value to it when creating an instance.
 
-By default, a model has a AutoPKField_ attached to it, named `pk`. But you can redefine the nameand type of PKField you want.
+By default, a model has a AutoPKField_ attached to it, named ``pk``. But you can redefine the name and type of PKField_ you want.
 
 Examples:
 
@@ -588,25 +617,25 @@ Examples:
 
     class Foo(model.RedisModel):
         """
-        The PK field is `pk`, and will be auto-incremented.
+        The PK field is ``pk``, and will be auto-incremented.
         """
         database = main_database
 
     class Bar(model.RedisModel):
         """
-        The PK field is `id`, and will be auto-incremented.
+        The PK field is ``id``, and will be auto-incremented.
         """
         database = main_database
         id = fields.AutoPKField()
 
     class Baz(model.RedisModel):
         """
-        The PK field is `name`, and won't be auto-incremented, so you must assign it a value when creating an instance.
+        The PK field is ``name``, and won't be auto-incremented, so you must assign it a value when creating an instance.
         """
         database = main_database
         name = fields.PKField()
 
-Note that wathever name you use for the PKField_ (or AutoPKField_), you can always access it via the name `pk` (but also we its real name). It's easier for abstraction:
+Note that whatever name you use for the PKField_ (or AutoPKField_), you can always access it via the name ``pk`` (but also we its real name). It's easier for abstraction:
 
 .. code:: python
 
@@ -625,13 +654,16 @@ Note that wathever name you use for the PKField_ (or AutoPKField_), you can alwa
 AutoPKField
 -----------
 
-A AutoPKField_ field is a PKField_ filled with auto-incremented integers, starting to 1. Assigning a value to of AutoPKField_ is forbidden.
+A AutoPKField_ field is a PKField_ filled with auto-incremented integers, starting to ``1``. Assigning a value to of AutoPKField_ is forbidden.
 
-It's a AutoPKField_ that is attached by default to every model, if no other one is defined.
+It's a AutoPKField_ that is attached by default to every model, if no other PKField_ is defined.
 
 See PKField_ for more details.
 
+
 .. _Redis: http://redis.io
 .. _redis-py: https://github.com/andymccurdy/redis-py
+.. _`Redis string commands`: https://redis.io/commands#string
+.. _`Redis hash commands`: http://redis.io/commands#hash
 
 .. [1] When working with floats, pass them as strings to avoid precision problems.
