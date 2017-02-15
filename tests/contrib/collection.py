@@ -575,7 +575,7 @@ class StoreTest(BaseTest):
         # test expire
         stored_collection = collection.store(ttl=1)
         self.assertTrue(0 <= self.connection.ttl(stored_collection.stored_key) <= 1)
-        time.sleep(1)
+        time.sleep(1.1)
         self.assertFalse(self.connection.exists(stored_collection.stored_key))
 
     def test_stored_key_should_be_the_given_one_if_set(self):
@@ -590,7 +590,7 @@ class StoreTest(BaseTest):
 
         # try with short ttl
         stored_collection = collection.store(ttl=1)
-        time.sleep(1)
+        time.sleep(1.1)
         with self.assertRaises(DoesNotExist):
             list(stored_collection)
 
