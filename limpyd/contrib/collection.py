@@ -538,7 +538,7 @@ class ExtendedCollectionManager(CollectionManager):
         # as redis sort command doesn't handle this, we have to create keys for
         # each value of the sorted set and sort on them
         # @antirez, y u don't allow this !!??!!
-        if self._sort_by_sortedset_before:
+        if final_set and self._sort_by_sortedset_before:
             # TODO: if we have filters, maybe apply _zet_to_keys to only
             #       intersected values
             base_tmp_key, tmp_keys = self._prepare_sort_by_score(None, sort_options)

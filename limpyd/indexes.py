@@ -492,7 +492,7 @@ class BaseIndex(object):
 class EqualIndex(BaseIndex):
     """Default simple equal index."""
 
-    handled_suffixes = {None, 'eq'}
+    handled_suffixes = {None, 'eq', 'in'}
     handle_uniqueness = True
 
     def get_filtered_keys(self, suffix, *args, **kwargs):
@@ -508,6 +508,25 @@ class EqualIndex(BaseIndex):
             raise ImplementationError(
                 '%s can only return keys of type "set"' % self.__class__.__name__
             )
+
+        # special "in" case: we get n keys and make an unionstore with them then return this key
+        if suffix == 'in':
+
+            args = list(args)
+            values = set(args.pop())
+
+            if not values:
+                return []  # no keys
+
+            in_keys = [
+                self.get_storage_key(transform_value=False, *(args+[value]))
+                for value in values
+            ]
+
+            tmp_key = unique_key(self.connection)
+            self.connection.sunionstore(tmp_key, *in_keys)
+
+            return [(tmp_key, 'set', True)]
 
         # do not transform because we already have the value we want to look for
         return [(self.get_storage_key(transform_value=False, *args), 'set', False)]
@@ -910,12 +929,38 @@ class BaseRangeIndex(BaseIndex):
                 '%s can only return keys of type "set" or "zset"' % self.__class__.__name__
             )
 
+        key_type = 'set' if not accepted_key_types or 'set' in accepted_key_types else 'zset'
+        tmp_key = unique_key(self.connection)
+        args = list(args)
+
+        # special "in" case: we get n keys and make an unionstore with them then return this key
+        if suffix == 'in':
+
+            values = set(args.pop())
+
+            if not values:
+                return []  # no keys
+
+            in_keys = [
+                self.get_filtered_keys('eq', *(args+[value]), **kwargs)[0][0]
+                for value in values
+            ]
+
+            if key_type == 'set':
+                self.connection.sunionstore(tmp_key, *in_keys)
+            else:
+                self.connection.zunionstore(tmp_key, *in_keys)
+
+            # we can delete the temporary keys
+            for in_key in in_keys:
+                self.connection.delete(in_key)
+
+            return [(tmp_key, key_type, True)]
+
         use_lua = self.model.database.support_scripting() and kwargs.get('use_lua', True)
 
         key = self.get_storage_key(*args)
-        tmp_key = unique_key(self.connection)
-        key_type = 'set' if not accepted_key_types or 'set' in accepted_key_types else 'zset'
-        value = self.normalize_value(list(args)[-1], transform=False)
+        value = self.normalize_value(args[-1], transform=False)
 
         real_suffix = self.remove_prefix(suffix)
 
@@ -968,7 +1013,7 @@ class TextRangeIndex(BaseRangeIndex):
 
     """
 
-    handled_suffixes = {None, 'eq', 'gt', 'gte', 'lt', 'lte', 'startswith'}
+    handled_suffixes = {None, 'eq', 'gt', 'gte', 'lt', 'lte', 'startswith', 'in'}
     key = 'text-range'
     separator = u':%s-SEPARATOR:' % key.upper()
 
@@ -1190,7 +1235,7 @@ class TextRangeIndex(BaseRangeIndex):
 
 class NumberRangeIndex(BaseRangeIndex):
 
-    handled_suffixes = {None, 'eq', 'gt', 'gte', 'lt', 'lte'}
+    handled_suffixes = {None, 'eq', 'gt', 'gte', 'lt', 'lte', 'in'}
     key = 'number-range'
     raise_if_not_float = False
 

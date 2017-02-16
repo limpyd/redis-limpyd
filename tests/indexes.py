@@ -10,7 +10,7 @@ from limpyd.exceptions import ImplementationError, UniquenessError
 from limpyd.indexes import EqualIndex, TextRangeIndex, NumberRangeIndex
 
 from .base import LimpydBaseTest, TEST_CONNECTION_SETTINGS, skip_if_no_zrangebylex
-from .model import Bike, Email, TestRedisModel
+from .model import Bike, Email, TestRedisModel, Boat
 
 
 class ReverseEqualIndex(EqualIndex):
@@ -204,6 +204,7 @@ class ConfigureClassMethodTestCase(LimpydBaseTest):
         self.assertEqual(set(TestIndexConfigureModel.collection(name__reverse='bar')), set())
 
         self.assertEqual(set(TestIndexConfigureModel.collection(lastname__strange='egnartsbarbar')), {pk2})
+
 
 class RangeIndexTestModel(TestRedisModel):
     name = fields.StringField(indexable=True, indexes=[TextRangeIndex])
@@ -1101,3 +1102,83 @@ class CleanTestCase(LimpydBaseTest):
             CleanModel3().two_indexes_field.clear_indexes()
         with self.assertRaises(AssertionError):
             CleanModel3().two_indexes_field.rebuild_indexes()
+
+
+class InSuffixTestCase(LimpydBaseTest):
+
+    def test_equal_index(self):
+
+        pk1 = Boat(name="Pen Duick I", length=15.1, launched=1898).pk.get()
+        pk2 = Boat(name="Pen Duick II", length=13.6, launched=1964).pk.get()
+        pk3 = Boat(name="Pen Duick III", length=17.45, launched=1966).pk.get()
+        pk4 = Boat(name="Rainbow Warrior I", power="engine", length=40, launched=1955).pk.get()
+
+        # nothing
+        self.assertSetEqual(
+            set(Boat.collection(launched__in=())),
+            set()
+        )
+        # one item
+        self.assertSetEqual(
+            set(Boat.collection(launched__in=[1964])),
+            {pk2}
+        )
+        # one inexisting item
+        self.assertSetEqual(
+            set(Boat.collection(launched__in=[123])),
+            set()
+        )
+        # two items
+        self.assertSetEqual(
+            set(Boat.collection(launched__in=(1898, 1964))),
+            {pk1, pk2}
+        )
+        # more items
+        self.assertSetEqual(
+            set(Boat.collection(launched__in=(1898, 1964, 11, 1955, 0))),
+            {pk1, pk2, pk4}
+        )
+        # with another filter
+        self.assertSetEqual(
+            set(Boat.collection(launched__in=(1898, 1964, 11, 1955, 0), power='engine')),
+            {pk4}
+        )
+
+    @unittest.skipIf(*skip_if_no_zrangebylex)
+    def test_range_index(self):
+
+        pk1 = RangeIndexTestModel(name="Pen Duick I", value=1898).pk.get()
+        pk2 = RangeIndexTestModel(name="Pen Duick II", value=1964).pk.get()
+        pk3 = RangeIndexTestModel(name="Pen Duick III", value=1966).pk.get()
+        pk4 = RangeIndexTestModel(name="Rainbow Warrior I", category="engine", value=1955).pk.get()
+
+        # nothing
+        self.assertSetEqual(
+            set(RangeIndexTestModel.collection(value__in=())),
+            set()
+        )
+        # one item
+        self.assertSetEqual(
+            set(RangeIndexTestModel.collection(value__in=[1964])),
+            {pk2}
+        )
+        # one inexisting item
+        self.assertSetEqual(
+            set(RangeIndexTestModel.collection(value__in=[123])),
+            set()
+        )
+        # two items
+        self.assertSetEqual(
+            set(RangeIndexTestModel.collection(value__in=(1898, 1964))),
+            {pk1, pk2}
+        )
+        # more items
+        self.assertSetEqual(
+            set(RangeIndexTestModel.collection(value__in=(1898, 1964, 11, 1955, 0))),
+            {pk1, pk2, pk4}
+        )
+        # with another filter
+        self.assertSetEqual(
+            set(RangeIndexTestModel.collection(value__in=(1898, 1964, 11, 1955, 0), category='engine')),
+            {pk4}
+        )

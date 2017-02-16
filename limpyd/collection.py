@@ -156,8 +156,12 @@ class CollectionManager(object):
 
             if self._len_mode:
                 if final_set is None:
-                    # final_set is None if we have a only pk
-                    self._len = 1
+                    if pk and not self._lazy_collection['sets']:
+                        # we have a only pk
+                        self._len = 1
+                    else:
+                        # we have nothing
+                        self._len = 0
                 else:
                     self._len = self._collection_length(final_set)
                     if keys_to_delete:
@@ -170,9 +174,13 @@ class CollectionManager(object):
 
                 # fill the collection
                 if final_set is None:
-                    # final_set is None if we have a pk without other sets, and no
-                    # needs to get values so we can simply return the pk
-                    collection = set([pk])
+                    if pk and not self._lazy_collection['sets']:
+                        # we have a pk without other sets, and no
+                        # needs to get values so we can simply return the pk
+                        collection = set([pk])
+                    else:
+                        # we have nothing
+                        collection = {}
                 else:
                     # compute the sets and call redis te retrieve wanted values
                     collection = self._final_redis_call(final_set, sort_options)
@@ -293,7 +301,10 @@ class CollectionManager(object):
             # no sets or pk, use the whole collection instead
             all_sets.add(self.cls.get_field('pk').collection_key)
 
-        if len(all_sets) == 1:
+        if not all_sets:
+            delete_set_later = False
+            final_set = None
+        elif len(all_sets) == 1:
             # if we have only one set, we  delete the set after calling
             # collection only if it's a temporary one, and we do not delete
             # it right now

@@ -157,7 +157,7 @@ To filter using this index, you simply pass the field and a value in the collect
     >>> Person.collection(firstname='John').instances()
     [<[1] John "Joe" Smith (1960)>, <[2] John "Jon" Doe (1965)>]
 
-But you can also be more specific about the fact that you want an equality by using the `__eq` suffix. All other indexes use different suffixes.
+But you can also be more specific about the fact that you want an equality by using the ``__eq`` suffix. All other indexes use different suffixes.
 
 This design is inspired by ``Django``.
 
@@ -166,9 +166,18 @@ This design is inspired by ``Django``.
     >>> Person.collection(firstname__eq='John').instances()
     [<[1] John "Joe" Smith (1960)>, <[2] John "Jon" Doe (1965)>]
 
+You can also use the ``in`` suffix and pass an iterable. In this case, all entries that match one of the values is returned.
+
+
+.. code:: python
+
+    >>> Person.collection(firstname__in=['John', 'Susan']).instances()
+    [<[1] John "Joe" Smith (1960)>, <[2] John "Jon" Doe (1965)>, <[4] Susan "Sue" Doe (1960)>]
+
+
 If you want to do more advanced lookup on a field that contains text, you can use the ``TextRangeIndex`` (to import from ``limpyd.indexes``), as we did for the ``nickname`` field.
 
-It allows the same filtering as the default index, ie equality without suffix or with the ``__eq`` suffix, but it is not as efficient.
+It allows the same filtering as the default index, ie equality without suffix or with the ``__eq`` or ``__in`` suffixes, but it is not as efficient.
 
 So if your only usage is equality filtering, prefer ``EqualIndex`` (which is the default)
 
