@@ -76,17 +76,26 @@ class ExtendedCollectionManager(CollectionManager):
         Effectively retrieve data according to lazy_collection.
         If we have a stored collection, without any result, return an empty list
         """
-        old_slice_and_len_mode = None if self._slice is None else self._slice.copy(), self._len_mode
+        old_sort_limits_and_len_mode = None if self._sort_limits is None else self._sort_limits.copy(), self._len_mode
+        old_sorts = None if self._sort is None else self._sort.copy(),\
+                    None if self._sort_by_sortedset is None else self._sort_by_sortedset.copy()
         try:
             if self.stored_key and not self._stored_len:
                 if self._len_mode:
                     self._len = 0
                     self._len_mode = False
-                self._slice = {}
+                self._sort_limits = {}
                 return []
+
+            # Manage sort desc added by original `__getitem__` when we sort by score
+            if self._sort_by_sortedset and self._sort and self._sort.get('desc'):
+                self._sort = None
+                self._sort_by_sortedset['desc'] = not self._sort_by_sortedset.get('desc', False)
+
             return super(ExtendedCollectionManager, self)._collection
         finally:
-            self._slice, self._len_mode = old_slice_and_len_mode
+            self._sort_limits, self._len_mode = old_sort_limits_and_len_mode
+            self._sort, self._sort_by_sortedset = old_sorts
 
     def _prepare_sets(self, sets):
         """
@@ -252,16 +261,15 @@ class ExtendedCollectionManager(CollectionManager):
 
         # we have a sorted set without need to sort, use zrange
         if self._has_sortedsets and sort_options is None:
-            # TODO: we may handle slicing here
+
             return conn.zrange(final_set, 0, -1)
 
         # we have a stored collection, without other filter, and no need to
         # sort, use lrange
-        elif self.stored_key and not self._lazy_collection['sets']\
+        if self.stored_key and not self._lazy_collection['sets']\
                 and len(self._lazy_collection['intersects']) == 1\
                 and (sort_options is None or sort_options == {'by': 'nosort'}):
 
-            # TODO: we may handle slicing here
             return conn.lrange(final_set, 0, -1)
 
         # normal call
@@ -466,7 +474,7 @@ class ExtendedCollectionManager(CollectionManager):
         Return True if we have to sort by set and do the stuff *before* asking
         redis for the sort
         """
-        return self._sort_by_sortedset and self._slice and (not self._lazy_collection['pks']
+        return self._sort_by_sortedset and self._sort_limits and (not self._lazy_collection['pks']
                                                             or self._want_score_value)
 
     @property
@@ -475,7 +483,7 @@ class ExtendedCollectionManager(CollectionManager):
         Return True if we have to sort by set and do the stuff *after* asking
         redis for the sort
         """
-        return self._sort_by_sortedset and not self._slice and (not self._lazy_collection['pks']
+        return self._sort_by_sortedset and not self._sort_limits and (not self._lazy_collection['pks']
                                                                 or self._want_score_value)
 
     @property
@@ -668,7 +676,7 @@ class ExtendedCollectionManager(CollectionManager):
         DEFAULT_STORE_TTL, which is 60 secondes. You can pass None if you don't
         want expiration.
         """
-        old_slice_and_len_mode = None if self._slice is None else self._slice.copy(), self._len_mode
+        old_sort_limits_and_len_mode = None if self._sort_limits is None else self._sort_limits.copy(), self._len_mode
         try:
             self._store = True
 
@@ -717,7 +725,7 @@ class ExtendedCollectionManager(CollectionManager):
             return stored_collection
 
         finally:
-            self._slice, self._len_mode = old_slice_and_len_mode
+            self._sort_limits, self._len_mode = old_sort_limits_and_len_mode
 
     def from_stored(self, key):
         """
@@ -731,7 +739,7 @@ class ExtendedCollectionManager(CollectionManager):
         # prepare the collection
         self.stored_key = key
         self.intersect(_StoredCollection(self.cls.get_connection(), key))
-        self.sort(by='nosort')
+        self.sort(by='nosort')  # keep stored order
 
         # count the number of results to manage empty result (to not behave like
         # expired key)

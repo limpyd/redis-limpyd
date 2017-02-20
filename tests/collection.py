@@ -196,11 +196,6 @@ class SliceTest(CollectionBaseTest):
         collection = Boat.collection()
         self.assertEqual(collection[1:], ['2', '3', '4'])
 
-    def test_using_netagive_index_should_work(self):
-        collection = Boat.collection().sort()
-        self.assertEqual(collection[-1], '4')
-        self.assertEqual(collection[-2:4], ['3', '4'])
-
     def test_inexisting_slice_should_return_empty_collection(self):
         collection = Boat.collection()
         self.assertEqual(collection[5:10], [])
@@ -239,16 +234,47 @@ class SortTest(CollectionBaseTest):
         )
 
     def test_sort_should_be_sliceable(self):
-        self.assertEqual(
-            list(Boat.collection().sort()[1:3]),
-            ['2', '3']
+        # will compare slicing from the collection to a real python list
+
+        # add more data (5 boats)
+        for x in range(5):
+            Boat(name='boat%s' % x)
+
+        self.assertSlicingIsCorrect(
+            collection=Boat.collection().sort(),
+            check_data=[str(val) for val in range(1, 10)]
         )
 
     def test_sort_and_getitem(self):
-        self.assertEqual(Boat.collection().sort()[0], '1')
-        self.assertEqual(Boat.collection().sort()[1], '2')
-        self.assertEqual(Boat.collection().sort()[2], '3')
-        self.assertEqual(Boat.collection().sort()[3], '4')
+        collection = Boat.collection().sort()
+
+        # will compare indexing from the collection to a real python list
+
+        # will be used to compare result from redis to result from real list
+        test_list = [str(val) for val in range(1, 5)]
+
+        # check we have the correct dataset
+        assert sorted(collection) == test_list, 'Wrong dataset for this test'
+
+        limit = 5
+        total, optimized = 0, 0
+        for index in range(-limit, limit+1):
+            with self.subTest(index=index):
+                total += 1
+                try:
+                    expected = test_list[index]
+                except IndexError:
+                    with self.assertRaises(IndexError):
+                        collection[index]
+                else:
+                    self.assertEqual(
+                        collection[index],
+                        expected
+                    )
+                if collection._optimized_slicing:
+                    optimized += 1
+
+        self.assertEqual(optimized, total, "All collection indexing should be optimized")
 
     def test_sort_by_stringfield(self):
         self.assertEqual(

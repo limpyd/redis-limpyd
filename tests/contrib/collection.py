@@ -506,6 +506,15 @@ class IntersectTest(BaseTest):
         collection2 = collection1.intersect([1, 2])
         self.assertEqual(collection1, collection2)
 
+    def test_slicing_sortedset(self):
+        container = GroupsContainer()
+        container.groups_sortedset.zadd(1.0, 1, 2.0, 2, 3.0, 3, 4.0, 4)
+
+        self.assertSlicingIsCorrect(
+            collection=Group.collection().intersect(container.groups_sortedset),
+            check_data=[str(val) for val in range(1, 5)],
+        )
+
 
 class SortByScoreTest(BaseTest):
     def setUp(self):
@@ -531,37 +540,62 @@ class SortByScoreTest(BaseTest):
         self.assertEqual(sorted_by_reverse_score, self.reversed_sorted_pks)
 
     def test_sort_by_sortedset_with_slice(self):
-        collection = Group.collection()
+        # will compare slicing from the collection to a real python list
 
-        with_smallest_score = collection.sort(by_score=self.container.groups_sortedset)[0]
-        self.assertEqual(with_smallest_score, self.sorted_pks[0])
-        with_bigger_score = collection.sort(by_score=self.container.groups_sortedset,
-                                            desc=True)[0]
-        self.assertEqual(with_bigger_score, self.reversed_sorted_pks[0])
+        collection = Group.collection().sort(by_score=self.container.groups_sortedset)
 
-        with_bigger_score = collection.sort(by_score=self.container.groups_sortedset)[-1]
-        self.assertEqual(with_bigger_score, self.sorted_pks[-1])
-        with_smallest_score = collection.sort(by_score=self.container.groups_sortedset,
-                                              desc=True)[-1]
-        self.assertEqual(with_smallest_score, self.reversed_sorted_pks[-1])
+        # will be used to compare result from redis to result from real list
+        test_list = ['4', '2', '1', '3']
 
-        first_part = collection.sort(by_score=self.container.groups_sortedset)[0:2]
-        self.assertEqual(first_part, self.sorted_pks[0:2])
-        first_part_reversed = collection.sort(by_score=self.container.groups_sortedset,
-                                              desc=True)[0:2]
-        self.assertEqual(first_part_reversed, self.reversed_sorted_pks[0:2])
+        # check we have the correct dataset
+        assert list(collection) == test_list, 'Wrong dataset for this test'
 
-        second_part = collection.sort(by_score=self.container.groups_sortedset)[2:4]
-        self.assertEqual(second_part, self.sorted_pks[2:4])
-        second_part_reversed = collection.sort(by_score=self.container.groups_sortedset,
-                                               desc=True)[2:4]
-        self.assertEqual(second_part_reversed, self.reversed_sorted_pks[2:4])
+        limit = 3
+        total, optimized, not_optimized = 0, 0, 0
+        for start in list(range(-limit, limit+1)) + [None]:
+            for stop in list(range(-limit, limit+1)) + [None]:
+                for step in range(-limit, limit+1):
+                    if not step: continue
+                    with self.subTest(Start=start, Stop=stop, step=step):
+                        total += 1
+                        self.assertEqual(
+                            list(collection[start:stop:step]),
+                            test_list[start:stop:step],
+                            'Unexpected result for `%s:%s:%s`' % (
+                                '' if start is None else start,
+                                '' if stop is None else stop,
+                                '' if step is None else step,
+                            )
+                        )
+                        if collection._optimized_slicing:
+                            optimized += 1
+                        else:
+                            not_optimized += 1
 
-        all_but_the_first = collection.sort(by_score=self.container.groups_sortedset)[1:]
-        self.assertEqual(all_but_the_first, self.sorted_pks[1:])
-        all_but_the_first_reversed = collection.sort(by_score=self.container.groups_sortedset,
-                                                     desc=True)[1:]
-        self.assertEqual(all_but_the_first_reversed, self.reversed_sorted_pks[1:])
+        self.assertGreaterEqual(optimized * 100.0 / total, 65,
+                                "Less than 65% slicing resulted in non-optimized calls")
+
+    def test_sort_by_sortedset_with_index(self):
+        # will compare indexing from the collection to a real python list
+
+        collection = Group.collection().sort(by_score=self.container.groups_sortedset)
+
+        # will be used to compare result from redis to result from real list
+        test_list = ['4', '2', '1', '3']
+
+        # check we have the correct dataset
+        assert list(collection) == test_list, 'Wrong dataset for this test'
+
+        limit = 3
+        for index in range(-limit, limit+1):
+            with self.subTest(index=index):
+                try:
+                    expected = test_list[index]
+                except IndexError:
+                    with self.assertRaises(IndexError):
+                        collection[index]
+                else:
+                    self.assertEqual(collection[index], expected)
 
     def test_sort_by_sortedset_with_filter(self):
         collection = Group.collection(active=1)
@@ -785,6 +819,13 @@ class StoreTest(BaseTest):
         collection = Group.collection(active=1, name='foobar')
         stored_collection = collection.store()
         self.assertEqual(list(stored_collection), [])
+
+    def test_slicing_stored_collection(self):
+
+        self.assertSlicingIsCorrect(
+            collection=Group.collection().store(ttl=6000),
+            check_data=[str(val) for val in range(1, 5)],
+        )
 
 
 class LenTest(BaseTest):

@@ -11,6 +11,8 @@ from limpyd.fields import MultiValuesField
 
 ParsedFilter = namedtuple('ParsedFilter', ['index', 'suffix', 'extra_field_parts', 'value'])
 
+NONE_SLICE = slice(None, None, None)
+
 
 class CollectionManager(object):
     """
@@ -41,7 +43,7 @@ class CollectionManager(object):
         self._instances_skip_exist_test = False  # If True will return instances
                                                  # without testing if pk exist
         self._sort = None  # Will store sorting parameters
-        self._slice = None  # Will store slice parameters (start and num)
+        self._sort_limits = None  # Will store slice parameters (start and num)
         self._len = None  # Store the result of the final collection, to avoid
                           # having to compute the whole thing twice when doing
                           # `list(Model.collection)` (a `list` will call
@@ -51,53 +53,142 @@ class CollectionManager(object):
                                 # True by default to manage the __iter__ + __len__
                                 # case, specifically set to False in other cases
 
+        self.scripted_slicing = True
+
     def __iter__(self):
-        old_slice_and_len_mode = None if self._slice is None else self._slice.copy(), self._len_mode
+        old_sort_limits_and_len_mode = None if self._sort_limits is None else self._sort_limits.copy(), self._len_mode
         try:
             self._len_mode = False
             return self._collection.__iter__()
         finally:
-            self._slice, self._len_mode = old_slice_and_len_mode
+            self._sort_limits, self._len_mode = old_sort_limits_and_len_mode
+
+    def _optimize_slice(self, the_slice, can_reverse):
+        """
+
+        Parameters
+        ----------
+        the_slice: slice
+            The python slice to optimize
+        can_reverse: bool
+            If we can ask redis to reverse the data before slicing.
+
+        Returns
+        -------
+        tuple
+            Four elements:
+            - optimized: bool
+                If the slice is optimized
+            - start: int or None
+                start item to pass to the redis command
+                If None, we want from the very start
+            - count: int or None
+                number of items to ask the redi command
+                If None, we want everything from the start
+            - rev: bool
+                If we should ask redis to work the reverse way
+            - python_slice
+                The slice to be applied on the python side
+
+        """
+        step = 1 if the_slice.step in (1, None) else the_slice.step
+        start = (the_slice.start or 0) if step > 0 else the_slice.start
+        stop = the_slice.stop
+
+        if start is not None and stop is not None:
+
+            # cases where we know the result is always empty
+            if step > 0 and (0 <= stop <= start or stop <= start < 0):
+                return True, None, None, False, NONE_SLICE
+
+            if step < 0 and (0 <= start <= stop or start <= stop < 0):
+                return True, None, None, False, NONE_SLICE
+
+            # if start and stop are on the same side, we can optimize
+
+            # simplest case: start and stop are positive
+            if start >= 0 and stop > 0:
+                if step < 0:
+                    start, stop = stop + 1, start + 1
+                return True, start, stop - start, False, slice(None, None, step if step != 1 else None)
+
+            # more complicated case: start and stop are negative
+            if start < 0 and stop < 0 and can_reverse:
+                if step < 0:
+                    start, stop = stop + 1, start + 1
+                step = -step
+                return True, - stop, stop - start, True, slice(None, None, step if step != 1 else None)
+
+        # for positive step, if we have a positive start, and no end or negative one, we have to retrieve all from
+        # the start and slice here
+        if step > 0 and (start is not None and start >= 0) and (stop is None or stop < 0):
+            return True, start, None, False, slice(None, stop, step)
+
+        # the reverse for negative step
+        if step < 0 and (start is None or start < 0) and (stop is not None and stop >= 0):
+            return True, stop + 1, None, False, slice(start, None, step)
+
+        # in all other cases we recover the whole collection and slice it in python
+        return False, None, None, False, slice(start, stop, step)
 
     def __getitem__(self, arg):
-        old_slice_and_len_mode = None if self._slice is None else self._slice.copy(), self._len_mode
+        old_sort_limits_and_len_mode = None if self._sort_limits is None else self._sort_limits.copy(), self._len_mode
+        old_sort = None if self._sort is None else self._sort.copy()
         try:
             self._len_mode = False
-            self._slice = {}
+            self._sort_limits = {}
+            self._optimized_slicing = False  # just to store the fact that the call was optimized
             if isinstance(arg, slice):
                 # A slice has been requested
-                # so add it to the sort parameters (via slice)
-                # and return the collection (a scliced collection is no more
-                # chainable, so we do not return `self`)
-                start = arg.start or 0
-                if start < 0:
-                    # in case of a negative start, we can't use redis sort so
-                    # we fetch all the collection before returning the wanted slice
-                    return self._collection[arg]
-                self._slice['start'] = start
-                stop = arg.stop
-                # Redis expects a number of elements
-                # not a python style stop value
-                if stop is None:
-                    # negative value for the count return all
-                    self._slice['num'] = -1
-                else:
-                    self._slice['num'] = stop - start
-                return self._collection
+                # We try to reduce the data to get back from redis
+                # when it's possible depending of the slice arguments.
+                # We use `self._sort_limits` to tell redis how to slice what
+                # it'll got from the `sort` command. We may also reverse
+                # `_sort['desc']`(the set will be read in reverse way as we wanted
+                # by redis).
+                # At the end we return the collection (a sliced collection
+                # is no more chainable, so we do not return `self`
+
+                optimized, start, count, rev, python_slice = self._optimize_slice(
+                    arg,
+                    can_reverse=True if not self._sort else self._sort.get('by', '') != 'nosort'
+                )
+
+                self._optimized_slicing = optimized
+
+                if optimized and start is None and count is None and python_slice == NONE_SLICE:
+                    return []
+
+                if start is not None or count is not None:
+                    self._sort_limits['start'] = start or 0
+                    self._sort_limits['num'] = -1 if count is None else count
+
+                if rev:
+                    if self._sort is None: self._sort = {}
+                    self._sort['desc'] = not self._sort.get('desc', False)
+
+                return self._collection[python_slice]
+
             else:
                 # A single item has been requested
                 # Nevertheless, use the redis pagination, to minimize
-                # data transfert and use the fast redis offset system
+                # data transfer and use the fast redis offset system
                 start = arg
+                self._sort_limits['num'] = 1  # one element
+                self._optimized_slicing = True
                 if start >= 0:
-                    self._slice['start'] = start
-                    self._slice['num'] = 1  # one element
+                    self._sort_limits['start'] = start
                     return self._collection[0]
                 else:
-                    # negative index, we have to fetch the whole collection first
-                    return self._collection[start]
+                    # we sort the result in the reverse way, mark the final result as
+                    # reversed to re-reverse it at the end
+                    if self._sort is None: self._sort = {}
+                    self._sort['desc'] = not self._sort.get('desc', False)
+                    self._sort_limits['start'] = - start - 1
+                    return self._collection[0]
         finally:
-            self._slice, self._len_mode = old_slice_and_len_mode
+            self._sort_limits, self._len_mode = old_sort_limits_and_len_mode
+            self._sort = old_sort
 
     def _get_pk(self):
         """
@@ -115,13 +206,17 @@ class CollectionManager(object):
     def _prepare_sort_options(self, has_pk):
         """
         Prepare "sort" options to use when calling the collection, depending
-        on "_sort" and "_slice" attributes
+        on "_sort" and "_sort_limits" attributes
         """
         sort_options = {}
         if self._sort is not None and not has_pk:
             sort_options.update(self._sort)
-        if self._slice is not None:
-            sort_options.update(self._slice)
+        if self._sort_limits is not None:
+            if 'start' in self._sort_limits and 'num' not in self._sort_limits:
+                self._sort_limits['num'] = -1
+            elif 'num' in self._sort_limits and 'start' not in self._sort_limits:
+                self._sort_limits['start'] = 0
+            sort_options.update(self._sort_limits)
         if not sort_options and self._sort is None:
             sort_options = None
         return sort_options
@@ -131,8 +226,8 @@ class CollectionManager(object):
         """
         Effectively retrieve data according to lazy_collection.
         """
-        old_slice_and_len_mode = None if self._slice is None else self._slice.copy(), self._len_mode
-        try:  # try block to always reset the _slice in the "finally" part
+        old_sort_limits_and_len_mode = None if self._sort_limits is None else self._sort_limits.copy(), self._len_mode
+        try:  # try block to always reset the _sort_limits in the "finally" part
 
             conn = self.cls.get_connection()
             self._len = 0
@@ -190,13 +285,14 @@ class CollectionManager(object):
                 # Format return values if needed
                 return self._prepare_results(collection)
         finally:
-            self._slice, self._len_mode = old_slice_and_len_mode
+            self._sort_limits, self._len_mode = old_sort_limits_and_len_mode
 
     def _final_redis_call(self, final_set, sort_options):
         """
         The final redis call to obtain the values to return from the "final_set"
         with some sort options.
         """
+
         conn = self.cls.get_connection()
         if sort_options is not None:
             # a sort, or values, call the SORT command on the set
@@ -412,12 +508,12 @@ class CollectionManager(object):
         return self._len
 
     def __repr__(self):
-        old_slice_and_len_mode = None if self._slice is None else self._slice.copy(), self._len_mode
+        old_sort_limits_and_len_mode = None if self._sort_limits is None else self._sort_limits.copy(), self._len_mode
         try:
             self._len_mode = False
             return self._collection.__repr__()
         finally:
-            self._slice, self._len_mode = old_slice_and_len_mode
+            self._sort_limits, self._len_mode = old_sort_limits_and_len_mode
 
     def instances(self, skip_exist_test=False):
         """
