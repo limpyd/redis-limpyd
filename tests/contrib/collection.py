@@ -49,7 +49,7 @@ class CompatibilityTest(BaseTest):
 
         # test "all"
         all_pks = set(Group.collection())
-        self.assertEqual(all_pks, set(['1', '2', '3', '4']))
+        self.assertEqual(all_pks, {'1', '2', '3', '4'})
 
         # test "sort by"
         all_pks_by_name = list(Group.collection().sort(by='name', alpha=True))
@@ -57,7 +57,7 @@ class CompatibilityTest(BaseTest):
 
         # test "filter"
         active_pks = set(Group.collection(active=1))
-        self.assertEqual(active_pks, set(['1', '2']))
+        self.assertEqual(active_pks, {'1', '2'})
         first_group_pk = list(Group.collection(pk=1))
         self.assertEqual(first_group_pk, ['1', ])
         bad_groups = list(Group.collection(pk=10, active=1))
@@ -67,7 +67,7 @@ class CompatibilityTest(BaseTest):
         public_groups = list(Group.collection(public=1).instances())
         self.assertEqual(len(public_groups), 2)
         public_groups_pks = set([g._pk for g in public_groups])
-        self.assertEqual(public_groups_pks, set(['1', '3']))
+        self.assertEqual(public_groups_pks, {'1', '3'})
 
         # test "values"
         active_public_dicts = list(Group.collection(public=1, active=1)
@@ -186,13 +186,13 @@ class FieldOrModelAsValueForSortAndFilterTest(BaseTest):
         # test using field from same model, without updating its value
         group = Group(name='foo')
         collection = Group.collection(name=group.name)
-        attended = set([self.groups[0]._pk, group._pk])
+        attended = {self.groups[0]._pk, group._pk}
         self.assertEqual(set(collection), attended)
 
         # test using a field from same model, updating its value before running the collection
         group = Group(name='foo')
         collection = Group.collection(name=group.name)
-        attended = set([self.groups[1]._pk, group._pk])
+        attended = {self.groups[1]._pk, group._pk}
         group.name.hset('bar')
         self.assertEqual(set(collection), attended)
 
@@ -200,20 +200,20 @@ class FieldOrModelAsValueForSortAndFilterTest(BaseTest):
         # test using a field from another model, without updating its value
         query = FieldOrModelAsValueForSortAndFilterTest.Query(name='foo')
         collection = Group.collection(name=query.name)
-        attended = set([self.groups[0]._pk, ])
+        attended = {self.groups[0]._pk}
         self.assertEqual(set(collection), attended)
 
         # test using a field from another model, updating its value before running the collection
         query = FieldOrModelAsValueForSortAndFilterTest.Query(name='foo')
         collection = Group.collection(name=query.name)
-        attended = set([self.groups[1]._pk, ])
+        attended = {self.groups[1]._pk}
         query.name.hset('bar')
         self.assertEqual(set(collection), attended)
 
         # test using a field from another model, really creating the object later
         query = FieldOrModelAsValueForSortAndFilterTest.Query()
         collection = Group.collection(name=query.name)
-        attended = set([self.groups[2]._pk, ])
+        attended = {self.groups[2]._pk}
         query.name.hset('baz')
         self.assertEqual(set(collection), attended)
 
@@ -222,13 +222,13 @@ class FieldOrModelAsValueForSortAndFilterTest(BaseTest):
         # pass the pk, but value will be get when calling the collection
         collection = Group.collection(pk=group.pk)
         group.name.hset('aaa')  # create a pk for the object
-        attended = set([group.pk.get()])
+        attended = {group.pk.get()}
         self.assertEqual(set(collection), attended)
 
     def test_filter_should_accept_instance_as_value(self):
         group = Group(name='foo')
         collection = Group.collection(pk=group)
-        attended = set([group._pk, ])
+        attended = {group._pk}
         self.assertEqual(set(collection), attended)
 
 
@@ -237,26 +237,26 @@ class FilterTest(BaseTest):
     def test_filter_method_should_add_filter(self):
         # test with one call
         collection = Group.collection(active=1).filter(public=1)
-        self.assertEqual(set(collection), set(['1']))
+        self.assertEqual(set(collection), {'1'})
         # test with two calls
         collection = Group.collection(active=1)
-        self.assertEqual(set(collection), set(['1', '2']))
+        self.assertEqual(set(collection), {'1', '2'})
         collection.filter(public=1)
-        self.assertEqual(set(collection), set(['1']))
+        self.assertEqual(set(collection), {'1'})
         # test with a pk
         collection = Group.collection(active=1).filter(pk=2)
-        self.assertEqual(set(collection), set(['2']))
+        self.assertEqual(set(collection), {'2'})
         collection = Group.collection(active=1).filter(id=1)
-        self.assertEqual(set(collection), set(['1']))
+        self.assertEqual(set(collection), {'1'})
         collection = Group.collection(active=1).filter(id=10)
         self.assertEqual(set(collection), set())
         # test with pk, then filter with other
         collection = Group.collection(pk=2).filter(active=1)
-        self.assertEqual(set(collection), set(['2']))
+        self.assertEqual(set(collection), {'2'})
 
     def test_filter_calls_could_be_chained(self):
         collection = Group.collection().filter(active=1).filter(public=1).filter(pk=1)
-        self.assertEqual(set(collection), set(['1']))
+        self.assertEqual(set(collection), {'1'})
 
     def test_redefining_filter_should_return_empty_result(self):
         collection = Group.collection(active=1).filter(active=0)
@@ -269,9 +269,9 @@ class FilterTest(BaseTest):
 
     def test_filter_should_accept_pks(self):
         collection = Group.collection(pk=1)
-        self.assertEqual(set(collection), set(['1']))
+        self.assertEqual(set(collection), {'1'})
         collection.filter(id=1)
-        self.assertEqual(set(collection), set(['1']))
+        self.assertEqual(set(collection), {'1'})
         collection.filter(pk=2)
         self.assertEqual(set(collection), set())
 
@@ -330,36 +330,36 @@ class IntersectTest(BaseTest):
         self.connection.sadd(set_key, 1, 2)
         collection = set(Group.collection().intersect(set_key))
         self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
-        self.assertEqual(collection, set(['1', '2']))
+        self.assertEqual(collection, {'1', '2'})
 
         set_key = unique_key(self.connection)
         self.connection.sadd(set_key, 1, 2, 10, 50)
         collection = set(Group.collection().intersect(set_key))
-        self.assertEqual(collection, set(['1', '2']))
+        self.assertEqual(collection, {'1', '2'})
 
     def test_intersect_should_accept_sortedset_key_as_string(self):
         zset_key = unique_key(self.connection)
         self.connection.zadd(zset_key, 1.0, 1, 2.0, 2)
         collection = set(Group.collection().intersect(zset_key))
         self.assertEqual(self.last_interstore_call['command'], 'zinterstore')
-        self.assertEqual(collection, set(['1', '2']))
+        self.assertEqual(collection, {'1', '2'})
 
         zset_key = unique_key(self.connection)
         self.connection.zadd(zset_key, 1.0, 1, 2.0, 2, 10.0, 10, 50.0, 50)
         collection = set(Group.collection().intersect(zset_key))
-        self.assertEqual(collection, set(['1', '2']))
+        self.assertEqual(collection, {'1', '2'})
 
     def test_intersect_should_accept_list_key_as_string(self):
         list_key = unique_key(self.connection)
         self.connection.lpush(list_key, 1, 2)
         collection = set(Group.collection().intersect(list_key))
         self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
-        self.assertEqual(collection, set(['1', '2']))
+        self.assertEqual(collection, {'1', '2'})
 
         list_key = unique_key(self.connection)
         self.connection.lpush(list_key, 1, 2, 10, 50)
         collection = set(Group.collection().intersect(list_key))
-        self.assertEqual(collection, set(['1', '2']))
+        self.assertEqual(collection, {'1', '2'})
 
     def test_intersect_should_not_accept_string_key_as_string(self):
         str_key = unique_key(self.connection)
@@ -380,28 +380,28 @@ class IntersectTest(BaseTest):
         self.assertEqual(collection, set())
 
     def test_intersect_should_accept_set(self):
-        collection = set(Group.collection().intersect(set([1, 2])))
+        collection = set(Group.collection().intersect({1, 2}))
         self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
-        self.assertEqual(collection, set(['1', '2']))
+        self.assertEqual(collection, {'1', '2'})
 
-        collection = set(Group.collection().intersect(set([1, 2, 10, 50])))
-        self.assertEqual(collection, set(['1', '2']))
+        collection = set(Group.collection().intersect({1, 2, 10, 50}))
+        self.assertEqual(collection, {'1', '2'})
 
     def test_intersect_should_accept_list(self):
         collection = set(Group.collection().intersect([1, 2]))
         self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
-        self.assertEqual(collection, set(['1', '2']))
+        self.assertEqual(collection, {'1', '2'})
 
         collection = set(Group.collection().intersect([1, 2, 10, 50]))
-        self.assertEqual(collection, set(['1', '2']))
+        self.assertEqual(collection, {'1', '2'})
 
     def test_intersect_should_accept_tuple(self):
         collection = set(Group.collection().intersect((1, 2)))
         self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
-        self.assertEqual(collection, set(['1', '2']))
+        self.assertEqual(collection, {'1', '2'})
 
         collection = set(Group.collection().intersect((1, 2, 10, 50)))
-        self.assertEqual(collection, set(['1', '2']))
+        self.assertEqual(collection, {'1', '2'})
 
     def test_intersect_should_accept_setfield(self):
         container = GroupsContainer()
@@ -409,11 +409,11 @@ class IntersectTest(BaseTest):
         container.groups_set.sadd(1, 2)
         collection = set(Group.collection().intersect(container.groups_set))
         self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
-        self.assertEqual(collection, set(['1', '2']))
+        self.assertEqual(collection, {'1', '2'})
 
         container.groups_set.sadd(10, 50)
         collection = set(Group.collection().intersect(container.groups_set))
-        self.assertEqual(collection, set(['1', '2']))
+        self.assertEqual(collection, {'1', '2'})
 
     def test_intersect_should_accept_listfield_without_scripting(self):
         container = GroupsContainer()
@@ -421,11 +421,11 @@ class IntersectTest(BaseTest):
         container.groups_list.lpush(1, 2)
         collection = set(Group.collection().intersect(container.groups_list))
         self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
-        self.assertEqual(collection, set(['1', '2']))
+        self.assertEqual(collection, {'1', '2'})
 
         container.groups_list.lpush(10, 50)
         collection = set(Group.collection().intersect(container.groups_list))
-        self.assertEqual(collection, set(['1', '2']))
+        self.assertEqual(collection, {'1', '2'})
 
     @unittest.skipUnless(test_database.support_scripting(), "Redis scripting not available")
     def test_intersect_should_accept_listfield_via_scripting(self):
@@ -434,22 +434,22 @@ class IntersectTest(BaseTest):
         container.groups_list.lpush(1, 2)
         collection = set(Group.collection().intersect(container.groups_list))
         self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
-        self.assertEqual(collection, set(['1', '2']))
+        self.assertEqual(collection, {'1', '2'})
 
         container.groups_list.lpush(10, 50)
         collection = set(Group.collection().intersect(container.groups_list))
-        self.assertEqual(collection, set(['1', '2']))
+        self.assertEqual(collection, {'1', '2'})
 
     def test_intersect_should_accept_sortedsetfield(self):
         container = GroupsContainer()
 
         container.groups_sortedset.zadd(1.0, 1, 2.0, 2)
         collection = set(Group.collection().intersect(container.groups_sortedset))
-        self.assertEqual(collection, set(['1', '2']))
+        self.assertEqual(collection, {'1', '2'})
 
         container.groups_sortedset.zadd(10.0, 10, 50.0, 50)
         collection = set(Group.collection().intersect(container.groups_sortedset))
-        self.assertEqual(collection, set(['1', '2']))
+        self.assertEqual(collection, {'1', '2'})
 
     def test_passing_sortedset_in_intersect_use_zinterstore(self):
         container = GroupsContainer()
@@ -492,11 +492,11 @@ class IntersectTest(BaseTest):
 
     def test_intersect_can_be_called_many_times(self):
         collection = set(Group.collection().intersect([1, 2, 3, 10]).intersect([2, 3, 50]))
-        self.assertEqual(collection, set(['2', '3']))
+        self.assertEqual(collection, {'2', '3'})
 
     def test_intersect_can_be_called_with_filter(self):
         collection = Group.collection(active=1).filter(public=1).intersect([1, 2, 3, 10])
-        self.assertEqual(set(collection), set(['1']))
+        self.assertEqual(set(collection), {'1'})
         self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
         collection = collection.intersect([2, 3, 50])
         self.assertEqual(set(collection), set())
@@ -696,7 +696,7 @@ class SortByScoreTest(BaseTest):
 
         # test without sorting by score
         collection = Group.collection(active=1).values_list('name', SORTED_SCORE)
-        self.assertEqual(set(collection), set([('bar', None), ('foo', None)]))
+        self.assertEqual(set(collection), {('bar', None), ('foo', None)})
 
         # test with pk
         collection = Group.collection(pk=1).values('name', SORTED_SCORE).sort(
@@ -867,7 +867,7 @@ class ValuesTest(BaseValuesTest):
         self.assertEqual(len(boats), 4)
         for boat in boats:
             self.assertTrue(isinstance(boat, dict))
-            self.assertEqual(set(boat.keys()), set(['pk', 'name', 'launched']))
+            self.assertEqual(set(boat.keys()), {'pk', 'name', 'launched'})
             test_boat = Boat(boat['pk'])
             self.assertEqual(test_boat.name.get(), boat['name'])
             self.assertEqual(test_boat.launched.get(), boat['launched'])
@@ -876,7 +876,7 @@ class ValuesTest(BaseValuesTest):
         boats = list(Boat.collection().values())
         self.assertEqual(len(boats), 4)
         self.assertTrue(isinstance(boats[0], dict))
-        self.assertEqual(set(boats[0].keys()), set(['pk', 'name', 'power', 'launched', 'length']))
+        self.assertEqual(set(boats[0].keys()), {'pk', 'name', 'power', 'launched', 'length'})
 
     def test_values_should_only_accept_simple_fields(self):
         with self.assertRaises(ValueError):
@@ -909,7 +909,7 @@ class ValuesTest(BaseValuesTest):
 
     def test_call_to_primary_keys_should_cancel_values(self):
         boats = set(Boat.collection().values('pk', 'name', 'launched').primary_keys())
-        self.assertEqual(boats, set(['1', '2', '3', '4']))
+        self.assertEqual(boats, {'1', '2', '3', '4'})
 
 
 class ValuesListTest(BaseValuesTest):
@@ -977,6 +977,6 @@ class ValuesListTest(BaseValuesTest):
 
     def test_call_to_primary_keys_should_cancel_values_list(self):
         boats = set(Boat.collection().values_list('pk', 'name', 'launched').primary_keys())
-        self.assertEqual(boats, set(['1', '2', '3', '4']))
+        self.assertEqual(boats, {'1', '2', '3', '4'})
         boats = set(Boat.collection().values_list('name', flat=True).primary_keys())
-        self.assertEqual(boats, set(['1', '2', '3', '4']))
+        self.assertEqual(boats, {'1', '2', '3', '4'})

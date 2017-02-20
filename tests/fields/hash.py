@@ -32,7 +32,7 @@ class HashFieldTest(BaseModelTest):
     def test_hmset_should_be_indexable(self):
         obj = self.model()
         obj.headers.hmset(**{'from': 'you@moon.io'})
-        self.assertEqual(set(self.model.collection(headers__from='you@moon.io')), set([obj._pk]))
+        self.assertEqual(set(self.model.collection(headers__from='you@moon.io')), {obj._pk})
 
         # Now change value and check first has been deindexed and new redindexed
         obj.headers.hmset(**{'from': 'you@mars.io'})
@@ -45,7 +45,7 @@ class HashFieldTest(BaseModelTest):
         self.assertEqual(obj.headers.hget('from'), 'someone@cassini.io')
 
         self.assertEqual(set(self.model.collection(headers__from='someone@cassini.io')),
-                         set([obj._pk]))
+                         {obj._pk})
 
         # Now change value and check first has been deindexed and new redindexed
         obj.headers.hset('from', 'someoneelse@cassini.io')
@@ -144,7 +144,7 @@ class HashFieldTest(BaseModelTest):
         obj = self.model(headers=headers)
         self.assertEqual(
             set(obj.headers.hkeys()),
-            set(['from', 'to'])
+            {'from', 'to'}
         )
 
     def test_hvals_should_return_all_values(self):
@@ -155,7 +155,7 @@ class HashFieldTest(BaseModelTest):
         obj = self.model(headers=headers)
         self.assertEqual(
             set(obj.headers.hvals()),
-            set(['foo@bar.com', 'me@world.org'])
+            {'foo@bar.com', 'me@world.org'}
         )
 
     def test_hexists_should_check_if_key_exists(self):

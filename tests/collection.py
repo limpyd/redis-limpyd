@@ -35,9 +35,9 @@ class CollectionTest(CollectionBaseTest):
         Bike()
         self.assertEqual(set(Bike.collection()), set())
         bike1 = Bike(name="trotinette")
-        self.assertEqual(set(Bike.collection()), set([bike1._pk]))
+        self.assertEqual(set(Bike.collection()), {bike1._pk})
         bike2 = Bike(name="tommasini")
-        self.assertEqual(set(Bike.collection()), set([bike1._pk, bike2._pk]))
+        self.assertEqual(set(Bike.collection()), {bike1._pk, bike2._pk})
 
     def test_filter_from_kwargs(self):
         self.assertEqual(len(list(Boat.collection())), 4)
@@ -203,14 +203,14 @@ class SliceTest(CollectionBaseTest):
     def test_slicing_is_reset_on_next_call(self):
         # test whole content
         collection = Boat.collection()
-        self.assertEqual(set(collection[1:]), set(['2', '3', '4']))
-        self.assertEqual(set(collection), set(['1', '2',  '3', '4']))
+        self.assertEqual(set(collection[1:]), {'2', '3', '4'})
+        self.assertEqual(set(collection), {'1', '2', '3', '4'})
 
         # test __iter__
         collection = Boat.collection()
-        self.assertEqual(set(collection[1:]), set(['2', '3', '4']))
+        self.assertEqual(set(collection[1:]), {'2', '3', '4'})
         all_pks = set([pk for pk in collection])
-        self.assertEqual(all_pks, set(['1', '2',  '3', '4']))
+        self.assertEqual(all_pks, {'1', '2', '3', '4'})
 
 
 class SortTest(CollectionBaseTest):
@@ -473,7 +473,7 @@ class InstancesTest(CollectionBaseTest):
 
     def test_call_to_primary_keys_should_cancel_instances(self):
         boats = set(Boat.collection().instances().primary_keys())
-        self.assertEqual(boats, set(['1', '2', '3', '4']))
+        self.assertEqual(boats, {'1', '2', '3', '4'})
 
 
 class LenTest(CollectionBaseTest):
@@ -494,7 +494,7 @@ class LenTest(CollectionBaseTest):
     def test_len_call_could_be_followed_by_a_iter(self):
         collection = Boat.collection(power="sail")
         self.assertEqual(len(collection), 3)
-        self.assertEqual(set(collection), set(['1', '2', '3']))
+        self.assertEqual(set(collection), {'1', '2', '3'})
 
     def test_len_should_work_with_slices(self):
         collection = Boat.collection(power="sail")[1:3]

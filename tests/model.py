@@ -549,14 +549,14 @@ class InheritanceTest(LimpydBaseTest):
         """
         bike = Bike()
         self.assertEqual(len(bike._fields), 4)
-        self.assertEqual(set(bike._fields), set(['pk', 'name', 'wheels', 'passengers']))
+        self.assertEqual(set(bike._fields), {'pk', 'name', 'wheels', 'passengers'})
         motorbike = MotorBike()
         self.assertEqual(len(motorbike._fields), 5)
         self.assertEqual(set(motorbike._fields),
-                         set(['pk', 'name', 'wheels', 'passengers', 'power']))
+                         {'pk', 'name', 'wheels', 'passengers', 'power'})
         boat = Boat()
         self.assertEqual(len(boat._fields), 5)
-        self.assertEqual(set(boat._fields), set(['pk', 'name', 'launched', 'power', 'length']))
+        self.assertEqual(set(boat._fields), {'pk', 'name', 'launched', 'power', 'length'})
 
     def test_inheritance_values(self):
         """

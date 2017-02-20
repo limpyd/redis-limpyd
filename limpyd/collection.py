@@ -272,7 +272,7 @@ class CollectionManager(object):
                     if pk and not self._lazy_collection['sets']:
                         # we have a pk without other sets, and no
                         # needs to get values so we can simply return the pk
-                        collection = set([pk])
+                        collection = {pk}
                     else:
                         # we have nothing
                         collection = {}
