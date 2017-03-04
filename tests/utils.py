@@ -51,7 +51,3 @@ class LimpydBaseTestTest(LimpydBaseTest):
         self.assertEqual(self.count_keys(), 0)
         self.connection.set('__test__', '__test__')
         self.assertEqual(self.count_keys(), 1)
-
-
-if __name__ == '__main__':
-    unittest.main()
