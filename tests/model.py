@@ -317,7 +317,7 @@ class DatabaseTest(LimpydBaseTest):
                 # no reason to fail, but still test it
                 self.test.assertEqual(ThreadableModel.database, db1)
                 # wait a little to let the main thread set database to db2
-                time.sleep(0.1)
+                time.sleep(0.2)
                 self.test.assertEqual(ThreadableModel.database, db2)
                 # will be tested in main thread
                 ThreadableModel.use_database(db3)
@@ -329,7 +329,7 @@ class DatabaseTest(LimpydBaseTest):
         ThreadableModel.use_database(db2)
 
         # wait a little to let the child thread set database to db3
-        time.sleep(0.2)
+        time.sleep(0.4)
         self.assertEqual(ThreadableModel.database, db3)
 
     def test_database_should_accept_new_redis_connection_settings(self):
