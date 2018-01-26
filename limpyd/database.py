@@ -63,13 +63,21 @@ class RedisDatabase(object):
     def _add_model(self, model):
         """
         Save this model as one existing on this database, to deny many models
-        with same namespace and name
+        with same namespace and name.
+        If the model already exists, check if it is the same. It can happen if the
+        module is imported twice in different ways.
+        If it's a new model or an existing and valid one, return the model in database: the
+        one added or the existing one
         """
-        if model._name in self._models:
+        name = model._name
+        existing = self._models.get(name, None)
+        if not existing:
+            self._models[name] = model
+        elif model.__name__ != existing.__name__ or model._creation_source != existing._creation_source:
             raise ImplementationError(
                 'A model with namespace "%s" and name "%s" is already defined '
                 'on this database' % (model.namespace, model.__name__))
-        self._models[model._name] = model
+        return self._models[name]
 
     def _use_for_model(self, model):
         """

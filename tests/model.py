@@ -4,15 +4,10 @@ from __future__ import unicode_literals
 from future import standard_library
 standard_library.install_hooks()
 
-import sys
-if sys.version_info >= (2, 7):
-    import unittest
-else:
-    import unittest2 as unittest
-
 from datetime import datetime
 import threading
 import time
+import unittest
 
 from limpyd import model
 from limpyd import fields
@@ -177,6 +172,11 @@ class DatabaseTest(LimpydBaseTest):
                 name = fields.StringField()
                 namespace = 'sub-tests'
             self.assertNotEqual(MainBike._name, Bike2._name)
+
+            with self.assertRaises(ImplementationError):
+                class Bike2(TestRedisModel):
+                    name = fields.StringField()
+                    namespace = 'sub-tests'
 
         sub_test()
 
