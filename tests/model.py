@@ -9,7 +9,7 @@ import threading
 import time
 import unittest
 
-from limpyd import model
+from limpyd import model, fields
 from limpyd import fields
 from limpyd.exceptions import *
 
@@ -44,6 +44,10 @@ class Boat(TestRedisModel):
     power = fields.InstanceHashField(indexable=True, default="sail")
     launched = fields.StringField(indexable=True)
     length = fields.StringField()
+
+
+class Email(TestRedisModel):
+    headers = fields.HashField(indexable=True)
 
 
 class BaseModelTest(LimpydBaseTest):

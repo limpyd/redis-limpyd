@@ -35,16 +35,6 @@ class ExtendedCollectionManager(CollectionManager):
                 return 1
             """,
         },
-        'zset_to_set': {
-            # add all members of the zset in a new set
-            'lua': """
-                redis.call('del', KEYS[2])
-                for i, member in ipairs(redis.call('zrange', KEYS[1], 0, -1)) do
-                    redis.call('sadd', KEYS[2], member)
-                end
-                return 1
-            """,
-        },
     }
 
     def __init__(self, cls):
@@ -74,27 +64,17 @@ class ExtendedCollectionManager(CollectionManager):
             script['script_object'] = conn.register_script(script['lua'])
         return script['script_object'](keys=keys, args=args, client=conn)
 
-    def _list_to_set(self, list_field, set_key):
+    def _list_to_set(self, list_key, set_key):
         """
         Store all content of the given ListField in a redis set.
         Use scripting if available to avoid retrieving all values locally from
         the list before sending them back to the set
         """
         if self.cls.database.has_scripting():
-            self._call_script('list_to_set', keys=[list_field.key, set_key])
+            self._call_script('list_to_set', keys=[list_key, set_key])
         else:
-            self.cls.get_connection().sadd(set_key, *list_field.lmembers())
-
-    def _sortedset_to_set(self, sortedset_field, set_key):
-        """
-        Store all content of the given SortedSetField in a redis set.
-        Use scripting if available to avoid retrieving all values locally from
-        the sorted set before sending them back to the set
-        """
-        if self.cls.database.has_scripting():
-            self._call_script('zset_to_set', keys=[sortedset_field.key, set_key])
-        else:
-            self.cls.get_connection().sadd(set_key, *sortedset_field.zmembers())
+            conn = self.cls.get_connection()
+            conn.sadd(set_key, *conn.lrange(list_key, 0, -1))
 
     @property
     def _collection(self):
@@ -102,13 +82,17 @@ class ExtendedCollectionManager(CollectionManager):
         Effectively retrieve data according to lazy_collection.
         If we have a stored collection, without any result, return an empty list
         """
-        if self.stored_key and not self._stored_len:
-            if self._len_mode:
-                self._len = 0
-                self._len_mode = False
-            self._slice = {}
-            return []
-        return super(ExtendedCollectionManager, self)._collection
+        old_slice_and_len_mode = None if self._slice is None else self._slice.copy(), self._len_mode
+        try:
+            if self.stored_key and not self._stored_len:
+                if self._len_mode:
+                    self._len = 0
+                    self._len_mode = False
+                self._slice = {}
+                return []
+            return super(ExtendedCollectionManager, self)._collection
+        finally:
+            self._slice, self._len_mode = old_slice_and_len_mode
 
     def _prepare_sets(self, sets):
         """
@@ -117,19 +101,47 @@ class ExtendedCollectionManager(CollectionManager):
         As the new "intersect" method can accept different types of "set", we
         have to handle them because we must return only keys of redis sets.
         """
+
+        if self.stored_key and not self.stored_key_exists():
+            raise DoesNotExist('This collection is based on a previous one, '
+                               'stored at a key that does not exist anymore.')
+
         conn = self.cls.get_connection()
 
         all_sets = set()
         tmp_keys = set()
         only_one_set = len(sets) == 1
 
-        if self.stored_key and not self.stored_key_exists():
-            raise DoesNotExist('This collection is based on a previous one, '
-                               'stored at a key that does not exist anymore.')
+        def add_key(key, key_type=None, is_tmp=False):
+            if not key_type:
+                key_type = conn.type(key)
+            if key_type == 'set':
+                all_sets.add(key)
+            elif key_type == 'zset':
+                all_sets.add(key)
+                self._has_sortedsets = True
+            elif key_type == 'list':
+                if only_one_set:
+                    # we only have this list, use it directly
+                    all_sets.add(key)
+                else:
+                    # many sets, convert the list to a simple redis set
+                    tmp_key = self._unique_key()
+                    self._list_to_set(key, tmp_key)
+                    add_key(tmp_key, 'set', True)
+            elif key_type == 'none':
+                # considered as an empty set
+                 all_sets.add(key)
+            else:
+                raise ValueError('Cannot use redis key %s of type %s for filtering' % (
+                    key, key_type
+                ))
+            if is_tmp:
+                tmp_keys.add(key)
 
         for set_ in sets:
             if isinstance(set_, str):
-                all_sets.add(set_)
+                add_key(set_)
             elif isinstance(set_, ExtendedFilter):
                 # We have a RedisModel and we'll use its pk, or a RedisField
                 # (single value) and we'll use its value
@@ -142,31 +154,22 @@ class ExtendedCollectionManager(CollectionManager):
                 else:
                     raise ValueError(u'Invalide filter value for %s: %s' % (field_name, value))
                 key = field.index_key(val)
-                all_sets.add(key)
+                add_key(key)
             elif isinstance(set_, SetField):
                 # Use the set key. If we need to intersect, we'll use
                 # sunionstore, and if not, store accepts set
-                all_sets.add(set_.key)
+                add_key(set_.key, 'set')
             elif isinstance(set_, SortedSetField):
                 # Use the sorted set key. If we need to intersect, we'll use
                 # zinterstore, and if not, store accepts zset
-                all_sets.add(set_.key)
+                add_key(set_.key, 'zset')
             elif isinstance(set_, (ListField, _StoredCollection)):
-                if only_one_set:
-                    # we only have this list, use it directly
-                    all_sets.add(set_.key)
-                else:
-                    # many sets, convert the list to a simple redis set
-                    tmp_key = self._unique_key()
-                    self._list_to_set(set_, tmp_key)
-                    tmp_keys.add(tmp_key)
-                    all_sets.add(tmp_key)
+                add_key(set_.key, 'list')
             elif isinstance(set_, tuple) and len(set_):
                 # if we got a list or set, create a redis set to hold its values
                 tmp_key = self._unique_key()
                 conn.sadd(tmp_key, *set_)
-                tmp_keys.add(tmp_key)
-                all_sets.add(tmp_key)
+                add_key(tmp_key, 'set', True)
 
         return all_sets, tmp_keys
 
@@ -183,7 +186,8 @@ class ExtendedCollectionManager(CollectionManager):
         Each "set" represent a list of pk, the final goal is to return only pks
         matching the intersection of all sets.
         A "set" can be:
-        - a string: considered as a redis set's name
+        - a string: considered as the name of a redis set, sorted set or list
+            (if a list, values will be stored in a temporary set)
         - a list, set or tuple: values will be stored in a temporary set
         - a SetField: we will directly use it's content on redis
         - a ListField or SortedSetField: values will be stored in a temporary
@@ -200,7 +204,8 @@ class ExtendedCollectionManager(CollectionManager):
             elif not isinstance(set_, (tuple, str, MultiValuesField, _StoredCollection)):
                 raise ValueError('%s is not a valid type of argument that can '
                                  'be used as a set. Allowed are: string (key '
-                                 'of a redis set), limpyd multi-values field ('
+                                 'of a redis set, sorted set or list), '
+                                 'limpyd multi-values field ('
                                  'SetField, ListField or SortedSetField), or '
                                  'real python set, list or tuple' % set_)
             if isinstance(set_, SortedSetField):
@@ -648,51 +653,56 @@ class ExtendedCollectionManager(CollectionManager):
         DEFAULT_STORE_TTL, which is 60 secondes. You can pass None if you don't
         want expiration.
         """
-        self._store = True
+        old_slice_and_len_mode = None if self._slice is None else self._slice.copy(), self._len_mode
+        try:
+            self._store = True
 
-        # save sort and values options
-        sort_options = None
-        if self._sort is not None:
-            sort_options = self._sort.copy()
-        values = None
-        if self._values is not None:
-            values = self._values
-            self._values = None
+            # save sort and values options
+            sort_options = None
+            if self._sort is not None:
+                sort_options = self._sort.copy()
+            values = None
+            if self._values is not None:
+                values = self._values
+                self._values = None
 
-        # create a key for storage
-        store_key = key or self._unique_key()
-        if self._sort is None:
-            self._sort = {}
-        self._sort['store'] = store_key
+            # create a key for storage
+            store_key = key or self._unique_key()
+            if self._sort is None:
+                self._sort = {}
+            self._sort['store'] = store_key
 
-        # if filter by pk, but without need to get "values", no redis call is done
-        # so force values to get a call to sort (to store result)
-        if self._lazy_collection['pks'] and not self._values:
-            self.values('pk')
+            # if filter by pk, but without need to get "values", no redis call is done
+            # so force values to get a call to sort (to store result)
+            if self._lazy_collection['pks'] and not self._values:
+                self.values('pk')
 
-        # call the collection
-        self._len_mode = False
-        self._collection
+            # call the collection
+            self._len_mode = False
+            self._collection
 
-        # restore sort and values options
-        self._store = False
-        self._sort = sort_options
-        self._values = values
+            # restore sort and values options
+            self._store = False
+            self._sort = sort_options
+            self._values = values
 
-        # create the new collection
-        stored_collection = self.__class__(self.cls)
-        stored_collection.from_stored(store_key)
+            # create the new collection
+            stored_collection = self.__class__(self.cls)
+            stored_collection.from_stored(store_key)
 
-        # apply ttl if needed
-        if ttl is not None:
-            self.cls.get_connection().expire(store_key, ttl)
+            # apply ttl if needed
+            if ttl is not None:
+                self.cls.get_connection().expire(store_key, ttl)
 
-        # set choices about instances/values from the current to the new collection
-        for attr in ('_instances', '_instances_skip_exist_test', '_values'):
-            setattr(stored_collection, attr, deepcopy(getattr(self, attr)))
+            # set choices about instances/values from the current to the new collection
+            for attr in ('_instances', '_instances_skip_exist_test', '_values'):
+                setattr(stored_collection, attr, deepcopy(getattr(self, attr)))
 
-        # finally return the new collection
-        return stored_collection
+            # finally return the new collection
+            return stored_collection
+
+        finally:
+            self._slice, self._len_mode = old_slice_and_len_mode
 
     def from_stored(self, key):
         """

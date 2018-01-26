@@ -45,44 +45,52 @@ class CollectionManager(object):
                                 # case, specifically set to False in other cases
 
     def __iter__(self):
-        self._len_mode = False
-        return self._collection.__iter__()
+        old_slice_and_len_mode = None if self._slice is None else self._slice.copy(), self._len_mode
+        try:
+            self._len_mode = False
+            return self._collection.__iter__()
+        finally:
+            self._slice, self._len_mode = old_slice_and_len_mode
 
     def __getitem__(self, arg):
-        self._len_mode = False
-        self._slice = {}
-        if isinstance(arg, slice):
-            # A slice has been requested
-            # so add it to the sort parameters (via slice)
-            # and return the collection (a scliced collection is no more
-            # chainable, so we do not return `self`)
-            start = arg.start or 0
-            if start < 0:
-                # in case of a negative start, we can't use redis sort so
-                # we fetch all the collection before returning the wanted slice
-                return self._collection[arg]
-            self._slice['start'] = start
-            stop = arg.stop
-            # Redis expects a number of elements
-            # not a python style stop value
-            if stop is None:
-                # negative value for the count return all
-                self._slice['num'] = -1
-            else:
-                self._slice['num'] = stop - start
-            return self._collection
-        else:
-            # A single item has been requested
-            # Nevertheless, use the redis pagination, to minimize
-            # data transfert and use the fast redis offset system
-            start = arg
-            if start >= 0:
+        old_slice_and_len_mode = None if self._slice is None else self._slice.copy(), self._len_mode
+        try:
+            self._len_mode = False
+            self._slice = {}
+            if isinstance(arg, slice):
+                # A slice has been requested
+                # so add it to the sort parameters (via slice)
+                # and return the collection (a scliced collection is no more
+                # chainable, so we do not return `self`)
+                start = arg.start or 0
+                if start < 0:
+                    # in case of a negative start, we can't use redis sort so
+                    # we fetch all the collection before returning the wanted slice
+                    return self._collection[arg]
                 self._slice['start'] = start
-                self._slice['num'] = 1  # one element
-                return self._collection[0]
+                stop = arg.stop
+                # Redis expects a number of elements
+                # not a python style stop value
+                if stop is None:
+                    # negative value for the count return all
+                    self._slice['num'] = -1
+                else:
+                    self._slice['num'] = stop - start
+                return self._collection
             else:
-                # negative index, we have to fetch the whole collection first
-                return self._collection[start]
+                # A single item has been requested
+                # Nevertheless, use the redis pagination, to minimize
+                # data transfert and use the fast redis offset system
+                start = arg
+                if start >= 0:
+                    self._slice['start'] = start
+                    self._slice['num'] = 1  # one element
+                    return self._collection[0]
+                else:
+                    # negative index, we have to fetch the whole collection first
+                    return self._collection[start]
+        finally:
+            self._slice, self._len_mode = old_slice_and_len_mode
 
     def _get_pk(self):
         """
@@ -116,6 +124,7 @@ class CollectionManager(object):
         """
         Effectively retrieve data according to lazy_collection.
         """
+        old_slice_and_len_mode = None if self._slice is None else self._slice.copy(), self._len_mode
         try:  # try block to always reset the _slice in the "finally" part
 
             conn = self.cls.get_connection()
@@ -165,12 +174,8 @@ class CollectionManager(object):
 
                 # Format return values if needed
                 return self._prepare_results(collection)
-
-        except:  # raise original exception
-            raise
-        finally:  # always reset the slice, having an exception or not
-            self._slice = {}
-            self._len_mode = True
+        finally:
+            self._slice, self._len_mode = old_slice_and_len_mode
 
     def _final_redis_call(self, final_set, sort_options):
         """
@@ -303,6 +308,20 @@ class CollectionManager(object):
                 key_path = key.split('__')
                 field_name = key_path.pop(0)
                 field = self.cls.get_field(field_name)
+
+                if not field.indexable:
+                    raise ImplementationError(
+                        'Field %s.%s is not indexable' % (
+                            field._model._name, field.name
+                        )
+                    )
+
+                if len(key_path) != field._field_parts - 1:
+                    raise ImplementationError(
+                        'Unexpected number of parts in filter %s for field %s.%s' % (
+                            key, field._model._name, field.name
+                        )
+                    )
                 self._lazy_collection['sets'].add(field.index_key(value, *key_path))
         return self
 
@@ -315,8 +334,12 @@ class CollectionManager(object):
         return self._len
 
     def __repr__(self):
-        self._len_mode = False
-        return self._collection.__repr__()
+        old_slice_and_len_mode = None if self._slice is None else self._slice.copy(), self._len_mode
+        try:
+            self._len_mode = False
+            return self._collection.__repr__()
+        finally:
+            self._slice, self._len_mode = old_slice_and_len_mode
 
     def instances(self, skip_exist_test=False):
         """

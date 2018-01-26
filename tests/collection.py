@@ -45,7 +45,7 @@ class CollectionTest(CollectionBaseTest):
         self.assertEqual(len(list(Boat.collection(power="sail", launched=1966))), 1)
 
     def test_should_raise_if_filter_is_not_indexable_field(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ImplementationError):
             Boat.collection(length=15.1)
 
     def test_collection_should_be_lazy(self):
@@ -137,6 +137,21 @@ class CollectionTest(CollectionBaseTest):
         self.assertEqual(len(list(Group.collection())), 1)
         # all groups by using the default manager
         self.assertEqual(len(list(Group.collection(manager=CollectionManager))), 2)
+
+    def test_number_of_parts_in_filter_key(self):
+        class MyEmail(TestRedisModel):
+            subject = fields.StringField(indexable=True)
+            headers = fields.HashField(indexable=True)
+
+        MyEmail.collection(subject='hello')
+        with self.assertRaises(ImplementationError):
+            MyEmail.collection(subject__building='hello')
+
+        MyEmail.collection(headers__from='you@moon.io')
+        with self.assertRaises(ImplementationError):
+            MyEmail.collection(headers='you@moon.io')
+        with self.assertRaises(ImplementationError):
+            MyEmail.collection(headers__from__age='you@moon.io')
 
 
 class SliceTest(CollectionBaseTest):

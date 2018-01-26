@@ -643,7 +643,7 @@ Here is an example:
 - a python list
 - a python set
 - a python tuple
-- a string, which must be the key of a Redis_ set (cannot be a list of sorted set for now)
+- a string, which must be the key of a Redis_ set, sorted_set or list (long operation if a list)
 - a `limpyd` :ref:`SetField`, attached to a model
 - a `limpyd` :ref:`ListField`, attached to a model
 - a `limpyd` :ref:`SortedSetField`, attached to a model
