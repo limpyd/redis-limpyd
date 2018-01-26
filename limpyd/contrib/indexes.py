@@ -250,3 +250,10 @@ DateTimeIndex = MultiIndexes.compose([
     DateSimpleTimeIndex,
     TimeIndexParts.configure(transform=lambda value: value[11:]),
 ], name='DateTimeIndex')
+
+# And a simple datetime index without parts
+SimpleDateTimeIndex = MultiIndexes.compose([
+    TextRangeIndex.configure(key='full', name='FullDateTimeRangeIndex'),
+    DateRangeIndex.configure(prefix='date'),
+    TimeRangeIndex.configure(prefix='time', transform=lambda value: value[11:])  # pass only time
+], name='SimpleDateTimeIndex', transform=lambda value: value[:19])

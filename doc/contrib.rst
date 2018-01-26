@@ -909,6 +909,17 @@ And to have the same with the time parts, simply compose a new index with the la
     ...     TimeIndexParts.configure(transform=lambda value: value[11:]),  # pass only time
     ... ], name='DateTimeIndex')
 
+For simplest cases let's make a ``SimpleDateTimeIndex`` that doesn't contains parts:
+
+.. code:: python
+
+    >>> SimpleDateTimeIndex = MultiIndexes.compose([
+    ...     TextRangeIndex.configure(key='full', name='FullDateTimeRangeIndex'),
+    ...     DateRangeIndex.configure(prefix='date'),
+    ...     TimeRangeIndex.configure(prefix='time', transform=lambda value: value[11:])  # pass only time
+    ... ], name='SimpleDateTimeIndex', transform=lambda value: value[:19])  # restrict on date+time
+
+
 And we're done!
 
 .. _Redis: http://redis.io

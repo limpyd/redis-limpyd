@@ -5,7 +5,7 @@ from __future__ import unicode_literals
 import unittest
 
 from limpyd import fields
-from limpyd.contrib.indexes import MultiIndexes, DateIndex, DateTimeIndex, TimeIndex
+from limpyd.contrib.indexes import MultiIndexes, DateIndex, DateTimeIndex, SimpleDateTimeIndex, TimeIndex
 from limpyd.exceptions import ImplementationError, UniquenessError
 from limpyd.indexes import BaseIndex, NumberRangeIndex, TextRangeIndex, EqualIndex
 
@@ -176,7 +176,9 @@ class DateTimeModelTest(TestRedisModel):
     time = fields.InstanceHashField(indexable=True, indexes=[TimeIndex])
     unique_time = fields.InstanceHashField(indexable=True, indexes=[TimeIndex], unique=True)
     datetime = fields.InstanceHashField(indexable=True, indexes=[DateTimeIndex])
+    simple_datetime = fields.InstanceHashField(indexable=True, indexes=[SimpleDateTimeIndex])
     unique_datetime = fields.InstanceHashField(indexable=True, indexes=[DateTimeIndex], unique=True)
+    unique_simple_datetime = fields.InstanceHashField(indexable=True, indexes=[SimpleDateTimeIndex], unique=True)
 
 
 @unittest.skipIf(*skip_if_no_zrangebylex)
@@ -350,6 +352,62 @@ class DateTimeIndexesTestCase(LimpydBaseTest):
             {pk1, pk5}
         )
 
+    def test_simple_datetime_index(self):
+        obj1 = DateTimeModelTest(simple_datetime='2015-12-16 15:16:17')
+        pk1 = obj1.pk.get()
+        obj2 = DateTimeModelTest(simple_datetime='2014-09-07 05:06:07')
+        pk2 = obj2.pk.get()
+        obj3 = DateTimeModelTest(simple_datetime='2015-06-12 15:16:17')
+        pk3 = obj3.pk.get()
+        obj4 = DateTimeModelTest(simple_datetime='2016-12-31 05:06:07')
+        pk4 = obj4.pk.get()
+
+        # not unique so same date is ok
+        obj5 = DateTimeModelTest(simple_datetime='2015-12-16 15:16:17')
+        pk5 = obj5.pk.get()
+
+        # check full date
+        self.assertSetEqual(
+            set(DateTimeModelTest.collection(simple_datetime='2015-12-16 15:16:17')),
+            {pk1, pk5}
+        )
+        self.assertSetEqual(
+            set(DateTimeModelTest.collection(simple_datetime__gte='2015-06-12 1')),
+            {pk1, pk3, pk4, pk5}
+        )
+
+        # check date
+        self.assertSetEqual(
+            set(DateTimeModelTest.collection(simple_datetime__date='2015-12-16')),
+            {pk1, pk5}
+        )
+
+        self.assertSetEqual(
+            set(DateTimeModelTest.collection(simple_datetime__date__lt='2015-07')),
+            {pk2, pk3}
+        )
+
+        # check time
+        self.assertSetEqual(
+            set(DateTimeModelTest.collection(simple_datetime__time='15:16:17')),
+            {pk1, pk3, pk5}
+        )
+        self.assertSetEqual(
+            set(DateTimeModelTest.collection(simple_datetime__time__lt='15')),
+            {pk2, pk4}
+        )
+
+        # be crazy, check all for '2015-12-16 15:16:17'
+        # All are ended so it should work
+        self.assertSetEqual(
+            set(DateTimeModelTest.collection(
+                simple_datetime='2015-12-16 15:16:17',
+                simple_datetime__date='2015-12-16',
+                simple_datetime__time='15:16:17',
+            )),
+            {pk1, pk5}
+        )
+
     def test_datetime_unique_index(self):
 
         DateTimeModelTest(unique_datetime='2001-01-01 01:01:01')
@@ -374,3 +432,28 @@ class DateTimeIndexesTestCase(LimpydBaseTest):
         # but cannot add the same full datetime
         with self.assertRaises(UniquenessError):
             DateTimeModelTest(unique_datetime='2007-07-07 07:07:07')
+
+    def test_simple_datetime_unique_index(self):
+
+        DateTimeModelTest(unique_simple_datetime='2001-01-01 01:01:01')
+        # can add on same year (diff month/day/hour/min/sec)
+        DateTimeModelTest(unique_simple_datetime='2001-02-02 02:02:02')
+        # can add on same month (diff year/day/hour/min/sec)
+        DateTimeModelTest(unique_simple_datetime='2002-02-03 03:03:03')
+        # can add on same day (diff year/month/hour/min/sec)
+        DateTimeModelTest(unique_simple_datetime='2003-03-03 04:04:04')
+        # can add on same hour (diff year/month/day/min/sec)
+        DateTimeModelTest(unique_simple_datetime='2004-04-04 04:05:05')
+        # can add on same minute (diff year/month/day/hour/sec)
+        DateTimeModelTest(unique_simple_datetime='2005-05-05 05:05:06')
+        # can add on same second (diff year/month/day/hour/min)
+        DateTimeModelTest(unique_simple_datetime='2006-06-06 06:06:06')
+
+        # can add on same date (diff time)
+        DateTimeModelTest(unique_simple_datetime='2006-06-06 07:07:07')
+        # can add on same time (diff date)
+        DateTimeModelTest(unique_simple_datetime='2007-07-07 07:07:07')
+
+        # but cannot add the same full datetime
+        with self.assertRaises(UniquenessError):
+            DateTimeModelTest(unique_simple_datetime='2007-07-07 07:07:07')
