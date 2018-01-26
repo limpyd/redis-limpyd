@@ -132,6 +132,7 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
     abstract = True
     collection_manager = CollectionManager
     DoesNotExist = DoesNotExist
+    default_indexes = None
 
     available_getters = ('hmget', 'hgetall', 'hkeys', 'hvals', 'hlen')
     available_modifiers = ('hmset', 'hdel')
@@ -198,9 +199,8 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
                     raise ValueError(u"`%s` is not a valid field name "
                                       "for `%s`." % (field_name, self.__class__.__name__))
                 field = self.get_field(field_name)
-                if field.unique and self.exists(**{field_name: value}):
-                    raise UniquenessError(u"Field `%s` must be unique. "
-                                           "Value `%s` yet indexed." % (field.name, value))
+                if field.unique:
+                    field.check_uniqueness(value)
                 self._init_fields.add(field_name)
 
             # Do instanciate, starting by the pk and respecting fields order
@@ -216,6 +216,12 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
         if len(args) == 1:
             self._pk = self.pk.normalize(args[0])
             self.connect()
+
+    @classmethod
+    def get_default_indexes(cls):
+        if cls.default_indexes is not None:
+            return cls.default_indexes
+        return cls.database.get_default_indexes()
 
     def connect(self):
         """
@@ -321,7 +327,6 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
             field = self.get_field(field_name)
             if hasattr(field, "default"):
                 field.proxy_set(field.default)
-        delattr(self, '_init_fields')
 
     @classmethod
     def collection(cls, manager=None, **filters):
@@ -470,11 +475,11 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
             # We revert indexes previously set if we have an exception, then
             # really raise the error
             for field in indexed:
-                field._rollback_index()
+                field._rollback_indexes()
             raise
         finally:
             for field in indexed:
-                field._reset_index_cache()
+                field._reset_indexes_caches()
 
     def hdel(self, *args):
         """

@@ -5,7 +5,7 @@ from future.builtins import object
 import sys
 import unittest
 
-from redis import VERSION as redispy_version
+from redis import VERSION as redispy_version, Redis
 
 from limpyd.database import (RedisDatabase, DEFAULT_CONNECTION_SETTINGS)
 
@@ -100,3 +100,10 @@ class _AssertNumCommandsContext(object):
                 executed, self.num
             )
         )
+
+
+skip_if_no_zrangebylex = (
+    not hasattr(Redis, 'zrangebylex'),
+    'Redis-py %s does not support zrangebylex' % '.'.join(map(str, redispy_version))
+)
+

@@ -1,10 +1,15 @@
 # -*- coding:utf-8 -*-
 from __future__ import unicode_literals
 from future.builtins import object
+from collections import namedtuple
+
 
 from limpyd.utils import unique_key
 from limpyd.exceptions import *
 from limpyd.fields import MultiValuesField
+
+
+ParsedFilter = namedtuple('ParsedFilter', ['index', 'suffix', 'extra_field_parts', 'value'])
 
 
 class CollectionManager(object):
@@ -23,10 +28,12 @@ class CollectionManager(object):
     Slicing a collection will force a sort.
     """
 
+    _accepted_key_types = {'set'}  # Type of keys indexes are allowed to return
+
     def __init__(self, cls):
         self.cls = cls
         self._lazy_collection = {  # Store infos to make the requested collection
-            'sets': set(),  # store sets to use (we'll intersect them)
+            'sets': [],  # store sets to use (we'll intersect them)
             'pks': set(),  # store special filter on pk
         }
         self._instances = False  # True when instances are asked
@@ -229,7 +236,31 @@ class CollectionManager(object):
         Must return a tuple with a set of redis set keys, and another with
         new temporary keys to drop at the end of _get_final_set
         """
-        return (sets, set())
+
+        final_sets = set()
+        tmp_keys = set()
+
+        for set_ in sets:
+            if isinstance(set_, str):
+                final_sets.add(set_)
+            elif isinstance(set_, ParsedFilter):
+
+                index_key, key_type, is_tmp = set_.index.get_filtered_key(
+                    set_.suffix,
+                    accepted_key_types=self._accepted_key_types,
+                    *(set_.extra_field_parts + [set_.value])
+                )
+                if key_type not in self._accepted_key_types:
+                    raise ValueError('The index key returned by the index %s is not valid' % (
+                        set_.index.__class__.__name__
+                    ))
+                final_sets.add(index_key)
+                if is_tmp:
+                    tmp_keys.add(index_key)
+            else:
+                raise ValueError('Invalid filter type')
+
+        return final_sets, tmp_keys
 
     def _get_final_set(self, sets, pk, sort_options):
         """
@@ -295,34 +326,70 @@ class CollectionManager(object):
     def __call__(self, **filters):
         return self._add_filters(**filters)
 
+    def _field_is_pk(self, field_name):
+        """Check if the given name is the pk field, suffixed or not with "__eq" """
+        if self.cls._field_is_pk(field_name):
+            return True
+        if field_name.endswith('__eq') and self.cls._field_is_pk(field_name[:-4]):
+            return True
+        return False
+
+    def _parse_filter_key(self, key):
+        # Each key can have optional subpath
+        # We pass it as args to the field, which is responsable
+        # from handling them
+        # We only manage here the suffix handled by a filter
+
+        key_path = key.split('__')
+        field_name = key_path.pop(0)
+        field = self.cls.get_field(field_name)
+
+        if not field.indexable:
+            raise ImplementationError(
+                'Field %s.%s is not indexable' % (
+                    field._model.__name__, field.name
+                )
+            )
+
+        other_field_parts = key_path[:field._field_parts - 1]
+
+        if len(other_field_parts) + 1 != field._field_parts:
+            raise ImplementationError(
+                'Unexpected number of parts in filter %s for field %s.%s' % (
+                    key, field._model.__name__, field.name
+                )
+            )
+
+        rest = key_path[field._field_parts - 1:]
+        index_suffix = None if not rest else '__'.join(rest)
+        index_to_use = None
+        for index in field._indexes:
+            if index.can_handle_suffix(index_suffix):
+                index_to_use = index
+                break
+
+        if not index_to_use:
+            raise ImplementationError(
+                'No index found to manage filter %s for field %s.%s' % (
+                    key, field._model.__name__, field.name
+                )
+            )
+
+        return index_to_use, index_suffix, other_field_parts
+
     def _add_filters(self, **filters):
         """Define self._lazy_collection according to filters."""
         for key, value in filters.items():
-            if self.cls._field_is_pk(key):
+            if self._field_is_pk(key):
                 pk = self.cls.get_field('pk').normalize(value)
                 self._lazy_collection['pks'].add(pk)
             else:
-                # each key can have optional subpath
-                # we pass it as args to the field, which is responsable
-                # from handling them
-                key_path = key.split('__')
-                field_name = key_path.pop(0)
-                field = self.cls.get_field(field_name)
+                # store the info to call the index later, in ``_prepare_sets``
+                # (to avoid doing extra work if the collection is never called)
+                index, suffix, extra_field_parts = self._parse_filter_key(key)
+                parsed_filter = ParsedFilter(index, suffix, extra_field_parts, value)
+                self._lazy_collection['sets'].append(parsed_filter)
 
-                if not field.indexable:
-                    raise ImplementationError(
-                        'Field %s.%s is not indexable' % (
-                            field._model._name, field.name
-                        )
-                    )
-
-                if len(key_path) != field._field_parts - 1:
-                    raise ImplementationError(
-                        'Unexpected number of parts in filter %s for field %s.%s' % (
-                            key, field._model._name, field.name
-                        )
-                    )
-                self._lazy_collection['sets'].add(field.index_key(value, *key_path))
         return self
 
     def __len__(self):

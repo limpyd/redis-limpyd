@@ -9,7 +9,7 @@ from collections import namedtuple
 from copy import deepcopy
 
 from limpyd.model import RedisModel
-from limpyd.collection import CollectionManager
+from limpyd.collection import CollectionManager, ParsedFilter
 from limpyd.fields import (SetField, ListField, SortedSetField, MultiValuesField,
                            RedisField, SingleValueField)
 from limpyd.exceptions import DoesNotExist
@@ -19,10 +19,12 @@ SORTED_SCORE = 'sorted_score'
 DEFAULT_STORE_TTL = 60
 
 
-ExtendedFilter = namedtuple('ExtendedFilter', ['name', 'value'])
+RawFilter = namedtuple('RawFilter', ['name', 'value'])
 
 
 class ExtendedCollectionManager(CollectionManager):
+
+    _accepted_key_types = {'set', 'zset', 'list'}  # Type of keys indexes are allowed to return
 
     scripts = {
         'list_to_set': {
@@ -51,27 +53,19 @@ class ExtendedCollectionManager(CollectionManager):
 
         self._values = None  # Will store parameters used to retrieve values
 
-    def _call_script(self, script_name, keys=[], args=[]):
-        """
-        Call the given script. The first time we call a script, we register it
-        to speed up later calls. Registration is done on the class because it's
-        independant of the instance (self) (redis-py will handle the case of
-        different redis servers)
-        """
-        conn = self.cls.get_connection()
-        script = self.__class__.scripts[script_name]
-        if 'script_object' not in script:
-            script['script_object'] = conn.register_script(script['lua'])
-        return script['script_object'](keys=keys, args=args, client=conn)
-
     def _list_to_set(self, list_key, set_key):
         """
         Store all content of the given ListField in a redis set.
         Use scripting if available to avoid retrieving all values locally from
         the list before sending them back to the set
         """
-        if self.cls.database.has_scripting():
-            self._call_script('list_to_set', keys=[list_key, set_key])
+        if self.cls.database.support_scripting():
+            self.cls.database.call_script(
+                # be sure to use the script dict at the class level
+                # to avoid registering it many times
+                script_dict=self.__class__.scripts['list_to_set'],
+                keys=[list_key, set_key]
+            )
         else:
             conn = self.cls.get_connection()
             conn.sadd(set_key, *conn.lrange(list_key, 0, -1))
@@ -142,19 +136,29 @@ class ExtendedCollectionManager(CollectionManager):
         for set_ in sets:
             if isinstance(set_, str):
                 add_key(set_)
-            elif isinstance(set_, ExtendedFilter):
+            elif isinstance(set_, ParsedFilter):
+
+                value = set_.value
                 # We have a RedisModel and we'll use its pk, or a RedisField
                 # (single value) and we'll use its value
-                field_name, value = set_
-                field = self.cls.get_field(field_name)
                 if isinstance(value, RedisModel):
-                    val = value.pk.get()
+                    value = value.pk.get()
                 elif isinstance(value, SingleValueField):
-                    val = value.proxy_get()
-                else:
-                    raise ValueError(u'Invalide filter value for %s: %s' % (field_name, value))
-                key = field.index_key(val)
-                add_key(key)
+                    value = value.proxy_get()
+                elif isinstance(value, RedisField):
+                    raise ValueError(u'Invalid filter value for %s: %s' % (set_.index.field.name, value))
+
+                index_key, key_type, is_tmp = set_.index.get_filtered_key(
+                    set_.suffix,
+                    accepted_key_types=self._accepted_key_types,
+                    *(set_.extra_field_parts + [value])
+                )
+                if key_type not in self._accepted_key_types:
+                    raise ValueError('The index key returned by the index %s is not valid' % (
+                        set_.index.__class__.__name__
+                    ))
+                add_key(index_key, key_type, is_tmp)
+
             elif isinstance(set_, SetField):
                 # Use the set key. If we need to intersect, we'll use
                 # sunionstore, and if not, store accepts set
@@ -170,6 +174,8 @@ class ExtendedCollectionManager(CollectionManager):
                 tmp_key = self._unique_key()
                 conn.sadd(tmp_key, *set_)
                 add_key(tmp_key, 'set', True)
+            else:
+                raise ValueError('Invalid filter type')
 
         return all_sets, tmp_keys
 
@@ -513,10 +519,10 @@ class ExtendedCollectionManager(CollectionManager):
             # And it there is no real filters, we had the set of the whole
             # collection because we cannot be sure that entries in "intersects"
             # are all real primary keys
-            sets = sets.copy()
-            sets.update(self._lazy_collection['intersects'])
+            sets = sets[::]
+            sets.extend(self._lazy_collection['intersects'])
             if not self._lazy_collection['sets'] and not self.stored_key:
-                sets.add(self.cls.get_field('pk').collection_key)
+                sets.append(self.cls.get_field('pk').collection_key)
 
         final_set, keys_to_delete_later = super(ExtendedCollectionManager,
                                     self)._get_final_set(sets, pk, sort_options)
@@ -547,7 +553,7 @@ class ExtendedCollectionManager(CollectionManager):
         """
         string_filters = filters.copy()
 
-        for field_name, value in filters.items():
+        for key, value in filters.items():
 
             is_extended = False
 
@@ -565,15 +571,17 @@ class ExtendedCollectionManager(CollectionManager):
                 is_extended = True
 
             if is_extended:
-                # create an ExtendedFilter which will be used in _prepare_sets
-                # or _get_pk
-                extended_filter = ExtendedFilter(field_name, value)
-                if self.cls._field_is_pk(field_name):
-                    self._lazy_collection['pks'].add(extended_filter)
+                if self._field_is_pk(key):
+                    # create an RawFilter which will be used in _get_pk
+                    raw_filter = RawFilter(key, value)
+                    self._lazy_collection['pks'].add(raw_filter)
                 else:
-                    self._lazy_collection['sets'].add(extended_filter)
+                    # create an ParsedFilter which will be used in _prepare_sets
+                    index, suffix, extra_field_parts = self._parse_filter_key(key)
+                    parsed_filter = ParsedFilter(index, suffix, extra_field_parts, value)
+                    self._lazy_collection['sets'].append(parsed_filter)
 
-                string_filters.pop(field_name)
+                string_filters.pop(key)
 
         super(ExtendedCollectionManager, self)._add_filters(**string_filters)
 
@@ -586,7 +594,7 @@ class ExtendedCollectionManager(CollectionManager):
         """
         pk = super(ExtendedCollectionManager, self)._get_pk()
 
-        if pk is not None and isinstance(pk, ExtendedFilter):
+        if pk is not None and isinstance(pk, RawFilter):
             # We have a RedisModel and we want its pk, or a RedisField
             # (single value) and we want its value
             if isinstance(pk.value, RedisModel):
@@ -621,7 +629,7 @@ class ExtendedCollectionManager(CollectionManager):
 
         final_fields = {'names': [], 'keys': []}
         for field_name in fields:
-            if self.cls._field_is_pk(field_name):
+            if self._field_is_pk(field_name):
                 final_fields['names'].append(field_name)
                 final_fields['keys'].append('#')
             else:

@@ -11,16 +11,17 @@ If fields are indexed, it's possible to make query to retrieve many of them, usi
 The filtering has some limitations:
 
 - you can only filter on fields with `indexable` and/or `unique` attributes set to True
+- the filtering capabilities are limited and must be thought at the beginning
 - you can only filter on full values (`limpyd` doesn't provide filters like "startswith", "contains"...)
 - all filters are "and"ed
-- no "not" (only able to find mathing fields, not to exlude some)
+- no "not" (only able to find matching fields, not to exclude some)
 - no "join" (filter on one model only)
 
 The result of a call to the `collection` is lazy. The query is only sent to Redis when data is really needed, to display or do computation with them.
 
 By default, a collection returns a list of primary keys for all the matching objects, but you can sort them, retrieve only a part, and/or directly get full instances instead of primary keys.
 
-We will explain Filtering_, Sorting_, Slicing_, Instanciating_, and Lazyness_ below, based on this example:
+We will explain Filtering_, Sorting_, Slicing_, Instantiating_, Indexing_, and Laziness_ below, based on this example:
 
 .. code:: python
 
@@ -28,33 +29,25 @@ We will explain Filtering_, Sorting_, Slicing_, Instanciating_, and Lazyness_ be
         database = main_database
         firstname = fields.InstanceHashField(indexable=True)
         lastname = fields.InstanceHashField(indexable=True)
-        birth_year = fields.InstanceHashField(indexable=True)
+        nickname = fields.InstanceHashField(indexable=True, indexes=[TextRangeIndex])
+        birth_year = fields.InstanceHashField(indexable=True, indexes=[NumberRangeIndex])
 
         def __repr__(self):
-            return "<[%s] %s %s (%s)>" % tuple([self.pk.get()] + self.hmget('firstname', 'lastname', 'birth_year'))
+            return '<[%s] %s "%s" %s (%s)>' % tuple([self.pk.get()] + self.hmget('firstname', 'nickname', 'lastname', 'birth_year'))
 
-    >>> Person(firstname='John', lastname='Smith', birth_year=1960)
-    <[1] John Smith (1960)>
-    >>> Person(firstname='John', lastname='Doe', birth_year=1965)
-    <[2] John Doe (1965)>
-    >>> Person(firstname='Emily', lastname='Smith', birth_year=1950)
-    <[3] Emily Smith (1950)>
-    >>> Person(firstname='Susan', lastname='Doe', birth_year=1960)
-    <[4] Susan Doe (1960)>
-
-Note that for each primary key got from redis, a real instance is created, with a check for pk existence. As it can lead to a lot of redis calls (one for each instance), if you are sure that all primary keys really exists (it must be the case if nothing special was done), you can skip these tests by passing the `skip_exist_test` named argument to True when calling `instances`::
-
-    >>> Person.collection().instances(skip_exist_test=True)
-
-Note that when you'll update an instance got with `skip_exist_test` set to True, the existence of the primary key will be done before the update, raising an exception if not found.
-
-To cancel retrieving instances and get the default return format, call the `primary_keys` method:
+    >>> Person(firstname='John', lastname='Smith', nickname='Joe', birth_year=1960)
+    <[1] John "Joe" Smith (1960)>
+    >>> Person(firstname='John', lastname='Doe', nickname='Jon', birth_year=1965)
+    <[2] John "Jon" Doe (1965)>
+    >>> Person(firstname='Emily', lastname='Smith', nickname='Emma', birth_year=1950)
+    <[3] Emily "Emma" Smith (1950)>
+    >>> Person(firstname='Susan', lastname='Doe', nickname='Sue', birth_year=1960)
+    <[4] Susan "Sue" Doe (1960)>
 
 .. code:: python
 
     >>> Person.collection(firstname='John').instances().primary_keys()
     >>> ['1', '2']
-
 
 Filtering
 =========
@@ -108,33 +101,140 @@ Example:
     >>> Person.collection(firstname='John').sort(by='lastname', alpha=True)
     ['2', '1']
     >>> Person.collection(firstname='John').sort(by='lastname', alpha=True)[1:2]
-    [1']
+    ['1']
     >>> Person.collection().sort(by='birth_year')
     ['3', '1', '4', '2']
 
 
-
-
-Instanciating
+Instantiating
 =============
 
-If you want to retrieve already instanciated objects, instead of only primary keys and having to do instanciation yourself, you simply have to call `instances()` on the result of the collection. The result of the collection and its methods (`sort` and `instances`) return a collection, so you can do chaining:
+If you want to retrieve already instantiated objects, instead of only primary keys and having to do instantiation yourself, you simply have to call `instances()` on the result of the collection. The result of the collection and its methods (`sort` and `instances`) return a collection, so you can do chaining:
 
 .. code:: python
 
     >>> Person.collection(firstname='John')
     ['1', '2']
     >>> Person.collection(firstname='John').instances()
-    [<[1] John Smith (1960)>, <[2] John Doe (1965)>]
+    [<[1] John "Joe" Smith (1960)>, <[2] John "Jon" Doe (1965)>]
     >>> Person.collection(firstname='John').instances().sort(by='lastname', alpha=True)
-    [<[2] John Doe (1965)>, <[1] John Smith (1960)>]
+    [<[2] John "Jon" Doe (1965)>, <[1] John "Joe" Smith (1960)>]
     >>> Person.collection(firstname='John').sort(by='lastname', alpha=True).instances()
-    [<[2] John Doe (1965)>, <[1] John Smith (1960)>]
+    [<[2] John "Jon" Doe (1965)>, <[1] John "Joe" Smith (1960)>]
     >>> Person.collection(firstname='John').sort(by='lastname', alpha=True).instances()[0]
-    [<[2] John Doe (1965)>
+    [<[2] John "Jon" Doe (1965)>
+
+Note that for each primary key got from redis, a real instance is created, with a check for pk existence. As it can lead to a lot of redis calls (one for each instance), if you are sure that all primary keys really exists (it must be the case if nothing special was done), you can skip these tests by passing the `skip_exist_test` named argument to True when calling `instances`:
+
+.. code:: python
+
+    >>> Person.collection().instances(skip_exist_test=True)
+
+Note that when you'll update an instance got with `skip_exist_test` set to True, the existence of the primary key will be done before the update, raising an exception if not found.
+
+To cancel retrieving instances and get the default return format, call the `primary_keys` method:
+
+.. code:: python
+
+    >>> Person.collection().instances(skip_exist_test=True).primary_keys()
+
+Indexing
+========
+
+By default, all fields with `indexable=True` use the default index, `EqualIndex`.
+It only allows equality filtering (the only legacy index type supported by limpyd), but it is fast.
+
+To filter using this index, you simply pass the field and a value in the collection call:
+
+.. code:: python
+
+    >>> Person.collection(firstname='John').instances()
+    [<[1] John "Joe" Smith (1960)>, <[2] John "Jon" Doe (1965)>]
+
+But you can also be more specific about the fact that you want an equality by using the `__eq` suffix. All other indexes use different suffixes.
+
+This design is inspired by Django.
+
+.. code:: python
+
+    >>> Person.collection(firstname__eq='John').instances()
+    [<[1] John "Joe" Smith (1960)>, <[2] John "Jon" Doe (1965)>]
+
+If you want to do more advanced lookup on a field that contains text, you can use the `TextRangeIndex` (to import from `limpyd.indexes`), as we did for the `nickname` field.
+
+It allows the same filtering as the default index, ie equality without suffix or with the `__eq` suffix, but it is not as efficient.
+
+So if your only use is equality filtering, do not use it.
+
+But if not, you can take advantage of its capabilities, depending on the suffix you'll use:
+
+- `__gt`: text "Greater Than" the given value
+- `__gte`: "Greater Than or Equal"
+- `__lt`: "Less Than"
+- `__lte`: "Less Than or Equal"
+- `__startswith`: text that starts with the given value
+
+Texts are compared in a lexicographical way, as viewed by redis and explained this way:
+
+    The elements are considered to be ordered from lower to higher strings as compared byte-by-byte using the memcmp() C function. Longer strings are considered greater than shorter strings if the common part is identical.
+
+Some examples:
+
+.. code:: python
+
+    >>> Person.collection(nickname__startswith='Jo').instances()
+    [<[1] John "Joe" Smith (1960)>, <[2] John "Jon" Doe (1965)>]
+    >>> Person.collection(nickname__gte='Jo').instances()
+    [<[1] John "Joe" Smith (1960)>, <[2] John "Jon" Doe (1965)>, <[4] Susan "Sue" Doe (1960)>]
+    >>> Person.collection(nickname__gt='Jo').instances()
+    [<[4] Susan "Sue" Doe (1960)>]
+
+As for normal index, you can filter many times on the same field (more than two times doesn't really make sense):
+
+.. code:: python
+    >>> Person.collection(nickname__gte='E', nickname__lte='J').instances()
+    [<[3] Emily "Emma" Smith (1950)>, <[1] John "Joe" Smith (1960)>, <[2] John "Jon" Doe (1965)>]
+
+This index works well for text but not for numbers, because lexicographically, 1000 < 11.
+
+For numbers, you can use the `NumberRangeIndex` (to import from `limpyd.indexes`).
+
+It supports the same suffixes than `TextRangeIndex` excepted for `startswith`.
+
+Some things to know about this index:
+
+- values of a field that cannot be casted to a float are converted to 0 for indexing (the stored value doesn't change).
+- negative numbers are, of course, supported
+- numbers are saved as the score of a redis sorted set, so a number is, in the index:
+
+    represented as an IEEE 754 floating point number, that is able to represent precisely integer numbers between -(2^53) and +(2^53) included.
+
+    In more practical terms, all the integers between -9007199254740992 and 9007199254740992 are perfectly representable.
+
+    Larger integers, or fractions, are internally represented in exponential form, so it is possible that you get only an approximation of the decimal number, or of the very big integer.
+
+Some examples:
+
+.. code:: python
+
+    >>> Person.collection(birth_year__eq=1960).instances()
+    [<[1] John "Joe" Smith (1960)>, <[4] Susan "Sue" Doe (1960)>]
+    >>> Person.collection(birth_year__gt=1960).instances()
+    [<[2] John "Jon" Doe (1965)>]
+    >>> Person.collection(birth_year__gte=1960).instances()
+    [<[1] John "Joe" Smith (1960)>, <[2] John "Jon" Doe (1965)>, <[4] Susan "Sue" Doe (1960)>]
+    >>> Person.collection(birth_year__gt=1940, birth_year__lte=1950).instances()
+    [<[3] Emily "Emma" Smith (1950)>]
+
+And, of course, you can use fields with different indexes in the same query:
+
+.. code:: python
+
+    >>> Person.collection(birth_year__gte=1960, lastname='Doe', nickname__startswith='S').instances()
+    [<[4] Susan "Sue" Doe (1960)>]
 
 
-Lazyness
+Laziness
 ========
 
 The result of a collection is lazy. In fact it's the collection itself, it's why we can chain calls to `sort` and `instances`.
