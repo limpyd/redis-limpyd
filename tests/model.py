@@ -4,17 +4,12 @@ from __future__ import unicode_literals
 from future import standard_library
 standard_library.install_hooks()
 
-import sys
-if sys.version_info >= (2, 7):
-    import unittest
-else:
-    import unittest2 as unittest
-
 from datetime import datetime
 import threading
 import time
+import unittest
 
-from limpyd import model
+from limpyd import model, fields
 from limpyd import fields
 from limpyd.exceptions import *
 
@@ -49,6 +44,10 @@ class Boat(TestRedisModel):
     power = fields.InstanceHashField(indexable=True, default="sail")
     launched = fields.StringField(indexable=True)
     length = fields.StringField()
+
+
+class Email(TestRedisModel):
+    headers = fields.HashField(indexable=True)
 
 
 class BaseModelTest(LimpydBaseTest):
@@ -177,6 +176,11 @@ class DatabaseTest(LimpydBaseTest):
                 name = fields.StringField()
                 namespace = 'sub-tests'
             self.assertNotEqual(MainBike._name, Bike2._name)
+
+            with self.assertRaises(ImplementationError):
+                class Bike2(TestRedisModel):
+                    name = fields.StringField()
+                    namespace = 'sub-tests'
 
         sub_test()
 
@@ -313,7 +317,7 @@ class DatabaseTest(LimpydBaseTest):
                 # no reason to fail, but still test it
                 self.test.assertEqual(ThreadableModel.database, db1)
                 # wait a little to let the main thread set database to db2
-                time.sleep(0.1)
+                time.sleep(0.2)
                 self.test.assertEqual(ThreadableModel.database, db2)
                 # will be tested in main thread
                 ThreadableModel.use_database(db3)
@@ -325,7 +329,7 @@ class DatabaseTest(LimpydBaseTest):
         ThreadableModel.use_database(db2)
 
         # wait a little to let the child thread set database to db3
-        time.sleep(0.2)
+        time.sleep(0.4)
         self.assertEqual(ThreadableModel.database, db3)
 
     def test_database_should_accept_new_redis_connection_settings(self):
@@ -545,14 +549,14 @@ class InheritanceTest(LimpydBaseTest):
         """
         bike = Bike()
         self.assertEqual(len(bike._fields), 4)
-        self.assertEqual(set(bike._fields), set(['pk', 'name', 'wheels', 'passengers']))
+        self.assertEqual(set(bike._fields), {'pk', 'name', 'wheels', 'passengers'})
         motorbike = MotorBike()
         self.assertEqual(len(motorbike._fields), 5)
         self.assertEqual(set(motorbike._fields),
-                         set(['pk', 'name', 'wheels', 'passengers', 'power']))
+                         {'pk', 'name', 'wheels', 'passengers', 'power'})
         boat = Boat()
         self.assertEqual(len(boat._fields), 5)
-        self.assertEqual(set(boat._fields), set(['pk', 'name', 'launched', 'power', 'length']))
+        self.assertEqual(set(boat._fields), {'pk', 'name', 'launched', 'power', 'length'})
 
     def test_inheritance_values(self):
         """

@@ -2,26 +2,46 @@
 About
 *****
 
-`redis-limpyd` is a project initiated by `Yohan Boniface <https://github.com/yohanboniface/>`_, using python to store "models" in Redis_.
+``redis-limpyd`` is a project initiated by `Yohan Boniface <https://github.com/yohanboniface/>`_, using python to store "models" in Redis_, with the help of `Stéphane «Twidi» Angel <https://www.twidi.com/>`_
 
-The project can be found here: https://github.com/yohanboniface/redis-limyd
 
-Yohan is helped in the developement by `Stéphane "Twidi" Angel <https://github.com/twidi/>`_, with lot of work on his branches, aimed to be integrated upstream via pull requests when we have time to review code.
-You can found these branches here: https://github.com/twidi/redis-limpyd/branches (the `develop` branch is generally up to date with the work on all of them)
+Source
+======
 
-If you want to help, please fork (`master` or a feature branch, not `develop`) and work on a branch with a comprehensive name, write tests (seriously, everything is severely tested in `limpyd`) and make a pull request.
+The project is hosted on Github at https://github.com/limpyd/redis-limpyd
 
 
 Install
 =======
 
-Python version 2.6, 2.7, 3.3 and 3.4 are supported.
-Redis-py versions >= 2.9.1, < 2.11 are supported.
+Python versions ``2.7`` and ``3.4`` to ``3.6`` are supported.
+
+Redis-py_ versions ``>= 2.9.1`` and ``< 2.11`` are supported.
 
 .. code:: bash
 
     pip install redis-limpyd
 
 
+Participation
+=============
+
+If you want to help, please fork (``master`` or a feature branch, not ``develop``) and work on a branch with a comprehensive name, write tests (seriously, everything is severely tested in ``limpyd``) and make a pull request.
+
+
+Maintainers
+===========
+
+* `Stéphane «Twidi» Angel <https://www.twidi.com/>`_ (main maintainer)
+* `Yohan Boniface <https://github.com/yohanboniface/>`_ (creator)
+
+
+Extensions
+==========
+
+* A bundle of great extensions: `Limpyd-extensions <https://github.com/limpyd/redis-limpyd-extensions>`_
+* A queue/task/job manager: `Limpyd-jobs <https://github.com/limpyd/redis-limpyd-jobs>`_
+
 
 .. _Redis: http://redis.io
+.. _Redis-py: https://github.com/andymccurdy/redis-py

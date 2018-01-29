@@ -1,3 +1,8 @@
+V 1.0  2018-01-29
+    * Add real indexing capabilities
+    * Correct/enhance slicing
+    * Remove support for python 3.3 (keeps 2.7 and 3.4 to 3.6)
+
 V 0.2.4  2015-12-16
 
     * Locally solve a locking bug in redis-py

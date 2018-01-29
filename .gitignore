@@ -9,5 +9,14 @@
 *.orig
 *~
 doc/_build
+
+# build stuff
 *.egg-info
-dist/*
+dist/
+build/
+
+# pycharm
+.idea/
+
+# auto-venv
+.venv

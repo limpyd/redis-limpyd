@@ -1,26 +1,20 @@
-.. redis-limpyd documentation master file, created by
-   sphinx-quickstart on Sat Jan  5 11:56:18 2013.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
 Welcome to redis-limpyd's documentation!
 ========================================
 
-Idea is to provide an **easy** way to store objects in Redis_,
-**without losing the power and the control of the Redis API**, in a *limpid* way. So, scope is to
-provide just as abstraction as needed.
+``Limpyd`` provides an **easy** way to store objects in `Redis <http://redis.io/>`_, **without losing the power and the control of the Redis API**, in a *limpid* way, with just as abstraction as needed.
 
 Featuring:
 
-- Don't care about keys, `limpyd` do it for you
+- Don't care about keys, ``limpyd`` do it for you
 - Retrieve objects from some of their attributes
 - Retrieve objects collection
 - CRUD abstraction
+- Powerful indexing and filtering
 - Keep the power of all the `Redis data types <http://redis.io/topics/data-types>`_ in your own code
 
-Source code: https://github.com/yohanboniface/redis-limpyd
+Source code: https://github.com/limpyd/redis-limpyd
 
-|PyPI Version| |Build Status|
+|PyPI Version| |Build Status| |Doc Status|
 
 Show me some code!
 ------------------
@@ -88,17 +82,10 @@ Contents
    contrib
 
 
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
-
-
-.. _Redis: http://redis.io
 
 .. |PyPI Version| image:: https://img.shields.io/pypi/v/redis-limpyd.png
    :target: https://pypi.python.org/pypi/redis-limpyd
-.. |Build Status| image:: https://travis-ci.org/yohanboniface/redis-limpyd.png
-   :target: https://travis-ci.org/yohanboniface/redis-limpyd
+.. |Build Status| image:: https://travis-ci.org/limpyd/redis-limpyd.png
+   :target: https://travis-ci.org/limpyd/redis-limpyd
+.. |Doc Status| image:: https://readthedocs.org/projects/redis-limpyd/badge/
+   :target: http://redis-limpyd.readthedocs.io/en/latest/

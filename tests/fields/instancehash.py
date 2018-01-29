@@ -70,15 +70,15 @@ class HMTest(LimpydBaseTest):
     def test_hmset_should_index_values(self):
         obj = self.HMTestModel()
         obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
-        self.assertEqual(set(self.HMTestModel.collection(bar='BAR')), set([obj._pk]))
-        self.assertEqual(set(self.HMTestModel.collection(baz='BAZ')), set([obj._pk]))
+        self.assertEqual(set(self.HMTestModel.collection(bar='BAR')), {obj._pk})
+        self.assertEqual(set(self.HMTestModel.collection(baz='BAZ')), {obj._pk})
 
     def test_hdel_should_deindex_values(self):
         obj = self.HMTestModel()
         obj.hmset(foo='FOO', bar='BAR', baz='BAZ')
         obj.hdel('foo', 'bar')
         self.assertEqual(set(self.HMTestModel.collection(bar='BAR')), set([]))
-        self.assertEqual(set(self.HMTestModel.collection(baz='BAZ')), set([obj._pk]))
+        self.assertEqual(set(self.HMTestModel.collection(baz='BAZ')), {obj._pk})
 
     def test_hmset_should_not_index_if_an_error_occurs(self):
         self.HMTestModel(baz="BAZ")
@@ -106,18 +106,18 @@ class HMTest(LimpydBaseTest):
     def test_hkeys_should_return_all_set_fieldnames(self):
         obj = self.HMTestModel(foo='FOO', bar='BAR')
         data = obj.hkeys()
-        self.assertEqual(set(data), set(['foo', 'bar']))
+        self.assertEqual(set(data), {'foo', 'bar'})
         obj.foo.hdel()
         data = obj.hkeys()
-        self.assertEqual(set(data), set(['bar', ]))
+        self.assertEqual(set(data), {'bar'})
 
     def test_hvals_should_return_all_set_values(self):
         obj = self.HMTestModel(foo='FOO', bar='BAR')
         data = obj.hvals()
-        self.assertEqual(set(data), set(['FOO', 'BAR']))
+        self.assertEqual(set(data), {'FOO', 'BAR'})
         obj.foo.hdel()
         data = obj.hvals()
-        self.assertEqual(set(data), set(['BAR', ]))
+        self.assertEqual(set(data), {'BAR'})
 
     def test_hlen_should_return_number_of_set_fields(self):
         obj = self.HMTestModel(foo='FOO', bar='BAR')

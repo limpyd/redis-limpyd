@@ -2,11 +2,7 @@
 from __future__ import absolute_import
 from __future__ import unicode_literals
 
-import sys
-if sys.version_info >= (2, 7):
-    import unittest
-else:
-    import unittest2 as unittest
+import unittest
 
 from redis.exceptions import ResponseError
 
@@ -15,7 +11,7 @@ from limpyd.collection import CollectionManager
 from limpyd.exceptions import *
 
 from .base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
-from .model import Boat, Bike, TestRedisModel
+from .model import Boat, Bike, Email, TestRedisModel
 
 
 class CollectionBaseTest(LimpydBaseTest):
@@ -39,9 +35,9 @@ class CollectionTest(CollectionBaseTest):
         Bike()
         self.assertEqual(set(Bike.collection()), set())
         bike1 = Bike(name="trotinette")
-        self.assertEqual(set(Bike.collection()), set([bike1._pk]))
+        self.assertEqual(set(Bike.collection()), {bike1._pk})
         bike2 = Bike(name="tommasini")
-        self.assertEqual(set(Bike.collection()), set([bike1._pk, bike2._pk]))
+        self.assertEqual(set(Bike.collection()), {bike1._pk, bike2._pk})
 
     def test_filter_from_kwargs(self):
         self.assertEqual(len(list(Boat.collection())), 4)
@@ -49,7 +45,7 @@ class CollectionTest(CollectionBaseTest):
         self.assertEqual(len(list(Boat.collection(power="sail", launched=1966))), 1)
 
     def test_should_raise_if_filter_is_not_indexable_field(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ImplementationError):
             Boat.collection(length=15.1)
 
     def test_collection_should_be_lazy(self):
@@ -74,6 +70,19 @@ class CollectionTest(CollectionBaseTest):
         hits_after = self.connection.info()['keyspace_hits']
         self.assertNotEqual(hits_before, hits_after)
 
+    def test_collection_should_work_with_eq_suffix(self):
+        without_suffix = set(Boat.collection(power="sail"))
+        with_suffix = set(Boat.collection(power__eq="sail"))
+        self.assertSetEqual(without_suffix, with_suffix)
+
+        Email(headers={'from': 'you@moon.io', 'to': 'someone@cassini.io'})
+        Email(headers={'from': 'you@mars.io', 'to': 'someone@cassini.io'})
+        Email(headers={'from': 'you@mars.io', 'to': 'me@world.org'})
+
+        without_suffix = set(Email.collection(headers__from="you@mars.io"))
+        with_suffix = set(Email.collection(headers__from__eq="you@mars.io"))
+        self.assertSetEqual(without_suffix, with_suffix)
+
     def test_collection_should_work_with_only_a_pk(self):
         hits_before = self.connection.info()['keyspace_hits']
         collection = list(Boat.collection(pk=1))
@@ -83,6 +92,19 @@ class CollectionTest(CollectionBaseTest):
 
         hits_before = self.connection.info()['keyspace_hits']
         collection = list(Boat.collection(pk=5))
+        hits_after = self.connection.info()['keyspace_hits']
+        self.assertEqual(collection, [])
+        self.assertEqual(hits_before + 1, hits_after)  # only a sismembers
+
+    def test_collection_should_work_with_only_a_pk_and_eq_suffix(self):
+        hits_before = self.connection.info()['keyspace_hits']
+        collection = list(Boat.collection(pk__eq=1))
+        hits_after = self.connection.info()['keyspace_hits']
+        self.assertEqual(collection, ['1'])
+        self.assertEqual(hits_before + 1, hits_after)  # only a sismembers
+
+        hits_before = self.connection.info()['keyspace_hits']
+        collection = list(Boat.collection(pk__eq=5))
         hits_after = self.connection.info()['keyspace_hits']
         self.assertEqual(collection, [])
         self.assertEqual(hits_before + 1, hits_after)  # only a sismembers
@@ -142,6 +164,21 @@ class CollectionTest(CollectionBaseTest):
         # all groups by using the default manager
         self.assertEqual(len(list(Group.collection(manager=CollectionManager))), 2)
 
+    def test_number_of_parts_in_filter_key(self):
+        class MyEmail(TestRedisModel):
+            subject = fields.StringField(indexable=True)
+            headers = fields.HashField(indexable=True)
+
+        MyEmail.collection(subject='hello')
+        with self.assertRaises(ImplementationError):
+            MyEmail.collection(subject__building='hello')
+
+        MyEmail.collection(headers__from='you@moon.io')
+        with self.assertRaises(ImplementationError):
+            MyEmail.collection(headers='you@moon.io')
+        with self.assertRaises(ImplementationError):
+            MyEmail.collection(headers__from__age='you@moon.io')
+
 
 class SliceTest(CollectionBaseTest):
     """
@@ -159,11 +196,6 @@ class SliceTest(CollectionBaseTest):
         collection = Boat.collection()
         self.assertEqual(collection[1:], ['2', '3', '4'])
 
-    def test_using_netagive_index_should_work(self):
-        collection = Boat.collection().sort()
-        self.assertEqual(collection[-1], '4')
-        self.assertEqual(collection[-2:4], ['3', '4'])
-
     def test_inexisting_slice_should_return_empty_collection(self):
         collection = Boat.collection()
         self.assertEqual(collection[5:10], [])
@@ -171,14 +203,14 @@ class SliceTest(CollectionBaseTest):
     def test_slicing_is_reset_on_next_call(self):
         # test whole content
         collection = Boat.collection()
-        self.assertEqual(set(collection[1:]), set(['2', '3', '4']))
-        self.assertEqual(set(collection), set(['1', '2',  '3', '4']))
+        self.assertEqual(set(collection[1:]), {'2', '3', '4'})
+        self.assertEqual(set(collection), {'1', '2', '3', '4'})
 
         # test __iter__
         collection = Boat.collection()
-        self.assertEqual(set(collection[1:]), set(['2', '3', '4']))
+        self.assertEqual(set(collection[1:]), {'2', '3', '4'})
         all_pks = set([pk for pk in collection])
-        self.assertEqual(all_pks, set(['1', '2',  '3', '4']))
+        self.assertEqual(all_pks, {'1', '2', '3', '4'})
 
 
 class SortTest(CollectionBaseTest):
@@ -201,17 +233,48 @@ class SortTest(CollectionBaseTest):
             ['1', '2', '3', '4']
         )
 
-    def test_sort_should_be_scliceable(self):
-        self.assertEqual(
-            list(Boat.collection().sort()[1:3]),
-            ['2', '3']
+    def test_sort_should_be_sliceable(self):
+        # will compare slicing from the collection to a real python list
+
+        # add more data (5 boats)
+        for x in range(5):
+            Boat(name='boat%s' % x)
+
+        self.assertSlicingIsCorrect(
+            collection=Boat.collection().sort(),
+            check_data=[str(val) for val in range(1, 10)]
         )
 
     def test_sort_and_getitem(self):
-        self.assertEqual(Boat.collection().sort()[0], '1')
-        self.assertEqual(Boat.collection().sort()[1], '2')
-        self.assertEqual(Boat.collection().sort()[2], '3')
-        self.assertEqual(Boat.collection().sort()[3], '4')
+        collection = Boat.collection().sort()
+
+        # will compare indexing from the collection to a real python list
+
+        # will be used to compare result from redis to result from real list
+        test_list = [str(val) for val in range(1, 5)]
+
+        # check we have the correct dataset
+        assert sorted(collection) == test_list, 'Wrong dataset for this test'
+
+        limit = 5
+        total, optimized = 0, 0
+        for index in range(-limit, limit+1):
+            with self.subTest(index=index):
+                total += 1
+                try:
+                    expected = test_list[index]
+                except IndexError:
+                    with self.assertRaises(IndexError):
+                        collection[index]
+                else:
+                    self.assertEqual(
+                        collection[index],
+                        expected
+                    )
+                if collection._optimized_slicing:
+                    optimized += 1
+
+        self.assertEqual(optimized, total, "All collection indexing should be optimized")
 
     def test_sort_by_stringfield(self):
         self.assertEqual(
@@ -278,6 +341,62 @@ class SortTest(CollectionBaseTest):
         boats = list(Boat.collection(pk=1, name="Pen Duick I").sort())
         self.assertEqual(len(boats), 1)
         self.assertEqual(boats[0], '1')
+
+    def test_sort_by_pk_should_work(self):
+
+        class Plane(TestRedisModel):
+            my_pk = fields.PKField()
+            name = fields.InstanceHashField()
+            is_first = fields.InstanceHashField(indexable=True)
+
+        Plane(pk=2, name='Concorde', is_first=0)
+        Plane(pk=1, name='Wright Flyer', is_first=1)
+        Plane(pk=10, name='Air Force One', is_first=0)
+
+        pks = ['1', '2', '10']
+        revpks = pks[::-1]
+        self.assertListEqual(list(Plane.collection().sort()), pks)
+        self.assertListEqual(list(Plane.collection().sort(desc=True)), revpks)
+        self.assertListEqual(list(Plane.collection().sort(by='pk')), pks)
+        self.assertListEqual(list(Plane.collection().sort(by='-pk')), revpks)
+        self.assertListEqual(list(Plane.collection().sort(by='my_pk')), pks)
+        self.assertListEqual(list(Plane.collection().sort(by='-my_pk')), revpks)
+
+        pks = ['1', '10', '2']
+        revpks = pks[::-1]
+        self.assertListEqual(list(Plane.collection().sort(alpha=True)), pks)
+        self.assertListEqual(list(Plane.collection().sort(alpha=True, desc=True)), revpks)
+        self.assertListEqual(list(Plane.collection().sort(by='pk', alpha=True)), pks)
+        self.assertListEqual(list(Plane.collection().sort(by='-pk', alpha=True)), revpks)
+        self.assertListEqual(list(Plane.collection().sort(by='my_pk', alpha=True)), pks)
+        self.assertListEqual(list(Plane.collection().sort(by='-my_pk', alpha=True)), revpks)
+
+        pks = ['2', '10']
+        revpks = pks[::-1]
+        self.assertListEqual(list(Plane.collection(is_first=0).sort()), pks)
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(desc=True)), revpks)
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(by='pk')), pks)
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(by='-pk')), revpks)
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(by='my_pk')), pks)
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(by='-my_pk')), revpks)
+
+        pks = ['10', '2']
+        revpks = pks[::-1]
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(alpha=True)), pks)
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(alpha=True, desc=True)), revpks)
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(by='pk', alpha=True)), pks)
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(by='-pk', alpha=True)), revpks)
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(by='my_pk', alpha=True)), pks)
+        self.assertListEqual(list(Plane.collection(is_first=0).sort(by='-my_pk', alpha=True)), revpks)
+
+        for plane in Plane.collection().instances():
+            plane.delete()
+
+        for pk in ('8123', '8674', '7402', '87'):
+            Plane(pk=pk)
+
+        sorted_pks = list(Plane.collection().sort())
+        self.assertListEqual(sorted_pks, ['87', '7402', '8123', '8674'])
 
 
 class InstancesTest(CollectionBaseTest):
@@ -354,7 +473,7 @@ class InstancesTest(CollectionBaseTest):
 
     def test_call_to_primary_keys_should_cancel_instances(self):
         boats = set(Boat.collection().instances().primary_keys())
-        self.assertEqual(boats, set(['1', '2', '3', '4']))
+        self.assertEqual(boats, {'1', '2', '3', '4'})
 
 
 class LenTest(CollectionBaseTest):
@@ -375,7 +494,7 @@ class LenTest(CollectionBaseTest):
     def test_len_call_could_be_followed_by_a_iter(self):
         collection = Boat.collection(power="sail")
         self.assertEqual(len(collection), 3)
-        self.assertEqual(set(collection), set(['1', '2', '3']))
+        self.assertEqual(set(collection), {'1', '2', '3'})
 
     def test_len_should_work_with_slices(self):
         collection = Boat.collection(power="sail")[1:3]
