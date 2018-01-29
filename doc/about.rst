@@ -2,7 +2,7 @@
 About
 *****
 
-``redis-limpyd`` is a project initiated by `Yohan Boniface <https://github.com/yohanboniface/>`_, using python to store "models" in Redis_, with the help of `Stéphane «Twidi» Angel <https://github.com/twidi/>`_
+``redis-limpyd`` is a project initiated by `Yohan Boniface <https://github.com/yohanboniface/>`_, using python to store "models" in Redis_, with the help of `Stéphane «Twidi» Angel <https://www.twidi.com/>`_
 
 
 Source
@@ -32,7 +32,7 @@ If you want to help, please fork (``master`` or a feature branch, not ``develop`
 Maintainers
 ===========
 
-* `Stéphane «Twidi» Angel <https://github.com/twidi/>`_ (main maintainer)
+* `Stéphane «Twidi» Angel <https://www.twidi.com/>`_ (main maintainer)
 * `Yohan Boniface <https://github.com/yohanboniface/>`_ (creator)
 
 
