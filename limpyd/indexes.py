@@ -1,6 +1,8 @@
 # -*- coding:utf-8 -*-
 from __future__ import unicode_literals
-from future.builtins import object, str
+from future.builtins import str, object
+from future.utils import PY3
+from past.builtins import str as oldstr
 
 from logging import getLogger
 
@@ -23,6 +25,14 @@ class BaseIndex(object):
     handle_uniqueness: bool
         If ``True``, the index is able to check for uniqueness. When many index are used, only
         the first with this flag set to ``True`` have to do the work.
+    prefix: str
+        If defined, will be used as a prefix to the suffix in the collection
+        For example, with a prefix "foo" and the suffix "eq": "myfield__foo__eq="
+        May be defined at the class level for a subclass, or by calling the ``configure``
+        class method
+    transform: callable
+        None by default, can be set to a function that will transform the value to be indexed.
+        This callable can accept one (`value`) or two (`self`, `value`) arguments
 
     Parameters
     -----------
@@ -33,11 +43,72 @@ class BaseIndex(object):
 
     handled_suffixes = set()
     handle_uniqueness = False
+    key = None
+    prefix = None
+    transform = None
 
     def __init__(self, field):
         """Attach the index to the given field and prepare the internal cache"""
         self.field = field
         self._reset_cache()
+
+    @classmethod
+    def configure(cls, **kwargs):
+        """Create a new index class with the given info
+
+        This allow to avoid creating a new class when only few changes are
+        to be made
+
+        Parameters
+        ----------
+        kwargs: dict
+            prefix: str
+                The string part to use in the collection, before the normal suffix.
+                For example `foo` to filter on `myfiled__foo__eq=`
+                This prefix will also be used by the indexes to store the data at
+                a different place than the same index without prefix.
+            transform: callable
+                A function that will transform the value to be used as the reference
+                for the index, before the call to `normalize_value`.
+                If can be extraction of a date, or any computation.
+                The filter in the collection will then have to use a transformed value,
+                for example `birth_date__year=1976` if the transform take a date and
+                transform it to a year.
+            handle_uniqueness: bool
+                To make the index handle or not the uniqueness
+            key: str
+                To override the key used by the index. Two indexes for the same field of
+                the same type must not have the same key or data will be saved at the same place.
+                Note that the default key is None for `EqualIndex`, `text-range` for
+                `TextRangeIndex` and `number-range` for `NumberRangeIndex`
+            name: str
+                The name of the new multi-index class. If not set, it will be the same
+                as the current class
+
+        Returns
+        -------
+        type
+            A new class based on `cls`, with the new attributes set
+
+        """
+
+        attrs = {}
+        for key in ('prefix', 'handle_uniqueness', 'key'):
+            if key in kwargs:
+                attrs[key] = kwargs.pop(key)
+
+        if 'transform' in kwargs:
+            attrs['transform'] = staticmethod(kwargs.pop('transform'))
+
+        name = kwargs.pop('name', None)
+
+        if kwargs:
+            raise TypeError('%s.configure only accepts these named arguments: %s' % (
+                cls.__name__,
+                ', '.join(('prefix', 'transform', 'handle_uniqueness', 'key', 'name')),
+            ))
+
+        return type((str if PY3 else oldstr)(name or cls.__name__), (cls, ), attrs)
 
     def can_handle_suffix(self, suffix):
         """Tell if the current index can be used for the given filter suffix
@@ -53,18 +124,25 @@ class BaseIndex(object):
             ``True`` if the index can handle this suffix, ``False`` otherwise.
 
         """
-        return suffix in self.handled_suffixes
+        try:
+            return self.remove_prefix(suffix) in self.handled_suffixes
+        except IndexError:
+            return False
 
-    def normalize_value(self, value):
+    def normalize_value(self, value, transform=True):
         """Prepare the given value to be stored in the index
 
-        It calls the ``from_python`` method of the field, then cast the result
+        It first calls ``transform_value`` if ``transform`` is ``True``, then
+        calls the ``from_python`` method of the field, then cast the result
         to a str.
 
         Parameters
         ----------
         value: any
             The value to normalize
+        transform: bool
+            If ``True`` (the default), the value will be passed to ``transform_value``.
+            The returned value will then be used.
 
         Returns
         -------
@@ -72,7 +150,59 @@ class BaseIndex(object):
             The value, normalized
 
         """
+        if transform:
+            value = self.transform_value(value)
         return str(self.field.from_python(value))
+
+    def transform_value(self, value):
+        """Convert the value to be stored.
+
+        This does nothing by default but subclasses can change this.
+        Then the index will be able to filter on the transformed value.
+        For example if the transform capitalizes some text, the filter
+        would be ``myfield__capitalized__eq='FOO'``
+
+        """
+        if not self.transform:
+            return value
+
+        try:
+            # we store a staticmethod but we accept a method taking `self` and `value`
+            return self.transform(self, value)
+        except TypeError as e:
+            if 'argument' in str(e):  # try to limit only to arguments error
+                return self.transform(value)
+
+    @classmethod
+    def remove_prefix(cls, suffix):
+        """"Remove the class prefix from the suffix
+
+        The collection pass the full suffix used in the filters to the index.
+        But to know if it is valid, we have to remove the prefix to get the
+        real suffix, for example to check if the suffix is handled by the index.
+
+        Parameters
+        -----------
+        suffix: str
+            The full suffix to split
+
+        Returns
+        -------
+        str or None
+            The suffix without the prefix. None if the resting suffix is ''
+
+        Raises
+        ------
+        IndexError:
+            If the suffix doesn't contain the prefix
+
+        """
+
+        if not cls.prefix:
+            return suffix
+        if cls.prefix == suffix:
+            return None
+        return (suffix or '').split(cls.prefix + '__')[1] or None
 
     @property
     def connection(self):
@@ -112,8 +242,8 @@ class BaseIndex(object):
         for args in deindexed_values:
             self.add(*args, check_uniqueness=False)
 
-    def get_filtered_key(self, suffix, *args, **kwargs):
-        """Returns the index key for the given args
+    def get_filtered_keys(self, suffix, *args, **kwargs):
+        """Returns the index keys to be used by the collection for the given args
 
         Parameters
         -----------
@@ -136,15 +266,16 @@ class BaseIndex(object):
 
         Returns
         -------
-        tuple
-            A tuple with three entries
-            - str
-                The redis key to use
-            - str
-                The redis type of the key
-            - bool
-                True if the key is a temporary key that must be deleted
-                after the computation of the collection
+        list of tuple
+            An index may return many keys. So it's a list with, each one being
+            a tuple with three entries:
+                - str
+                    The redis key to use
+                - str
+                    The redis type of the key
+                - bool
+                    True if the key is a temporary key that must be deleted
+                    after the computation of the collection
 
         """
         raise NotImplementedError
@@ -246,46 +377,15 @@ class BaseIndex(object):
 
 
 class EqualIndex(BaseIndex):
-    """Default simple equal index.
-
-    It can be overridden to create transformative index by overriding:
-    - handled_suffixes
-    - index_key_name
-    - transform_normalized_value_for_storage
-
-    Examples
-    --------
-
-    To create an 'reverse' index where the user could do `name__reverse_eq='oof'`
-    to get an object with the value of 'foo', use this index:
-
-    >>> class ReverseEqualIndex(EqualIndex):
-    ...     handled_suffixes = {'reverse_eq'}
-    ...     index_key_name = 'reverse-equal'
-    ...
-    ...     def transform_normalized_value_for_storage(self, value):
-    ...         return value[::-1]
-
-
-    """
+    """Default simple equal index."""
 
     handled_suffixes = {None, 'eq'}
     handle_uniqueness = True
-    index_key_name = None
 
-    def transform_normalized_value_for_storage(self, value):
-        """Convert the value to be used in the storage key.
-
-        This does nothing in this equal index but may be changed for a
-        transformative index based on this one.
-
-        """
-        return value
-
-    def get_filtered_key(self, suffix, *args, **kwargs):
+    def get_filtered_keys(self, suffix, *args, **kwargs):
         """Return the set used by the index for the given "value" (`args`)
 
-        For the parameters, see ``BaseIndex.get_filtered_key``
+        For the parameters, see ``BaseIndex.get_filtered_keys``
 
         """
 
@@ -296,7 +396,8 @@ class EqualIndex(BaseIndex):
                 '%s can only return keys of type "set"' % self.__class__.__name__
             )
 
-        return self.get_storage_key(transform_value=False, *args), 'set', False
+        # do not transform because we already have the value we want to look for
+        return [(self.get_storage_key(transform_value=False, *args), 'set', False)]
 
     def get_storage_key(self, *args, **kwargs):
         """Return the redis key where to store the index for the given "value" (`args`)
@@ -310,8 +411,8 @@ class EqualIndex(BaseIndex):
         -----------
         kwargs: dict
             transform_value: bool
-                Default to ``True``. When ``True``, ``transform_normalized_value_for_storage``
-                is called with the normalized value, else it is used directly.
+                Default to ``True``. Tell the call to ``normalize_value`` to transform
+                the value or not
         args: tuple
             All the "values" to take into account to get the storage key.
 
@@ -330,12 +431,13 @@ class EqualIndex(BaseIndex):
             self.field.name,
         ] + args
 
-        if self.index_key_name:
-            parts.append(self.index_key_name)
+        if self.prefix:
+            parts.append(self.prefix)
 
-        normalized_value = self.normalize_value(value)
-        if kwargs.get('transform_value', True):
-            normalized_value = self.transform_normalized_value_for_storage(normalized_value)
+        if self.key:
+            parts.append(self.key)
+
+        normalized_value = self.normalize_value(value, transform=kwargs.get('transform_value', True))
 
         parts.append(normalized_value)
 
@@ -407,7 +509,6 @@ class BaseRangeIndex(BaseIndex):
     """Base of indexes using sorted-set to do range filtering (lt, gte...)"""
 
     handle_uniqueness = True
-    index_key_name = NotImplemented
     lua_filter_script = NotImplemented
 
     def get_storage_key(self, *args):
@@ -437,11 +538,33 @@ class BaseRangeIndex(BaseIndex):
         parts = [
             self.model._name,
             self.field.name,
-        ] + args + [
-            self.index_key_name,
-        ]
+        ] + args
+
+        if self.prefix:
+            parts.append(self.prefix)
+
+        if self.key:
+            parts.append(self.key)
 
         return self.field.make_key(*parts)
+
+    def prepare_value_for_storage(self, value, pk):
+        """Prepare the value to be stored in the zset
+
+        Parameters
+        ----------
+        value: any
+            The value, to normalize, to use
+        pk: any
+            The pk, that will be stringified
+
+        Returns
+        -------
+        str
+            The string ready to use as member of the sorted set.
+
+        """
+        return self.normalize_value(value)
 
     def check_uniqueness(self, *args, **kwargs):
         """Check if the given "value" (via `args`) is unique or not.
@@ -488,7 +611,7 @@ class BaseRangeIndex(BaseIndex):
 
         pk = self.instance.pk.get()
         logger.debug("adding %s to index %s" % (pk, key))
-        self.store(key, pk, value)
+        self.store(key, pk, self.prepare_value_for_storage(value, pk))
         self._indexed_values.add(tuple(args))
 
     def store(self, key, pk, value):
@@ -525,7 +648,7 @@ class BaseRangeIndex(BaseIndex):
 
         pk = self.instance.pk.get()
         logger.debug("removing %s from index %s" % (pk, key))
-        self.unstore(key, pk, value)
+        self.unstore(key, pk, self.prepare_value_for_storage(value, pk))
         self._deindexed_values.add(tuple(args))
 
     def unstore(self, key, pk, value):
@@ -594,7 +717,7 @@ class BaseRangeIndex(BaseIndex):
             args=[key_type, start, end, exclude] + list(args)
         )
 
-    def get_filtered_key(self, suffix, *args, **kwargs):
+    def get_filtered_keys(self, suffix, *args, **kwargs):
         """Returns the index key for the given args "value" (`args`)
 
         Parameters
@@ -607,7 +730,7 @@ class BaseRangeIndex(BaseIndex):
                 primary keys in a set or zset, is done in lua at the redis level.
                 Else, data is fetched, manipulated here, then returned to redis.
 
-        For the other parameters, see ``BaseIndex.get_filtered_key``
+        For the other parameters, see ``BaseIndex.get_filtered_keys``
 
         """
 
@@ -624,20 +747,22 @@ class BaseRangeIndex(BaseIndex):
         key = self.get_storage_key(*args)
         tmp_key = unique_key(self.connection)
         key_type = 'set' if not accepted_key_types or 'set' in accepted_key_types else 'zset'
-        value = self.normalize_value(list(args)[-1])
+        value = self.normalize_value(list(args)[-1], transform=False)
+
+        real_suffix = self.remove_prefix(suffix)
 
         if use_lua:
-            start, end, exclude = self.get_boundaries(suffix, value)
+            start, end, exclude = self.get_boundaries(real_suffix, value)
             self.call_script(key, tmp_key, key_type, start, end, exclude)
         else:
-            pks = self.get_pks_for_filter(key, suffix, value)
+            pks = self.get_pks_for_filter(key, real_suffix, value)
             if pks:
                 if key_type == 'set':
                     self.connection.sadd(tmp_key, *pks)
                 else:
                     self.connection.zadd(tmp_key, **{pk: idx for idx, pk in enumerate(pks)})
 
-        return tmp_key, key_type, True
+        return [(tmp_key, key_type, True)]
 
     def get_pks_for_filter(self, key, filter_type, value):
         """Extract the pks from the zset key for the given type and value
@@ -676,8 +801,8 @@ class TextRangeIndex(BaseRangeIndex):
     """
 
     handled_suffixes = {None, 'eq', 'gt', 'gte', 'lt', 'lte', 'startswith'}
-    index_key_name = 'text-range'
-    separator = u':%s-SEPARATOR:' % index_key_name.upper()
+    key = 'text-range'
+    separator = u':%s-SEPARATOR:' % key.upper()
 
     lua_filter_script = {
         # we extract members of the sorted-set via zrangebylex
@@ -753,24 +878,15 @@ class TextRangeIndex(BaseRangeIndex):
                     )
                 )
 
-    def _prepare_value_for_storage(self, value, pk):
-        """Prepare the value to be stored in the zset: value and pk separated
+    def prepare_value_for_storage(self, value, pk):
+        """Prepare the value to be stored in the zset
 
-        Parameters
-        ----------
-        value: any
-            The value, to normalize, to use
-        pk: any
-            The pk, that will be stringified
+        We'll store the value and pk concatenated.
 
-        Returns
-        -------
-        str
-            The string ready to use as member of the sorted set.
-
+        For the parameters, see BaseRangeIndex.prepare_value_for_storage
         """
-        normalized_value = self.normalize_value(value)
-        return self.separator.join([normalized_value, str(pk)])
+        value = super(TextRangeIndex, self).prepare_value_for_storage(value, pk)
+        return self.separator.join([value, str(pk)])
 
     def _extract_value_from_storage(self, string):
         """Taking a string that was a member of the zset, extract the value and pk
@@ -801,7 +917,7 @@ class TextRangeIndex(BaseRangeIndex):
 
         """
 
-        self.connection.zadd(key, 0, self._prepare_value_for_storage(value, pk))
+        self.connection.zadd(key, 0, value)
 
     def unstore(self, key, pk, value):
         """Remove the value/pk from the sorted set index
@@ -809,7 +925,7 @@ class TextRangeIndex(BaseRangeIndex):
         For the parameters, see BaseRangeIndex.store
         """
 
-        self.connection.zrem(key, self._prepare_value_for_storage(value, pk))
+        self.connection.zrem(key, value)
 
     def get_boundaries(self, filter_type, value):
         """Compute the boundaries to pass to zrangebylex depending of the filter type
@@ -907,7 +1023,8 @@ class TextRangeIndex(BaseRangeIndex):
 class NumberRangeIndex(BaseRangeIndex):
 
     handled_suffixes = {None, 'eq', 'gt', 'gte', 'lt', 'lte'}
-    index_key_name = 'number-range'
+    key = 'number-range'
+    raise_if_not_float = False
 
     lua_filter_script = {
         # we extract members of the sorted-set via zrangebyscore
@@ -950,18 +1067,27 @@ class NumberRangeIndex(BaseRangeIndex):
         """
     }
 
-    def normalize_value(self, value):
+    def normalize_value(self, value, transform=True):
         """Prepare the given value to be stored in the index
 
         For the parameters, see BaseIndex.normalize_value
 
-        Here we force the value to be a float, and force it to be 0
-        if it cannot be casted.
+        Raises
+        ------
+        ValueError
+            If ``raise_if_not_float`` is True and the value cannot
+            be casted to a float.
 
         """
+        if transform:
+            value = self.transform_value(value)
         try:
             return float(value)
         except (ValueError, TypeError):
+            if self.raise_if_not_float:
+                raise ValueError('Invalid value %s for field %s.%s' % (
+                    value, self.model.__name__, self.field.name
+                ))
             return 0
 
     def store(self, key, pk, value):

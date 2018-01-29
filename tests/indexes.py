@@ -15,9 +15,10 @@ from .model import Bike, Email, TestRedisModel
 
 class ReverseEqualIndex(EqualIndex):
     handled_suffixes = {'reverse_eq'}
-    index_key_name = 'reverse-equal'
+    key = 'reverse-equal'
 
-    def transform_normalized_value_for_storage(self, value):
+    @staticmethod
+    def transform(value):
         return value[::-1]
 
 
@@ -44,7 +45,7 @@ class EqualIndexKeyTestCase(unittest.TestCase):
         index = EqualIndex(Bike.get_field('name'))
         key = index.get_storage_key('rosalie')
         self.assertEqual(key, 'tests:bike:name:rosalie')
-        filter_key, key_type, is_tmp = index.get_filtered_key(None, 'rosalie')
+        filter_key, key_type, is_tmp = index.get_filtered_keys(None, 'rosalie')[0]
         self.assertEqual(filter_key, 'tests:bike:name:rosalie')
         self.assertEqual(key_type, 'set')
         self.assertFalse(is_tmp)
@@ -129,7 +130,7 @@ class DefaultIndexesTestCase(LimpydBaseTest):
         self.assertIs(index.__class__, TestDefaultIndexForDatabase)
 
 
-class PassIndexesToField(LimpydBaseTest):
+class PassIndexesToFieldTestCase(LimpydBaseTest):
 
     def test_cannot_pass_indexes_if_not_indexable(self):
         with self.assertRaises(ImplementationError):
@@ -166,6 +167,43 @@ class PassIndexesToField(LimpydBaseTest):
         self.assertEqual(set(TestPassIndexesModel3.collection(name='foo', name__reverse_eq='oof')), {pk1})
         self.assertEqual(set(TestPassIndexesModel3.collection(name='foo', name__reverse_eq='foo')), set())
 
+
+class ConfigureClassMethodTestCase(LimpydBaseTest):
+
+    def test_configure_class_method(self):
+
+        # test a transform method with only the value
+        def reverse_value(value):
+            return value[::-1]
+
+        # test a transform method with also self
+        def reverse_value_self(self, value):
+            # prefix "strange" and value "bar" => "egnarts" + "bar
+            return self.prefix[::-1] + value
+
+        class TestIndexConfigureModel(TestRedisModel):
+            name = fields.StringField(indexable=True, indexes=[
+                EqualIndex,
+                EqualIndex.configure(prefix='reverse', transform=reverse_value),
+            ])
+            lastname = fields.StringField(indexable=True, indexes=[
+                EqualIndex,
+                EqualIndex.configure(prefix='strange', transform=reverse_value_self),
+            ])
+
+        obj1 = TestIndexConfigureModel(name='foo', lastname='foofoo')
+        pk1 = obj1.pk.get()
+        obj2 = TestIndexConfigureModel(name='bar', lastname='barbar')
+        pk2 = obj2.pk.get()
+
+        self.assertEqual(set(TestIndexConfigureModel.collection(name='foo')), {pk1})
+        self.assertEqual(set(TestIndexConfigureModel.collection(name__eq='foo')), {pk1})
+        self.assertEqual(set(TestIndexConfigureModel.collection(name='oof')), set())
+        self.assertEqual(set(TestIndexConfigureModel.collection(name__reverse='rab')), {pk2})
+        self.assertEqual(set(TestIndexConfigureModel.collection(name__reverse__eq='rab')), {pk2})
+        self.assertEqual(set(TestIndexConfigureModel.collection(name__reverse='bar')), set())
+
+        self.assertEqual(set(TestIndexConfigureModel.collection(lastname__strange='egnartsbarbar')), {pk2})
 
 class RangeIndexTestModel(TestRedisModel):
     name = fields.StringField(indexable=True, indexes=[TextRangeIndex])
@@ -253,9 +291,9 @@ class TextRangeIndexTestCase(LimpydBaseTest):
         index = RangeIndexTestModel.get_field('name')._indexes[0]
 
         with self.assertRaises(ImplementationError):
-            index.get_filtered_key('gt', 'bar', accepted_key_types={'list'})
+            index.get_filtered_keys('gt', 'bar', accepted_key_types={'list'})
 
-        index_key, key_type, is_tmp = index.get_filtered_key('gt', 'bar', accepted_key_types={'set'})
+        index_key, key_type, is_tmp = index.get_filtered_keys('gt', 'bar', accepted_key_types={'set'})[0]
         self.assertEqual(self.connection.type(index_key), 'set')
         self.assertEqual(key_type, 'set')
         self.assertTrue(is_tmp)
@@ -267,7 +305,7 @@ class TextRangeIndexTestCase(LimpydBaseTest):
             self.pk5,  # qux gt bar
         })
 
-        index_key, key_type, is_tmp = index.get_filtered_key('lte', 'foo', accepted_key_types={'zset'})
+        index_key, key_type, is_tmp = index.get_filtered_keys('lte', 'foo', accepted_key_types={'zset'})[0]
         self.assertEqual(self.connection.type(index_key), 'zset')
         self.assertEqual(key_type, 'zset')
         self.assertTrue(is_tmp)
@@ -490,9 +528,9 @@ class NumberRangeIndexTestCase(LimpydBaseTest):
         index = RangeIndexTestModel.get_field('value')._indexes[0]
 
         with self.assertRaises(ImplementationError):
-            index.get_filtered_key('gt', -25, accepted_key_types={'list'})
+            index.get_filtered_keys('gt', -25, accepted_key_types={'list'})
 
-        index_key, key_type, is_tmp = index.get_filtered_key('gt', -25, accepted_key_types={'set'})
+        index_key, key_type, is_tmp = index.get_filtered_keys('gt', -25, accepted_key_types={'set'})[0]
         self.assertEqual(self.connection.type(index_key), 'set')
         self.assertEqual(key_type, 'set')
         self.assertTrue(is_tmp)
@@ -504,7 +542,7 @@ class NumberRangeIndexTestCase(LimpydBaseTest):
             self.pk5,  # 123 > -25
         })
 
-        index_key, key_type, is_tmp = index.get_filtered_key('lte', -15, accepted_key_types={'zset'})
+        index_key, key_type, is_tmp = index.get_filtered_keys('lte', -15, accepted_key_types={'zset'})[0]
         self.assertEqual(self.connection.type(index_key), 'zset')
         self.assertEqual(key_type, 'zset')
         self.assertTrue(is_tmp)

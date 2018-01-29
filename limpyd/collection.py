@@ -245,18 +245,18 @@ class CollectionManager(object):
                 final_sets.add(set_)
             elif isinstance(set_, ParsedFilter):
 
-                index_key, key_type, is_tmp = set_.index.get_filtered_key(
-                    set_.suffix,
-                    accepted_key_types=self._accepted_key_types,
-                    *(set_.extra_field_parts + [set_.value])
-                )
-                if key_type not in self._accepted_key_types:
-                    raise ValueError('The index key returned by the index %s is not valid' % (
-                        set_.index.__class__.__name__
-                    ))
-                final_sets.add(index_key)
-                if is_tmp:
-                    tmp_keys.add(index_key)
+                for index_key, key_type, is_tmp in set_.index.get_filtered_keys(
+                            set_.suffix,
+                            accepted_key_types=self._accepted_key_types,
+                            *(set_.extra_field_parts + [set_.value])
+                        ):
+                    if key_type not in self._accepted_key_types:
+                        raise ValueError('The index key returned by the index %s is not valid' % (
+                            set_.index.__class__.__name__
+                        ))
+                    final_sets.add(index_key)
+                    if is_tmp:
+                        tmp_keys.add(index_key)
             else:
                 raise ValueError('Invalid filter type')
 

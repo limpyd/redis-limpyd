@@ -104,7 +104,7 @@ class ExtendedCollectionManager(CollectionManager):
 
         all_sets = set()
         tmp_keys = set()
-        only_one_set = len(sets) == 1
+        lists = []
 
         def add_key(key, key_type=None, is_tmp=False):
             if not key_type:
@@ -115,14 +115,9 @@ class ExtendedCollectionManager(CollectionManager):
                 all_sets.add(key)
                 self._has_sortedsets = True
             elif key_type == 'list':
-                if only_one_set:
-                    # we only have this list, use it directly
-                    all_sets.add(key)
-                else:
-                    # many sets, convert the list to a simple redis set
-                    tmp_key = self._unique_key()
-                    self._list_to_set(key, tmp_key)
-                    add_key(tmp_key, 'set', True)
+                # if only one list, and no sets, at the end we'll directly use the list
+                # else lists will be converted to sets
+                lists.append(key)
             elif key_type == 'none':
                 # considered as an empty set
                  all_sets.add(key)
@@ -148,16 +143,16 @@ class ExtendedCollectionManager(CollectionManager):
                 elif isinstance(value, RedisField):
                     raise ValueError(u'Invalid filter value for %s: %s' % (set_.index.field.name, value))
 
-                index_key, key_type, is_tmp = set_.index.get_filtered_key(
-                    set_.suffix,
-                    accepted_key_types=self._accepted_key_types,
-                    *(set_.extra_field_parts + [value])
-                )
-                if key_type not in self._accepted_key_types:
-                    raise ValueError('The index key returned by the index %s is not valid' % (
-                        set_.index.__class__.__name__
-                    ))
-                add_key(index_key, key_type, is_tmp)
+                for index_key, key_type, is_tmp in set_.index.get_filtered_keys(
+                            set_.suffix,
+                            accepted_key_types=self._accepted_key_types,
+                            *(set_.extra_field_parts + [value])
+                        ):
+                    if key_type not in self._accepted_key_types:
+                        raise ValueError('The index key returned by the index %s is not valid' % (
+                            set_.index.__class__.__name__
+                        ))
+                    add_key(index_key, key_type, is_tmp)
 
             elif isinstance(set_, SetField):
                 # Use the set key. If we need to intersect, we'll use
@@ -176,6 +171,18 @@ class ExtendedCollectionManager(CollectionManager):
                 add_key(tmp_key, 'set', True)
             else:
                 raise ValueError('Invalid filter type')
+
+        if lists:
+            if not len(all_sets) and len(lists) == 1:
+                # only one list, nothing else, we can return the list key
+                all_sets = {lists[0]}
+            else:
+                # we have many sets/lists, we need to convert them to sets
+                for list_key in lists:
+                    # many sets, convert the list to a simple redis set
+                    tmp_key = self._unique_key()
+                    self._list_to_set(list_key, tmp_key)
+                    add_key(tmp_key, 'set', True)
 
         return all_sets, tmp_keys
 
