@@ -1,4 +1,4 @@
-V 1.0.0  ????-??-??
+V 1.0  2018-01-29
     * Add real indexing capabilities
     * Correct/enhance slicing
     * Remove support for python 3.3 (keeps 2.7 and 3.4 to 3.6)
