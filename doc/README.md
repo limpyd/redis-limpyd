@@ -7,7 +7,7 @@ To build it:
 - install sphinx and the "read the doc" theme:
 
 ```bash
-pip install -r doc/requirements-doc.txt
+pip install .[doc]
 ```
 
 - build the doc
