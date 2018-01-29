@@ -274,7 +274,7 @@ class RelatedFieldMixin(with_metaclass(RelatedFieldMetaclass)):
         if existing:
             error = ("The related name defined for the field '%s.%s', named '%s', already exists "
                      "on the model '%s' (tied to the field '%s.%s')")
-            raise ImplementationError(error % (self._model._name, self.name, self.related_name,
+            raise ImplementationError(error % (self._model.__name__, self.name, self.related_name,
                                       self.related_to, existing[0][1], existing[0][0]))
 
     def _get_related_model_name(self):

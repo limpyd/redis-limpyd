@@ -3,11 +3,7 @@ from __future__ import absolute_import
 from __future__ import unicode_literals
 from future.builtins import str
 
-import sys
-if sys.version_info >= (2, 7):
-    import unittest
-else:
-    import unittest2 as unittest
+import unittest
 
 from limpyd.utils import make_key, unique_key
 
@@ -55,7 +51,3 @@ class LimpydBaseTestTest(LimpydBaseTest):
         self.assertEqual(self.count_keys(), 0)
         self.connection.set('__test__', '__test__')
         self.assertEqual(self.count_keys(), 1)
-
-
-if __name__ == '__main__':
-    unittest.main()

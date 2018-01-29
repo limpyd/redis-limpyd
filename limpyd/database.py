@@ -6,6 +6,7 @@ from future.builtins import object
 import redis
 
 from limpyd.exceptions import *
+from limpyd.indexes import EqualIndex
 
 from logging import getLogger
 log = getLogger(__name__)
@@ -30,12 +31,20 @@ class RedisDatabase(object):
     """
     _connections = {}  # class level cache
 
+    default_indexes = [EqualIndex]
+
     def __init__(self, **connection_settings):
         self._connection = None  # Instance level cache
         self.reset(**(connection_settings or DEFAULT_CONNECTION_SETTINGS))
         # _models keep an entry for each defined model on this database
         self._models = dict()
         super(RedisDatabase, self).__init__()
+
+    @classmethod
+    def get_default_indexes(cls):
+        if cls.default_indexes is not None:
+            return cls.default_indexes
+        return []
 
     def connect(self, **settings):
         """
@@ -63,13 +72,21 @@ class RedisDatabase(object):
     def _add_model(self, model):
         """
         Save this model as one existing on this database, to deny many models
-        with same namespace and name
+        with same namespace and name.
+        If the model already exists, check if it is the same. It can happen if the
+        module is imported twice in different ways.
+        If it's a new model or an existing and valid one, return the model in database: the
+        one added or the existing one
         """
-        if model._name in self._models:
+        name = model._name
+        existing = self._models.get(name, None)
+        if not existing:
+            self._models[name] = model
+        elif model.__name__ != existing.__name__ or model._creation_source != existing._creation_source:
             raise ImplementationError(
                 'A model with namespace "%s" and name "%s" is already defined '
                 'on this database' % (model.namespace, model.__name__))
-        self._models[model._name] = model
+        return self._models[name]
 
     def _use_for_model(self, model):
         """
@@ -114,21 +131,96 @@ class RedisDatabase(object):
             self._connection = self.connect()
         return self._connection
 
-    def has_scripting(self):
+    @property
+    def redis_version(self):
+        """Return the redis version as a tuple"""
+        if not hasattr(self, '_redis_version'):
+            self._redis_version = tuple(
+                map(int, self.connection.info().get('redis_version').split('.')[:3])
+            )
+        return self._redis_version
+
+    def support_scripting(self):
         """
         Returns True if scripting is available. Checks are done in the client
-        library (redis-py) AND the redis server. Resut is cached, so done only
+        library (redis-py) AND the redis server. Result is cached, so done only
         one time.
         """
-        if not hasattr(self, '_has_scripting'):
+        if not hasattr(self, '_support_scripting'):
             try:
-                version = float('%s.%s' %
-                    tuple(self.connection.info().get('redis_version').split('.')[:2]))
-                self._has_scripting = version >= 2.5 \
+                self._support_scripting = self.redis_version >= (2, 5) \
                     and hasattr(self.connection, 'register_script')
             except:
-                self._has_scripting = False
-        return self._has_scripting
+                self._support_scripting = False
+        return self._support_scripting
+
+    def support_zrangebylex(self):
+        """
+        Returns True if zrangebylex is available. Checks are done in the client
+        library (redis-py) AND the redis server. Result is cached, so done only
+        one time.
+        """
+        if not hasattr(self, '_support_zrangebylex'):
+            try:
+                self._support_zrangebylex = self.redis_version >= (2, 8, 9) \
+                    and hasattr(self.connection, 'zrangebylex')
+            except:
+                self._support_zrangebylex = False
+        return self._support_zrangebylex
+
+    def call_script(self, script_dict, keys=None, args=None):
+        """Call a redis script with keys and args
+
+        The first time we call a script, we register it to speed up later calls.
+        We expect a dict with a ``lua`` key having the script, and the dict will be
+        updated with a ``script_object`` key, with the content returned by the
+        the redis-py ``register_script`` command.
+
+        Parameters
+        ----------
+        script_dict: dict
+            A dict with a ``lua`` entry containing the lua code. A new key, ``script_object``
+            will be added after that.
+        keys: list of str
+            List of the keys that will be read/updated by the lua script
+        args: list of str
+            List of all the args expected by the script.
+
+        Returns
+        -------
+        Anything that will be returned by the script
+
+        """
+        if keys is None:
+            keys = []
+        if args is None:
+            args = []
+        if 'script_object' not in script_dict:
+            script_dict['script_object'] = self.connection.register_script(script_dict['lua'])
+        return script_dict['script_object'](keys=keys, args=args, client=self.connection)
+
+    def scan_keys(self, pattern):
+        """Take a pattern expected by the redis `scan` command and return all mathing keys
+
+        Parameters
+        ----------
+        pattern: str
+            The pattern of keys to look for
+
+        Returns
+        -------
+        set
+            Set of all the keys found with this pattern
+
+        """
+        cursor = 0
+        all_keys = set()
+        while True:
+            cursor, keys = self.connection.scan(cursor, pattern)
+            all_keys.update(keys)
+            if not cursor or cursor == '0':  # string for redis.py < 2.10
+                break
+        return all_keys
 
 
 class Lock(redis.client.Lock):
