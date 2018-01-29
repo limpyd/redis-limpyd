@@ -104,6 +104,63 @@ class CompatibilityTest(BaseTest):
             pk3,  # foobar and cat1
         })
 
+    def test_sort_by_pk_should_work(self):
+
+        class Plane2(TestRedisModel):
+            my_pk = fields.PKField()
+            name = fields.InstanceHashField()
+            is_first = fields.InstanceHashField(indexable=True)
+
+            collection_manager = ExtendedCollectionManager
+
+        Plane2(pk=2, name='Concorde', is_first=0)
+        Plane2(pk=1, name='Wright Flyer', is_first=1)
+        Plane2(pk=10, name='Air Force One', is_first=0)
+
+        pks = ['1', '2', '10']
+        revpks = pks[::-1]
+        self.assertListEqual(list(Plane2.collection().sort()), pks)
+        self.assertListEqual(list(Plane2.collection().sort(desc=True)), revpks)
+        self.assertListEqual(list(Plane2.collection().sort(by='pk')), pks)
+        self.assertListEqual(list(Plane2.collection().sort(by='-pk')), revpks)
+        self.assertListEqual(list(Plane2.collection().sort(by='my_pk')), pks)
+        self.assertListEqual(list(Plane2.collection().sort(by='-my_pk')), revpks)
+
+        pks = ['1', '10', '2']
+        revpks = pks[::-1]
+        self.assertListEqual(list(Plane2.collection().sort(alpha=True)), pks)
+        self.assertListEqual(list(Plane2.collection().sort(alpha=True, desc=True)), revpks)
+        self.assertListEqual(list(Plane2.collection().sort(by='pk', alpha=True)), pks)
+        self.assertListEqual(list(Plane2.collection().sort(by='-pk', alpha=True)), revpks)
+        self.assertListEqual(list(Plane2.collection().sort(by='my_pk', alpha=True)), pks)
+        self.assertListEqual(list(Plane2.collection().sort(by='-my_pk', alpha=True)), revpks)
+
+        pks = ['2', '10']
+        revpks = pks[::-1]
+        self.assertListEqual(list(Plane2.collection(is_first=0).sort()), pks)
+        self.assertListEqual(list(Plane2.collection(is_first=0).sort(desc=True)), revpks)
+        self.assertListEqual(list(Plane2.collection(is_first=0).sort(by='pk')), pks)
+        self.assertListEqual(list(Plane2.collection(is_first=0).sort(by='-pk')), revpks)
+        self.assertListEqual(list(Plane2.collection(is_first=0).sort(by='my_pk')), pks)
+        self.assertListEqual(list(Plane2.collection(is_first=0).sort(by='-my_pk')), revpks)
+
+        pks = ['10', '2']
+        revpks = pks[::-1]
+        self.assertListEqual(list(Plane2.collection(is_first=0).sort(alpha=True)), pks)
+        self.assertListEqual(list(Plane2.collection(is_first=0).sort(alpha=True, desc=True)), revpks)
+        self.assertListEqual(list(Plane2.collection(is_first=0).sort(by='pk', alpha=True)), pks)
+        self.assertListEqual(list(Plane2.collection(is_first=0).sort(by='-pk', alpha=True)), revpks)
+        self.assertListEqual(list(Plane2.collection(is_first=0).sort(by='my_pk', alpha=True)), pks)
+        self.assertListEqual(list(Plane2.collection(is_first=0).sort(by='-my_pk', alpha=True)), revpks)
+
+        for plane in Plane2.collection().instances():
+            plane.delete()
+
+        for pk in ('8123', '8674', '7402', '87'):
+            Plane2(pk=pk)
+
+        sorted_pks = list(Plane2.collection().sort())
+        self.assertListEqual(sorted_pks, ['87', '7402', '8123', '8674'])
 
 class FieldOrModelAsValueForSortAndFilterTest(BaseTest):
 

@@ -209,6 +209,18 @@ class MultiIndexes(BaseIndex):
             if index.can_handle_suffix(suffix):
                 return index.get_filtered_keys(suffix, *args, **kwargs)
 
+    def get_all_storage_keys(self):
+        """Returns the keys to be removed by `clear` in aggressive mode
+
+        For the parameters, see BaseIndex.get_all_storage_keys
+        """
+
+        keys = set()
+        for index in self._indexes:
+            keys.update(index.get_all_storage_keys())
+
+        return keys
+
 
 # This is a multi-indexes managing the different parts of a date in the format YYYY-MM-SS
 DateIndexParts = MultiIndexes.compose([

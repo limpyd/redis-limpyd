@@ -5,6 +5,7 @@ from future.builtins import str
 from future.builtins import zip
 from future.utils import with_metaclass
 
+from inspect import isclass
 from logging import getLogger
 from copy import copy
 
@@ -384,6 +385,27 @@ class RedisField(RedisProxyCommand):
 
         return [index_class(field=self) for index_class in self.index_classes]
 
+    def has_index(self, index):
+        """Tells if the field have an index matching the current one
+
+        Parameters
+        -----------
+        index: type or BaseIndex
+            It could be an index instance, or an index class
+
+        Returns
+        -------
+        bool
+            Will be ``True`` if the current field has an index that is an instance
+            of the given index or of the class of the given index
+
+        """
+        klass = index if isclass(index) else index.__class__
+        for one_index in self._indexes:
+            if isinstance(one_index, klass):
+                return True
+        return False
+
     def _attach_to_model(self, model):
         """
         Attach the current field to a model. Can be overriden to do something
@@ -398,6 +420,20 @@ class RedisField(RedisProxyCommand):
         """
         self._instance = instance
         self.lockable = self.lockable and instance.lockable
+
+    @property
+    def attached_to_model(self):
+        """Tells if the current field is the one attached to the model, not instance"""
+        try:
+            if not bool(self._model):
+                return False
+        except AttributeError:
+            return False
+        else:
+            try:
+                return not bool(self._instance)
+            except AttributeError:
+                return True
 
     def _call_command(self, name, *args, **kwargs):
         """
@@ -434,33 +470,124 @@ class RedisField(RedisProxyCommand):
         for index in self._indexes:
             index._reset_cache()
 
-    def index(self, value=None):
+    def index(self, value=None, only_index=None):
         """
         Handle field index process.
         """
         assert self.indexable, "Field not indexable"
+        assert not only_index or self.has_index(only_index), "Invalid index"
+        if only_index:
+            only_index = only_index if isclass(only_index) else only_index.__class__
 
         if value is None:
             value = self.proxy_get()
+
         if value is not None:
             needs_to_check_uniqueness = bool(self.unique)
+
             for index in self._indexes:
+                if only_index and not isinstance(index, only_index):
+                    continue
+
                 index.add(value, check_uniqueness=needs_to_check_uniqueness and index.handle_uniqueness)
+
                 if needs_to_check_uniqueness and index.handle_uniqueness:
                     # uniqueness check is done for this value
                     needs_to_check_uniqueness = False
 
-    def deindex(self, value=None):
+    def deindex(self, value=None, only_index=None):
         """
         Run process of deindexing field value(s).
         """
         assert self.indexable, "Field not indexable"
+        assert not only_index or self.has_index(only_index), "Invalid index"
+        if only_index:
+            only_index = only_index if isclass(only_index) else only_index.__class__
 
         if value is None:
             value = self.proxy_get()
+
         if value is not None:
             for index in self._indexes:
+                if only_index and not isinstance(index, only_index):
+                    continue
                 index.remove(value)
+
+    def clear_indexes(self, chunk_size=1000, aggressive=False, index_class=None):
+        """Clear all indexes tied to this field
+
+        Parameters
+        ----------
+        chunk_size: int
+            Default to 1000, it's the number of instances to load at once if not in aggressive mode.
+        aggressive: bool
+            Default to ``False``. When ``False``, the actual collection of instances will
+            be ran through to deindex all the values.
+            But when ``True``, the database keys will be scanned to find keys that matches the
+            pattern of the keys used by the indexes. This is a lot faster and may find forgotten keys.
+            But may also find keys not related to the index.
+            Should be set to ``True`` if you are not sure about the already indexed values.
+        index_class: type
+            Allow to clear only index(es) for this index class instead of all indexes.
+
+        Raises
+        ------
+        AssertionError
+            If called from an instance field. It must be called from the model field
+            Also raised if the field is not indexable
+
+        Examples
+        --------
+
+        >>> MyModel.get_field('myfield').clear_indexes()
+        >>> MyModel.get_field('myfield').clear_indexes(index_class=MyIndex)
+
+        """
+        assert self.indexable, "Field not indexable"
+        assert self.attached_to_model, \
+            '`rebuild_indexes` can only be called on a field attached to the model'
+
+        for index in self._indexes:
+            if index_class and not isinstance(index, index_class):
+                continue
+            index.clear(chunk_size=chunk_size, aggressive=aggressive)
+
+    def rebuild_indexes(self, chunk_size=1000, aggressive_clear=False, index_class=None):
+        """Rebuild all indexes tied to this field
+
+        Parameters
+        ----------
+        chunk_size: int
+            Default to 1000, it's the number of instances to load at once.
+        aggressive_clear: bool
+            Will be passed to the `aggressive` argument of the `clear_indexes` method.
+            If `False`, all values will be normally deindexed. If `True`, the work
+            will be done at low level, scanning for keys that may match the ones used by the indexes
+        index_class: type
+            Allow to build only index(es) for this index class instead of all indexes.
+
+        Raises
+        ------
+        AssertionError
+            If called from an instance field. It must be called from the model field
+            Also raised if the field is not indexable
+
+        Examples
+        --------
+
+        >>> MyModel.get_field('myfield').rebuild_indexes()
+        >>> MyModel.get_field('myfield').clear_indexes(index_class=MyIndex)
+
+
+        """
+        assert self.indexable, "Field not indexable"
+        assert self.attached_to_model, \
+            '`rebuild_indexes` can only be called on a field attached to the model'
+
+        for index in self._indexes:
+            if index_class and not isinstance(index, index_class):
+                continue
+            index.rebuild(chunk_size=chunk_size, aggressive_clear=aggressive_clear)
 
     def get_unique_index(self):
         assert self.unique, "Field not unique"
@@ -613,34 +740,49 @@ class MultiValuesField(RedisField):
             self.deindex([result])
         return result
 
-    def index(self, values=None):
+    def index(self, values=None, only_index=None):
         """
         Index all values stored in the field, or only given ones if any.
         """
         assert self.indexable, "Field not indexable"
+        assert not only_index or self.has_index(only_index), "Invalid index"
+        if only_index:
+            only_index = only_index if isclass(only_index) else only_index.__class__
 
         if values is None:
             values = self.proxy_get()
+
         for value in values:
             if value is not None:
                 needs_to_check_uniqueness = bool(self.unique)
+
                 for index in self._indexes:
+                    if only_index and not isinstance(index, only_index):
+                        continue
+
                     index.add(value, check_uniqueness=needs_to_check_uniqueness and index.handle_uniqueness)
+
                     if needs_to_check_uniqueness and index.handle_uniqueness:
                         # uniqueness check is done for this value
                         needs_to_check_uniqueness = False
 
-    def deindex(self, values=None):
+    def deindex(self, values=None, only_index=None):
         """
         Deindex all values stored in the field, or only given ones if any.
         """
         assert self.indexable, "Field not indexable"
+        assert not only_index or self.has_index(only_index), "Invalid index"
+        if only_index:
+            only_index = only_index if isclass(only_index) else only_index.__class__
 
         if not values:
             values = self.proxy_get()
+
         for value in values:
             if value is not None:
                 for index in self._indexes:
+                    if only_index and not isinstance(index, only_index):
+                        continue
                     index.remove(value)
 
     def check_uniqueness(self, values):
@@ -898,34 +1040,48 @@ class HashField(MultiValuesField):
         # redispy needs a list, not args
         return self._traverse_command(command, args)
 
-    def index(self, values=None):
+    def index(self, values=None, only_index=None):
         """
         Deal with dicts and field names.
         """
         assert self.indexable, "Field not indexable"
+        assert not only_index or self.has_index(only_index), "Invalid index"
+        if only_index:
+            only_index = only_index if isclass(only_index) else only_index.__class__
 
         if values is None:
             values = self.proxy_get()
+
         for field_name, value in iteritems(values):
             if value is not None:
                 needs_to_check_uniqueness = bool(self.unique)
+
                 for index in self._indexes:
+                    if only_index and not isinstance(index, only_index):
+                        continue
+
                     index.add(field_name, value, check_uniqueness=needs_to_check_uniqueness and index.handle_uniqueness)
+
                     if needs_to_check_uniqueness and index.handle_uniqueness:
                         # uniqueness check is done for this value
                         needs_to_check_uniqueness = False
 
-    def deindex(self, values=None):
+    def deindex(self, values=None, only_index=None):
         """
         Deal with dicts and field names.
         """
         assert self.indexable, "Field not indexable"
+        assert not only_index or self.has_index(only_index), "Invalid index"
+        if only_index:
+            only_index = only_index if isclass(only_index) else only_index.__class__
 
         if values is None:
             values = self.proxy_get()
         for field_name, value in iteritems(values):
             if value is not None:
                 for index in self._indexes:
+                    if only_index and not isinstance(index, only_index):
+                        continue
                     index.remove(field_name, value)
 
     def hexists(self, key):

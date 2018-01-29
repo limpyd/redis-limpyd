@@ -105,6 +105,9 @@ Example:
     >>> Person.collection().sort(by='birth_year')
     ['3', '1', '4', '2']
 
+Note: using `by='pk'` (or the real name of the pk field) is the same as not using `by`: it will sort by primary keys,
+using a numeric filter (use `alpha=True` if your pk is not numeric)
+
 
 Instantiating
 =============
@@ -233,6 +236,9 @@ And, of course, you can use fields with different indexes in the same query:
     >>> Person.collection(birth_year__gte=1960, lastname='Doe', nickname__startswith='S').instances()
     [<[4] Susan "Sue" Doe (1960)>]
 
+Configuration
+-------------
+
 If you want to use an index with a different behavior, you can use the `configure` class method of the index. Note that you can also create a new class by yourself but we provide this ability.
 
 It accepts one or many arguments (`prefix`, `transform` and `handle_uniqueness`) and returns a new index class to be passed to the `indexes` argument of the field.
@@ -285,6 +291,42 @@ About the `handle_uniqueness` argument:
 It will simply override the default value set on the index class. Useful if your `transform` function make the value not suitable to check uniqueness, so you can pass it to `False`.
 
 Note that if your field is marked as `unique`, you'll need to have at least one index capable of handling uniqueness.
+
+
+Clean and rebuild
+-----------------
+
+Before removing an index from the field declaration, you have to clean it, else the data will stay in redis.
+
+For this, use the `clean_indexes` method of the field.
+
+.. code:: python
+
+    >>> MyModel.get_field('myfield').clean_indexes()
+
+
+You can also rebuild them:
+
+.. code:: python
+
+    >>> MyModel.get_field('myfield').rebuild_indexes()
+
+
+You can pass the named argument `index_class` to limit the clean/rebuild to only indexes of this class.
+
+Say you defined your own index:
+
+.. code:: python
+
+    >>> MyIndex = EqualIndex(key='yolo', transform=lambda value: 'yolo' + value)
+    >>> class MyModel(RedisModel):
+    ...     myfield = model.StringField(indexable=True, indexes=[TextRangeIndex, EqualIndex])
+
+You can clear/rebuild only your own index this way:
+
+.. code:: python
+
+    >>> MyModel.get_field('myfield').clear(index_class=MyIndex)
 
 
 Laziness
