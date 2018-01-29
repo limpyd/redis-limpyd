@@ -35,9 +35,9 @@ class CollectionTest(CollectionBaseTest):
         Bike()
         self.assertEqual(set(Bike.collection()), set())
         bike1 = Bike(name="trotinette")
-        self.assertEqual(set(Bike.collection()), set([bike1._pk]))
+        self.assertEqual(set(Bike.collection()), {bike1._pk})
         bike2 = Bike(name="tommasini")
-        self.assertEqual(set(Bike.collection()), set([bike1._pk, bike2._pk]))
+        self.assertEqual(set(Bike.collection()), {bike1._pk, bike2._pk})
 
     def test_filter_from_kwargs(self):
         self.assertEqual(len(list(Boat.collection())), 4)
@@ -196,11 +196,6 @@ class SliceTest(CollectionBaseTest):
         collection = Boat.collection()
         self.assertEqual(collection[1:], ['2', '3', '4'])
 
-    def test_using_netagive_index_should_work(self):
-        collection = Boat.collection().sort()
-        self.assertEqual(collection[-1], '4')
-        self.assertEqual(collection[-2:4], ['3', '4'])
-
     def test_inexisting_slice_should_return_empty_collection(self):
         collection = Boat.collection()
         self.assertEqual(collection[5:10], [])
@@ -208,14 +203,14 @@ class SliceTest(CollectionBaseTest):
     def test_slicing_is_reset_on_next_call(self):
         # test whole content
         collection = Boat.collection()
-        self.assertEqual(set(collection[1:]), set(['2', '3', '4']))
-        self.assertEqual(set(collection), set(['1', '2',  '3', '4']))
+        self.assertEqual(set(collection[1:]), {'2', '3', '4'})
+        self.assertEqual(set(collection), {'1', '2', '3', '4'})
 
         # test __iter__
         collection = Boat.collection()
-        self.assertEqual(set(collection[1:]), set(['2', '3', '4']))
+        self.assertEqual(set(collection[1:]), {'2', '3', '4'})
         all_pks = set([pk for pk in collection])
-        self.assertEqual(all_pks, set(['1', '2',  '3', '4']))
+        self.assertEqual(all_pks, {'1', '2', '3', '4'})
 
 
 class SortTest(CollectionBaseTest):
@@ -239,16 +234,47 @@ class SortTest(CollectionBaseTest):
         )
 
     def test_sort_should_be_sliceable(self):
-        self.assertEqual(
-            list(Boat.collection().sort()[1:3]),
-            ['2', '3']
+        # will compare slicing from the collection to a real python list
+
+        # add more data (5 boats)
+        for x in range(5):
+            Boat(name='boat%s' % x)
+
+        self.assertSlicingIsCorrect(
+            collection=Boat.collection().sort(),
+            check_data=[str(val) for val in range(1, 10)]
         )
 
     def test_sort_and_getitem(self):
-        self.assertEqual(Boat.collection().sort()[0], '1')
-        self.assertEqual(Boat.collection().sort()[1], '2')
-        self.assertEqual(Boat.collection().sort()[2], '3')
-        self.assertEqual(Boat.collection().sort()[3], '4')
+        collection = Boat.collection().sort()
+
+        # will compare indexing from the collection to a real python list
+
+        # will be used to compare result from redis to result from real list
+        test_list = [str(val) for val in range(1, 5)]
+
+        # check we have the correct dataset
+        assert sorted(collection) == test_list, 'Wrong dataset for this test'
+
+        limit = 5
+        total, optimized = 0, 0
+        for index in range(-limit, limit+1):
+            with self.subTest(index=index):
+                total += 1
+                try:
+                    expected = test_list[index]
+                except IndexError:
+                    with self.assertRaises(IndexError):
+                        collection[index]
+                else:
+                    self.assertEqual(
+                        collection[index],
+                        expected
+                    )
+                if collection._optimized_slicing:
+                    optimized += 1
+
+        self.assertEqual(optimized, total, "All collection indexing should be optimized")
 
     def test_sort_by_stringfield(self):
         self.assertEqual(
@@ -447,7 +473,7 @@ class InstancesTest(CollectionBaseTest):
 
     def test_call_to_primary_keys_should_cancel_instances(self):
         boats = set(Boat.collection().instances().primary_keys())
-        self.assertEqual(boats, set(['1', '2', '3', '4']))
+        self.assertEqual(boats, {'1', '2', '3', '4'})
 
 
 class LenTest(CollectionBaseTest):
@@ -468,7 +494,7 @@ class LenTest(CollectionBaseTest):
     def test_len_call_could_be_followed_by_a_iter(self):
         collection = Boat.collection(power="sail")
         self.assertEqual(len(collection), 3)
-        self.assertEqual(set(collection), set(['1', '2', '3']))
+        self.assertEqual(set(collection), {'1', '2', '3'})
 
     def test_len_should_work_with_slices(self):
         collection = Boat.collection(power="sail")[1:3]
