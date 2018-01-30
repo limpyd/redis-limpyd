@@ -1,6 +1,13 @@
 Changelog
 =========
 
+Release *v1.1* - ``2018-01-30``
+---------------------------------
+* Official support for redis-py 2.10.6
+* Resolve two race conditions (``get`` and more important, ``pipeline``)
+* Add *scan* methods for databases/models/instances/fields (sets, hsets, zsets)
+* Add *sort* methods for sets, lists, zsets
+
 Release *v1.0.1* - ``2018-01-30``
 ---------------------------------
 * Official support for PyPy & PyPy3
