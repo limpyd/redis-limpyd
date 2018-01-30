@@ -134,7 +134,8 @@ You can use this model like this:
     >>> example.name.set('bar')
     >>> example.name.get()
     'bar'
-    >> example.delete()
+    >> example.name.delete()
+    True
 
 The StringField_ type support these `Redis string commands`_:
 
@@ -195,7 +196,7 @@ Getters
 - ``hvals``
 - ``hexists``
 - ``hlen``
-
+- ``hscan`` (returns a generator with all/matching key/value pairs, you don't have to manage the cursor)
 
 Modifiers
 """""""""
@@ -468,6 +469,7 @@ Getters
 - ``sismember``
 - ``smembers``
 - ``srandmember``
+- ``sscan`` (returns a generator with all/matching values, you don't have to manage the cursor)
 
 Modifiers
 """""""""
@@ -587,6 +589,7 @@ Getters
 - ``zrevrangebyscore``
 - ``zrevrank``
 - ``zscore``
+- ``zscan`` (returns a generator with all/matching key/score pairs, you don't have to manage the cursor)
 
 Modifiers
 """""""""

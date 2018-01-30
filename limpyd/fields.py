@@ -9,6 +9,7 @@ from inspect import isclass
 from logging import getLogger
 from copy import copy
 
+from redis import VERSION as redispy_version
 from redis.exceptions import RedisError
 
 from limpyd.database import Lock
@@ -711,6 +712,8 @@ class MultiValuesField(RedisField):
     are defined.
     """
 
+    scannable = False
+
     def _add(self, command, *args, **kwargs):
         """
         Shortcut for commands that only add values to the field.
@@ -792,6 +795,28 @@ class MultiValuesField(RedisField):
             if value is not None:
                 self.get_unique_index().check_uniqueness(value)
 
+    if redispy_version >= (2, 10, 0):
+
+        def _scan(self, command, match=None, count=None):
+            assert self.scannable, 'Field is not scannable'
+            assert not command.endswith('_iter'), 'Use %s instead of %s' % (command[:-5], command)
+
+            return self._traverse_command(command + '_iter', match=match, count=count)
+
+    else:
+        # no *scan_iter in redis-py < 2.10
+
+        def _scan(self, command, match=None, count=None):
+            assert self.scannable, 'Field is not scannable'
+
+            cursor = 0
+            while True:
+                cursor, data = self._traverse_command(command, cursor, match=match, count=count)
+                for item in (data.items() if hasattr(data, 'items') else data):
+                    yield item
+                if not cursor or cursor == '0':
+                    break
+
 
 class SortedSetField(MultiValuesField):
     """
@@ -808,12 +833,18 @@ class SortedSetField(MultiValuesField):
 
     available_getters = ('zcard', 'zcount', 'zrange', 'zrangebyscore',
                          'zrank', 'zrevrange', 'zrevrangebyscore',
-                         'zrevrank', 'zscore', )
+                         'zrevrank', 'zscore', 'zscan', )
     available_modifiers = ('delete', 'zadd', 'zincrby', 'zrem',
                            'zremrangebyrank', 'zremrangebyscore', )
 
     _call_zrem = MultiValuesField._rem
     _call_zremrangebyscore = _call_zremrangebyrank = RedisField._reset
+
+    scannable = True
+    _call_zscan = MultiValuesField._scan
+    if redispy_version >= (2, 10, 0):
+        _call_zscan_iter = MultiValuesField._scan
+        available_getters = available_getters + ('zscan_iter', )
 
     def zmembers(self):
         """
@@ -897,12 +928,18 @@ class SetField(MultiValuesField):
     proxy_getter = "smembers"
     proxy_setter = "sadd"
 
-    available_getters = ('scard', 'sismember', 'smembers', 'srandmember', )
+    available_getters = ('scard', 'sismember', 'smembers', 'srandmember', 'sscan', )
     available_modifiers = ('delete', 'sadd', 'srem', 'spop', )
 
     _call_sadd = MultiValuesField._add
     _call_srem = MultiValuesField._rem
     _call_spop = MultiValuesField._pop
+
+    scannable = True
+    _call_sscan = MultiValuesField._scan
+    if redispy_version >= (2, 10, 0):
+        _call_sscan_iter = MultiValuesField._scan
+        available_getters = available_getters + ('sscan_iter', )
 
 
 class ListField(MultiValuesField):
@@ -990,9 +1027,15 @@ class HashField(MultiValuesField):
     proxy_setter = "hmset"
 
     available_getters = ('hget', 'hgetall', 'hmget', 'hkeys', 'hvals',
-                         'hlen', )
+                         'hlen', 'hscan', )
     available_modifiers = ('delete', 'hdel', 'hmset', 'hsetnx', 'hset',
                            'hincrby', 'hincrbyfloat', )
+
+    scannable = True
+    _call_hscan = MultiValuesField._scan
+    if redispy_version >= (2, 10, 0):
+        _call_hscan_iter = MultiValuesField._scan
+        available_getters = available_getters + ('hscan_iter', )
 
     def _call_hmset(self, command, *args, **kwargs):
         if self.indexable:

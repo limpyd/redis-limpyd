@@ -600,8 +600,12 @@ class EqualIndex(BaseIndex):
         parts1.append('*')
         parts2.append('*')
 
-        return self.model.database.scan_keys(self.field.make_key(*parts1)).union(
-            self.model.database.scan_keys(self.field.make_key(*parts2))
+        return set(
+            self.model.database.scan_keys(self.field.make_key(*parts1))
+        ).union(
+            set(
+                self.model.database.scan_keys(self.field.make_key(*parts2))
+            )
         )
 
     def check_uniqueness(self, *args, **kwargs):
@@ -731,8 +735,12 @@ class BaseRangeIndex(BaseIndex):
             parts1.append(self.key)
             parts2.append(self.key)
 
-        return self.model.database.scan_keys(self.field.make_key(*parts1)).union(
-            self.model.database.scan_keys(self.field.make_key(*parts2))
+        return set(
+            self.model.database.scan_keys(self.field.make_key(*parts1))
+        ).union(
+            set(
+                self.model.database.scan_keys(self.field.make_key(*parts2))
+            )
         )
 
     def prepare_value_for_storage(self, value, pk):

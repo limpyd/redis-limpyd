@@ -344,6 +344,30 @@ class DatabaseTest(LimpydBaseTest):
         self.assertEqual(database.connection_settings['db'], TEST_CONNECTION_SETTINGS['db'])
         self.assertNotEqual(connection, database.connection)
 
+    def test_scan_keys(self):
+        db = model.RedisDatabase(**TEST_CONNECTION_SETTINGS)
+        keys = {'foo', 'foo.bar', 'foo.bar.baz'}
+        for key in keys:
+            db.connection.set(key, 0)
+
+        generator = db.scan_keys('fo*')
+        self.assertIn(next(generator), keys)
+        self.assertIn(next(generator), keys)
+        self.assertIn(next(generator), keys)
+        with self.assertRaises(StopIteration):
+            next(generator)
+
+        self.assertSetEqual(set(db.scan_keys('fo*')), keys)
+
+        generator = db.scan_keys('fo*', count=1)
+        self.assertIn(next(generator), keys)
+        self.assertIn(next(generator), keys)
+        self.assertIn(next(generator), keys)
+        with self.assertRaises(StopIteration):
+            next(generator)
+
+        self.assertSetEqual(set(db.scan_keys('fo*', count=1)), keys)
+
 
 class GetAttrTest(LimpydBaseTest):
 
@@ -802,6 +826,42 @@ class ProxyTest(LimpydBaseTest):
         boat = Boat(name="Rainbow Warrior I", power="human", length=40, launched=1955)
         boat.power.proxy_set('engine')
         self.assertEqual(boat.power.hget(), "engine")
+
+
+class ScanTest(LimpydBaseTest):
+
+    def test_instance_scan(self):
+        bike = Bike(name="rosalie", wheels=4)
+        pk = bike.pk.get()
+
+        keys = set(bike.scan_keys())
+        self.assertSetEqual(keys, {
+            'tests:bike:%s:name' % pk,
+            'tests:bike:%s:wheels' % pk,
+            'tests:bike:%s:passengers' % pk,  # has default value
+        })
+
+    def test_model_scan(self):
+        pk1 = Bike(name="rosalie", wheels=4).pk.get()
+        pk2 = Bike(name="velocipede").pk.get()
+
+        keys = set(Bike.scan_model_keys())
+        self.assertSetEqual(keys, {
+            # all pks
+            'tests:bike:collection',
+            # max used pk
+            'tests:bike:max_pk',
+            # indexes
+            'tests:bike:name:velocipede',
+            'tests:bike:name:rosalie',
+            # instances fields
+            'tests:bike:%s:name' % pk1,
+            'tests:bike:%s:wheels' % pk1,
+            'tests:bike:%s:passengers' % pk1,  # has default value
+            'tests:bike:%s:name' % pk2,
+            'tests:bike:%s:wheels' % pk2,  # has default value
+            'tests:bike:%s:passengers' % pk2,  # has default value
+        })
 
 
 if __name__ == '__main__':

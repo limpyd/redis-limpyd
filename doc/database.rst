@@ -2,6 +2,9 @@
 Database
 ********
 
+General
+-------
+
 The first element to define when using ``limpyd`` is the database. The main goal of the database is to handle the connection to Redis_ and to host the models.
 
 It's easy to define a database, as its arguments are the same as for a standard connection to Redis_ via `redis-py`_:
@@ -41,6 +44,9 @@ Note that you cannot have two models with the same name (the name of the class) 
 
 It's not a good idea to declare many ``RedisDatabase`` objects on the same Redis_ database (defined with ``host``+``port``+``db``), because of obvious collision problems if models have the same name in each. So do it only if you really know what you're doing, and with different models only.
 
+Switch database
+---------------
+
 Sometimes you may want to change the database used after the models are created. It can be useful if you want to use models defined in an external module. To manage this, simply use the ``use_database`` method of a model class.
 
 Say you use an external module defined like this:
@@ -76,6 +82,31 @@ If you simply want to change the settings of the Redis_ connection to use (diffe
 
     main_database.connect(host='localhost', port=6370, db=3)
 
+Tools
+-----
+
+We provide one (for now) method on a database object: ``scan_keys``.
+
+It allows to call the SCAN_ command from Redis_ for the whole redis database currently used. It will use the same argument as the SCAN_ command and return a generator of all the keys or the ones matching a pattern:
+
+.. code:: python
+
+    generator = main_database.scan_keys()
+    while True:
+        try:
+            do_something_with_key(next(generator))
+        except StopIteration:
+            break
+
+    # ... or ...
+
+    generator = main_database.scan_keys(match='something', count=100)  # count is a hint for redis for each SCAN call, it's not the max returned
+
+    # ... of course it can be casted as a set (or a list, but the returned keys are not guaranteed to be unique)
+
+    keys = set(main_database.scan_keys(match='something'))
+
+
 
 .. _Redis: http://redis.io
-.. _redis-py: https://github.com/andymccurdy/redis-py
+.. _SCAN: https://redis.io/commands/scan

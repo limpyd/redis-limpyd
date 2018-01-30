@@ -182,3 +182,19 @@ class HashFieldTest(BaseModelTest):
         with self.assertRaises(ImplementationError):
             class TestUniquenessHashField(TestRedisModel):
                 data = fields.HashField(indexable=True, unique=True)
+
+    def test_hscan_should_scan_hash_keys(self):
+        headers = {
+            'from': 'foo@bar.com',
+            'to': 'me@world.org'
+        }
+        obj = self.model(headers=headers)
+
+        self.assertDictEqual(dict(obj.headers.hscan()), {
+            'from': 'foo@bar.com',
+            'to': 'me@world.org'
+        })
+
+        self.assertDictEqual(dict(obj.headers.hscan('fr*')), {
+            'from': 'foo@bar.com',
+        })
