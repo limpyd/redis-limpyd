@@ -81,6 +81,10 @@ Documentation
 
 See https://redis-limpyd.readthedocs.io/ for a full documentation
 
+Changelog
+=========
+
+See `CHANGELOG.rst <CHANGELOG.rst>`_
 
 Maintainers
 ===========

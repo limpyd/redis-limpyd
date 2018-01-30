@@ -80,6 +80,7 @@ Contents
    fields
    collections
    contrib
+   changelog
 
 
 
