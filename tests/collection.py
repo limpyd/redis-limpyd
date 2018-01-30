@@ -50,25 +50,17 @@ class CollectionTest(CollectionBaseTest):
 
     def test_collection_should_be_lazy(self):
         # Simple collection
-        hits_before = self.connection.info()['keyspace_hits']
-        Boat.collection()
-        hits_after = self.connection.info()['keyspace_hits']
-        self.assertEqual(hits_before, hits_after)
+        with self.assertNumCommands(0):
+            Boat.collection()
         # Instances
-        hits_before = self.connection.info()['keyspace_hits']
-        Boat.instances()
-        hits_after = self.connection.info()['keyspace_hits']
-        self.assertEqual(hits_before, hits_after)
+        with self.assertNumCommands(0):
+            Boat.instances()
         # Filtered
-        hits_before = self.connection.info()['keyspace_hits']
-        Boat.collection(power="sail")
-        hits_after = self.connection.info()['keyspace_hits']
-        self.assertEqual(hits_before, hits_after)
+        with self.assertNumCommands(0):
+            Boat.collection(power="sail")
         # Slice it, it will be evaluated
-        hits_before = self.connection.info()['keyspace_hits']
-        Boat.collection()[:2]
-        hits_after = self.connection.info()['keyspace_hits']
-        self.assertNotEqual(hits_before, hits_after)
+        with self.assertNumCommands(min_num=1):
+            Boat.collection()[:2]
 
     def test_collection_should_work_with_eq_suffix(self):
         without_suffix = set(Boat.collection(power="sail"))
@@ -84,30 +76,26 @@ class CollectionTest(CollectionBaseTest):
         self.assertSetEqual(without_suffix, with_suffix)
 
     def test_collection_should_work_with_only_a_pk(self):
-        hits_before = self.connection.info()['keyspace_hits']
-        collection = list(Boat.collection(pk=1))
-        hits_after = self.connection.info()['keyspace_hits']
+        # only a sismembers, allowing a scard for a call to __len__
+        with self.assertNumCommands(min_num=1, max_num=2):
+            collection = list(Boat.collection(pk=1))
         self.assertEqual(collection, ['1'])
-        self.assertEqual(hits_before + 1, hits_after)  # only a sismembers
 
-        hits_before = self.connection.info()['keyspace_hits']
-        collection = list(Boat.collection(pk=5))
-        hits_after = self.connection.info()['keyspace_hits']
+        # only a sismembers, allowing a scard for a call to __len__
+        with self.assertNumCommands(min_num=1, max_num=2):
+            collection = list(Boat.collection(pk=5))
         self.assertEqual(collection, [])
-        self.assertEqual(hits_before + 1, hits_after)  # only a sismembers
 
     def test_collection_should_work_with_only_a_pk_and_eq_suffix(self):
-        hits_before = self.connection.info()['keyspace_hits']
-        collection = list(Boat.collection(pk__eq=1))
-        hits_after = self.connection.info()['keyspace_hits']
+        # only a sismembers, allowing a scard for a call to __len__
+        with self.assertNumCommands(min_num=1, max_num=2):
+            collection = list(Boat.collection(pk__eq=1))
         self.assertEqual(collection, ['1'])
-        self.assertEqual(hits_before + 1, hits_after)  # only a sismembers
 
-        hits_before = self.connection.info()['keyspace_hits']
-        collection = list(Boat.collection(pk__eq=5))
-        hits_after = self.connection.info()['keyspace_hits']
+        # only a sismembers, allowing a scard for a call to __len__
+        with self.assertNumCommands(min_num=1, max_num=2):
+            collection = list(Boat.collection(pk__eq=5))
         self.assertEqual(collection, [])
-        self.assertEqual(hits_before + 1, hits_after)  # only a sismembers
 
     def test_collection_should_work_with_pk_and_other_fields(self):
         collection = list(Boat.collection(pk=1, name="Pen Duick I"))
@@ -448,10 +436,12 @@ class InstancesTest(CollectionBaseTest):
         )
 
     def test_skip_exist_test_should_not_test_pk_existence(self):
-        with self.assertNumCommands(5):
+        # allow a scard (call to __len__) to be included in the commands
+
+        with self.assertNumCommands(min_num=5, max_num=6):
             # 1 command for the collection, one to test each PKs (4 objects)
             list(Boat.collection().instances())
-        with self.assertNumCommands(1):
+        with self.assertNumCommands(min_num=1, max_num=2):
             # 1 command for the collection, none to test PKs
             list(Boat.collection().instances(skip_exist_test=True))
 
