@@ -9,6 +9,8 @@ python:
  - "3.4"
  - "3.5"
  - "3.6"
+ - "pypy"
+ - "pypy3"
 
 env:
  - REDIS="redis==2.9.1"
