@@ -196,7 +196,7 @@ Getters
 - ``hvals``
 - ``hexists``
 - ``hlen``
-
+- ``hscan`` (returns a generator with all/matching key/value pairs, you don't have to manage the cursor)
 
 Modifiers
 """""""""
@@ -469,6 +469,7 @@ Getters
 - ``sismember``
 - ``smembers``
 - ``srandmember``
+- ``sscan`` (returns a generator with all/matching values, you don't have to manage the cursor)
 
 Modifiers
 """""""""
@@ -588,6 +589,7 @@ Getters
 - ``zrevrangebyscore``
 - ``zrevrank``
 - ``zscore``
+- ``zscan`` (returns a generator with all/matching key/score pairs, you don't have to manage the cursor)
 
 Modifiers
 """""""""
