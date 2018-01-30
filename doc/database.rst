@@ -109,4 +109,5 @@ It allows to call the SCAN_ command from Redis_ for the whole redis database cur
 
 
 .. _Redis: http://redis.io
+.. _redis-py: https://github.com/andymccurdy/redis-py
 .. _SCAN: https://redis.io/commands/scan

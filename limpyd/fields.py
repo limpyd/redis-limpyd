@@ -833,7 +833,7 @@ class SortedSetField(MultiValuesField):
 
     available_getters = ('zcard', 'zcount', 'zrange', 'zrangebyscore',
                          'zrank', 'zrevrange', 'zrevrangebyscore',
-                         'zrevrank', 'zscore', 'zscan', )
+                         'zrevrank', 'zscore', 'zscan', 'sort')
     available_modifiers = ('delete', 'zadd', 'zincrby', 'zrem',
                            'zremrangebyrank', 'zremrangebyscore', )
 
@@ -928,7 +928,7 @@ class SetField(MultiValuesField):
     proxy_getter = "smembers"
     proxy_setter = "sadd"
 
-    available_getters = ('scard', 'sismember', 'smembers', 'srandmember', 'sscan', )
+    available_getters = ('scard', 'sismember', 'smembers', 'srandmember', 'sscan', 'sort', )
     available_modifiers = ('delete', 'sadd', 'srem', 'spop', )
 
     _call_sadd = MultiValuesField._add
@@ -960,7 +960,7 @@ class ListField(MultiValuesField):
     available_getters = ('lindex', 'llen', 'lrange', )
     available_modifiers = ('delete', 'linsert', 'lpop', 'lpush', 'lpushx',
                            'lrem', 'rpop', 'rpush', 'rpushx', 'lset',
-                           'ltrim', )
+                           'ltrim', 'sort', )
 
     _call_lpop = _call_rpop = MultiValuesField._pop
     _call_lpush = _call_rpush = MultiValuesField._add

@@ -470,6 +470,7 @@ Getters
 - ``smembers``
 - ``srandmember``
 - ``sscan`` (returns a generator with all/matching values, you don't have to manage the cursor)
+- ``sort`` (with arguments like in redis-py_, see redis-py-sort_)
 
 Modifiers
 """""""""
@@ -523,6 +524,7 @@ Getters
 - ``lindex``
 - ``llen``
 - ``lrange``
+- ``sort`` (with arguments like in redis-py_, see redis-py-sort_)
 
 Modifiers
 """""""""
@@ -590,6 +592,7 @@ Getters
 - ``zrevrank``
 - ``zscore``
 - ``zscan`` (returns a generator with all/matching key/score pairs, you don't have to manage the cursor)
+- ``sort`` (with arguments like in redis-py_, see redis-py-sort_)
 
 Modifiers
 """""""""
@@ -666,6 +669,7 @@ See PKField_ for more details.
 
 .. _Redis: http://redis.io
 .. _redis-py: https://github.com/andymccurdy/redis-py
+.. _redis-py-sort: http://redis-py.readthedocs.io/en/latest/#redis.StrictRedis.sort
 .. _`Redis string commands`: https://redis.io/commands#string
 .. _`Redis hash commands`: http://redis.io/commands#hash
 
