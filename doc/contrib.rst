@@ -508,6 +508,26 @@ The ``transaction`` method returns the value returned by the execution of its in
 Note that as for the pipeline_ method, you cannot update indexable fields in the transaction because read commands are used to update them.
 
 
+Pipelines and threads
+---------------------
+
+Database connections are shared between threads. The exception is when a pipeline is started. In this case, the pipeline is only used in the current thread that started it.
+
+Other threads still share the original connection and are able to do real commands, out of the pipeline. This behaviour, generally expected, was added in version 1.1
+
+To get the old behaviour, ie share the pipeline between threads, simply pass ``share_in_threads`` when creating a pipeline:
+
+.. code:: python
+
+    >>> with main_database.pipeline(share_in_threads=True) as pipeline:
+    ...     for person in persons:
+    ...         person.name.get()
+    ...     names = pipeline.execute()
+
+
+This is also valid with transactions.
+
+
 .. _ExtendedCollectionManager:
 
 Extended collection
