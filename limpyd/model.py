@@ -390,7 +390,12 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
                 elif len(result) > 1:
                     raise ValueError(u"More than one object matching filter: %s" % kwargs)
                 else:
-                    pk = result[0]
+                    try:
+                        pk = result[0]
+                    except IndexError:
+                        # object was deleted between the `len` check and now
+                        raise DoesNotExist(u"No object matching filter: %s" % kwargs)
+
         else:
             raise ValueError("Invalid `get` usage with args %s and kwargs %s" % (args, kwargs))
         return cls(pk)
