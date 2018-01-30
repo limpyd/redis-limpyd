@@ -153,6 +153,18 @@ This is an advanced feature. It takes a PK and create an object with this PK wit
     non_existing.title.get()  # will raise ``DoesNotExist``
 
 
+scan_model_keys
+"""""""""""""""
+
+Also an advanced/debug feature, allows to retrieve (as a generator, or can be casted to a set, for example) all the keys related to this model: collection, max pk used, indexes and all instances fields.
+
+.. code:: python
+
+    print('Keys used for model Article:')
+    for key in Article.scan_model_keys():
+        print(' - ' + key)
+
+
 Model instance methods
 ======================
 
@@ -165,6 +177,18 @@ Will delete the instance and remove its content from the indexes if any.
 
     article = Article(title='foo')
     article.delete()
+
+
+scan_keys
+"""""""""
+
+Also an advanced/debug feature, allows to retrieve (as a generator, or can be casted to a set, for example) all the keys related to this instance (ie keys holding all defined fields or the ones with a default values):
+
+.. code:: python
+
+    print('Keys used for Article #%s:' % article.pk.get())
+    for key in article.scan_keys():
+        print(' - ' + key)
 
 
 .. _Redis: http://redis.io
