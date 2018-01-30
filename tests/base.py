@@ -52,14 +52,14 @@ class LimpydBaseTest(unittest.TestCase):
         """
         return self.connection.dbsize()
 
-    def assertNumCommands(self, num, func=None, *args, **kwargs):
+    def assertNumCommands(self, num=None, func=None, *args, **kwargs):
         """
         A context assert, to use with "with":
             with self.assertNumCommands(2):
                 obj.field.set(1)
                 obj.field.get()
         """
-        context = _AssertNumCommandsContext(self, num)
+        context = _AssertNumCommandsContext(self, num, *args, **kwargs)
         if func is None:
             return context
 
@@ -148,29 +148,74 @@ class _AssertNumCommandsContext(object):
     """
     A context to count commands occured
     """
-    def __init__(self, test_case, num):
+    def __init__(self, test_case, num=None, min_num=None, max_num=None, checkpoints=False):
         self.test_case = test_case
+        if num is None and min_num is None and max_num is None:
+            raise ValueError('If `num` is not passed, `min_num` or `max_num` are expected')
+        if num is not None and (min_num is not None or max_num is not None):
+            raise ValueError('If `num` is passed, `min_num` and `max_num` are not expected')
         self.num = num
+        self.min_num = min_num
+        self.max_num = max_num
+        self.checkpoints = checkpoints
+        self.log = 'ASSERT-NUM-COMMANDS-%s'
+        if self.num is not None:
+            self.log += '---EQ-%d' % self.num
+        if self.min_num is not None:
+            self.log += '---MIN-%d' % self.min_num
+        if self.max_num is not None:
+            self.log += '---MAX-%d' % self.max_num
+
 
     def __enter__(self):
         self.starting_commands = self.test_case.count_commands()
+        if self.checkpoints:
+            self.test_case.connection.get(self.log % 'START')
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         if exc_type is not None:
             return
 
+        if self.checkpoints:
+            self.test_case.connection.get(self.log % 'END')
+
         # we remove 1 to ignore the "info" called in __enter__
         final_commands = self.test_case.count_commands() - 1
 
+        # also two for checkpoints
+        if self.checkpoints:
+            final_commands = final_commands - 2
+
         executed = final_commands - self.starting_commands
 
-        self.test_case.assertEqual(
-            executed, self.num, "%d commands executed, %d expected" % (
-                executed, self.num
-            )
-        )
+        if self.checkpoints and executed != self.num:
+            self.test_case.connection.get((self.log % 'END') + '---FAILED-%s' % executed)
 
+        if self.num is not None:
+            self.test_case.assertEqual(
+                executed, self.num, "%d commands executed, %d expected" % (
+                    executed, self.num
+                )
+            )
+        elif self.max_num is None:
+            self.test_case.assertTrue(
+                executed >= self.min_num, "%d commands executed, at least %d expected" % (
+                    executed, self.min_num
+                )
+            )
+        elif self.min_num is None:
+            self.test_case.assertTrue(
+                executed <= self.max_num, "%d commands executed, at max %d expected" % (
+                    executed, self.max_num
+                )
+            )
+        else:
+            self.test_case.assertTrue(
+                self.min_num <= executed <= self.max_num, "%d commands executed, expected to be at least %d and at max %d" % (
+                    executed, self.min_num, self.max_num
+                )
+            )
 
 skip_if_no_zrangebylex = (
     not hasattr(Redis, 'zrangebylex'),
