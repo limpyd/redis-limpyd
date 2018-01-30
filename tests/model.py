@@ -344,6 +344,30 @@ class DatabaseTest(LimpydBaseTest):
         self.assertEqual(database.connection_settings['db'], TEST_CONNECTION_SETTINGS['db'])
         self.assertNotEqual(connection, database.connection)
 
+    def test_scan_keys(self):
+        db = model.RedisDatabase(**TEST_CONNECTION_SETTINGS)
+        keys = {'foo', 'foo.bar', 'foo.bar.baz'}
+        for key in keys:
+            db.connection.set(key, 0)
+
+        generator = db.scan_keys('fo*')
+        self.assertIn(generator.next(), keys)
+        self.assertIn(generator.next(), keys)
+        self.assertIn(generator.next(), keys)
+        with self.assertRaises(StopIteration):
+            generator.next()
+
+        self.assertSetEqual(set(db.scan_keys('fo*')), keys)
+
+        generator = db.scan_keys('fo*', count=1)
+        self.assertIn(generator.next(), keys)
+        self.assertIn(generator.next(), keys)
+        self.assertIn(generator.next(), keys)
+        with self.assertRaises(StopIteration):
+            generator.next()
+
+        self.assertSetEqual(set(db.scan_keys('fo*', count=1)), keys)
+
 
 class GetAttrTest(LimpydBaseTest):
 
