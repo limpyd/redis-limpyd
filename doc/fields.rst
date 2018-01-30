@@ -134,7 +134,8 @@ You can use this model like this:
     >>> example.name.set('bar')
     >>> example.name.get()
     'bar'
-    >> example.delete()
+    >> example.name.delete()
+    True
 
 The StringField_ type support these `Redis string commands`_:
 

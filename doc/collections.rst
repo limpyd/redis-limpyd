@@ -62,6 +62,9 @@ To filter, simply call the ``collection`` (class)method with fields you want to 
 
 You cannot pass two filters with the same name. All filters are ``and``-ed.
 
+
+To return the only one existing element, use ``get`` instead of ``collection`` and an instance will be returned. But it will raises a ``DoesNotExist`` exception if no instance was found with the given arguments, and ``ValueError`` if more than one instance is found.
+
 In Indexing_ you'll see more filtering capabilities.
 
 

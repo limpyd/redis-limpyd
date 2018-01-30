@@ -100,4 +100,71 @@ If you prefer speed, or are sure that you don't have more than one thread/proces
 Note that you can also disable it at the field's level.
 
 
+Model class methods
+===================
+
+get
+"""
+
+Return an instance of the model given a pk, or some fields to filter on. See the :doc:`collections` section in this documentation.
+
+It will raises a ``DoesNotExist`` exception if no instance was found with the given arguments, and ``ValueError`` if more than one instance is found.
+
+.. code:: python
+
+    article = Article.get(12)
+    article = Article.get(pk=12)
+    article = Article.get(title='foo', content='bar')
+
+
+get_or_connect
+""""""""""""""
+
+Try to get an instance from the database, or create it if it does not exists. Uses the same arguments as ``get``.
+
+.. code:: python
+
+    article = Article.get_or_connect(title='foo')
+    same_article = Article.get_or_connect(title='foo')
+
+
+exists
+""""""
+
+Check if an instance with the given pk or filters exists in the database. Uses the same arguments as ``get``.
+
+.. code:: python
+
+    if not Article.exists(title='foo'):
+        article = Article(title='foo', content='bar')
+
+
+lazy_connect
+""""""""""""
+
+This is an advanced feature. It takes a PK and create an object with this PK without checking for its existence in the database until an operation is done with the instance.
+
+.. code:: python
+
+    existing = Article.lazy_connect(10)
+    existing.title.get()  # connects only now to the database
+
+    non_existing = Article.lazy_connect(11)
+    non_existing.title.get()  # will raise ``DoesNotExist``
+
+
+Model instance methods
+======================
+
+delete
+""""""
+
+Will delete the instance and remove its content from the indexes if any.
+
+.. code:: python
+
+    article = Article(title='foo')
+    article.delete()
+
+
 .. _Redis: http://redis.io
