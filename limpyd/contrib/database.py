@@ -1,6 +1,8 @@
 # -*- coding:utf-8 -*-
 from __future__ import unicode_literals
 
+import threading
+
 from redis.client import StrictPipeline
 from redis.exceptions import WatchError
 
@@ -19,7 +21,12 @@ class PipelineDatabase(RedisDatabase):
     to the watch command: transaction.
     """
 
-    def pipeline(self, transaction=True):
+    def __init__(self, **connection_settings):
+        super(PipelineDatabase, self).__init__(**connection_settings)
+        self._pipelined_connection = None
+        self._direct_connection = None
+
+    def pipeline(self, transaction=True, share_in_threads=False):
         """
         A replacement to the default redis pipeline method which manage saving
         and restoring of the connection.
@@ -52,7 +59,7 @@ class PipelineDatabase(RedisDatabase):
                 except WatchError:
                     continue
         """
-        return _Pipeline(self, transaction=transaction)
+        return _Pipeline(self, transaction=transaction, share_in_threads=share_in_threads)
 
     def transaction(self, func, *watches, **kwargs):
         """
@@ -60,7 +67,7 @@ class PipelineDatabase(RedisDatabase):
         while watching all keys specified in `watches`. The 'func' callable
         should expect a single arguement which is a Pipeline object.
         """
-        with self.pipeline(True) as pipe:
+        with self.pipeline(True, share_in_threads=kwargs.get('share_in_threads', False)) as pipe:
             while 1:
                 try:
                     if watches:
@@ -70,6 +77,33 @@ class PipelineDatabase(RedisDatabase):
                 except WatchError:
                     continue
 
+    @property
+    def _connection(self):
+        """
+        If we have a pipeline, shared in thread, or in the good thread, return it
+        else use the direct connection
+        """
+        if self._pipelined_connection is not None:
+            if self._pipelined_connection.share_in_threads or \
+                    threading.current_thread().ident == self._pipelined_connection.current_thread_id:
+                return self._pipelined_connection
+
+
+        return self._direct_connection
+
+    @_connection.setter
+    def _connection(self, value):
+        """
+        If the value is a pipeline, save it as the connection to use for pipelines if to be shared
+        in threads or goot thread. Do not remove the direct connection.
+        If it is not a pipeline, clear it, and set the direct connection again.
+        """
+        if isinstance(value, _Pipeline):
+            self._pipelined_connection = value
+        else:
+            self._direct_connection = value
+            self._pipelined_connection = None
+
 
 class _Pipeline(StrictPipeline):
     """
@@ -78,9 +112,12 @@ class _Pipeline(StrictPipeline):
     all redis calls to be managed by this pipeline
     """
 
-    def __init__(self, database, transaction=True):
+    def __init__(self, database, transaction=True, share_in_threads=False):
         self._database = database
         self._original_connection = database._connection
+        self.share_in_threads = share_in_threads
+        if not self.share_in_threads:
+            self.current_thread_id = threading.current_thread().ident
         super(_Pipeline, self).__init__(
             connection_pool=database._connection.connection_pool,
             response_callbacks=database._connection.response_callbacks,

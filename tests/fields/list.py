@@ -252,3 +252,15 @@ class UniqueListFieldTest(BaseModelTest):
             menu2.dishes.lset(0, 'pasta')
         self.assertCollection([menu1._pk], dishes="pasta")
         self.assertCollection([menu2._pk], dishes="gniocchi")
+
+
+class SortListFieldTest(BaseModelTest):
+
+    model = ListModel
+
+    def test_sort_should_sort_data(self):
+        obj = self.model(field=["foo", "bar", "baz", "faz"])
+        self.assertListEqual(
+            obj.field.sort(start=0, num=3, alpha=True, desc=True),
+            ['foo', 'faz', 'baz']
+        )

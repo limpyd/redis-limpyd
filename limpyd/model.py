@@ -390,7 +390,12 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
                 elif len(result) > 1:
                     raise ValueError(u"More than one object matching filter: %s" % kwargs)
                 else:
-                    pk = result[0]
+                    try:
+                        pk = result[0]
+                    except IndexError:
+                        # object was deleted between the `len` check and now
+                        raise DoesNotExist(u"No object matching filter: %s" % kwargs)
+
         else:
             raise ValueError("Invalid `get` usage with args %s and kwargs %s" % (args, kwargs))
         return cls(pk)
@@ -539,3 +544,51 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
     @classmethod
     def _is_field_locked(cls, field):
         return field.name in cls._thread_lock_storage()
+
+    def scan_keys(self, count=None):
+        """Iter on all the key related to the current instance fields, using redis SCAN command
+
+        Parameters
+        ----------
+        count: int, default to None (redis uses 10)
+            Hint for redis about the number of expected result
+
+        Yields
+        -------
+        str
+            All keys found by the scan, one by one. A key can be returned multiple times, it's
+            related to the way the SCAN command works in redis.
+
+        """
+
+        pattern = self.make_key(
+            self._name,
+            self.pk.get(),
+            '*'
+        )
+
+        return self.database.scan_keys(pattern, count)
+
+    @classmethod
+    def scan_model_keys(cls, count=None):
+        """Iter on all the key related to the current model, using redis SCAN command
+
+        Parameters
+        ----------
+        count: int, default to None (redis uses 10)
+            Hint for redis about the number of expected result
+
+        Yields
+        -------
+        str
+            All keys found by the scan, one by one. A key can be returned multiple times, it's
+            related to the way the SCAN command works in redis.
+
+        """
+
+        pattern = cls.make_key(
+            cls._name,
+            "*",
+        )
+
+        return cls.database.scan_keys(pattern, count)

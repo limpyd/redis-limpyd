@@ -134,7 +134,8 @@ You can use this model like this:
     >>> example.name.set('bar')
     >>> example.name.get()
     'bar'
-    >> example.delete()
+    >> example.name.delete()
+    True
 
 The StringField_ type support these `Redis string commands`_:
 
@@ -195,7 +196,7 @@ Getters
 - ``hvals``
 - ``hexists``
 - ``hlen``
-
+- ``hscan`` (returns a generator with all/matching key/value pairs, you don't have to manage the cursor)
 
 Modifiers
 """""""""
@@ -468,6 +469,8 @@ Getters
 - ``sismember``
 - ``smembers``
 - ``srandmember``
+- ``sscan`` (returns a generator with all/matching values, you don't have to manage the cursor)
+- ``sort`` (with arguments like in redis-py_, see redis-py-sort_)
 
 Modifiers
 """""""""
@@ -521,6 +524,7 @@ Getters
 - ``lindex``
 - ``llen``
 - ``lrange``
+- ``sort`` (with arguments like in redis-py_, see redis-py-sort_)
 
 Modifiers
 """""""""
@@ -587,6 +591,8 @@ Getters
 - ``zrevrangebyscore``
 - ``zrevrank``
 - ``zscore``
+- ``zscan`` (returns a generator with all/matching key/score pairs, you don't have to manage the cursor)
+- ``sort`` (with arguments like in redis-py_, see redis-py-sort_)
 
 Modifiers
 """""""""
@@ -663,6 +669,7 @@ See PKField_ for more details.
 
 .. _Redis: http://redis.io
 .. _redis-py: https://github.com/andymccurdy/redis-py
+.. _redis-py-sort: http://redis-py.readthedocs.io/en/latest/#redis.StrictRedis.sort
 .. _`Redis string commands`: https://redis.io/commands#string
 .. _`Redis hash commands`: http://redis.io/commands#hash
 

@@ -14,7 +14,7 @@ python:
 
 env:
  - REDIS="redis==2.9.1"
- - REDIS="redis==2.10.5"
+ - REDIS="redis==2.10.6"
 
 install:
 - "pip install ."

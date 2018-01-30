@@ -166,3 +166,26 @@ class UniquenessSortedSetFieldTest(BaseModelTest):
         self.assertCollection([student1._pk], exams="math")
         self.assertCollection([], exams="biology")
         self.assertCollection([student2._pk], exams="philosophy")
+
+
+class ScanSortedSetFieldTest(BaseModelTest):
+
+    model = SortedSetModel
+
+    def test_zscan_should_scan_zset_content(self):
+        obj = self.model(field={'foo': 1, 'bar': 2})
+
+        self.assertDictEqual(dict(obj.field.zscan()), {'foo': 1, 'bar': 2})
+        self.assertDictEqual(dict(obj.field.zscan('ba*')), {'bar': 2})
+
+
+class SortSortedSetFieldTest(BaseModelTest):
+
+    model = SortedSetModel
+
+    def test_sort_should_sort_data(self):
+        obj = self.model(field={'foo': 1, 'bar': 2, 'baz': 3, 'faz': 4})
+        self.assertListEqual(
+            obj.field.sort(start=0, num=3, alpha=True, desc=True),
+            ['foo', 'faz', 'baz']
+        )

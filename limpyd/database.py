@@ -199,28 +199,30 @@ class RedisDatabase(object):
             script_dict['script_object'] = self.connection.register_script(script_dict['lua'])
         return script_dict['script_object'](keys=keys, args=args, client=self.connection)
 
-    def scan_keys(self, pattern):
-        """Take a pattern expected by the redis `scan` command and return all mathing keys
+    def scan_keys(self, match=None, count=None):
+        """Take a pattern expected by the redis `scan` command and iter on all matching keys
 
         Parameters
         ----------
-        pattern: str
+        match: str
             The pattern of keys to look for
+        count: int, default to None (redis uses 10)
+            Hint for redis about the number of expected result
 
-        Returns
+        Yields
         -------
-        set
-            Set of all the keys found with this pattern
+        str
+            All keys found by the scan, one by one. A key can be returned multiple times, it's
+            related to the way the SCAN command works in redis.
 
         """
         cursor = 0
-        all_keys = set()
         while True:
-            cursor, keys = self.connection.scan(cursor, pattern)
-            all_keys.update(keys)
+            cursor, keys = self.connection.scan(cursor, match=match, count=count)
+            for key in keys:
+                yield key
             if not cursor or cursor == '0':  # string for redis.py < 2.10
                 break
-        return all_keys
 
 
 class Lock(redis.client.Lock):

@@ -95,3 +95,26 @@ class UniquenessSetFieldTest(BaseModelTest):
         self.assertCollection([crew2._pk], members="Giuseppe")
         self.assertCollection([crew2._pk], members="Salvatore")
         self.assertCollection([], members="Norberto")
+
+
+class ScanSetFieldTest(BaseModelTest):
+
+    model = SetModel
+
+    def test_sscan_scan_set_content(self):
+        obj = self.model(field={'foo', 'bar', 'baz'})
+
+        self.assertSetEqual(set(obj.field.sscan()), {'foo', 'bar', 'baz'})
+        self.assertSetEqual(set(obj.field.sscan(match='ba*')), {'bar', 'baz'})
+
+
+class SortListFieldTest(BaseModelTest):
+
+    model = SetModel
+
+    def test_sort_should_sort_data(self):
+        obj = self.model(field={"foo", "bar", "baz", "faz"})
+        self.assertListEqual(
+            obj.field.sort(start=0, num=3, alpha=True, desc=True),
+            ['foo', 'faz', 'baz']
+        )
