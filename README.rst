@@ -76,6 +76,9 @@ Redis-py_ versions ``>= 2.9.1`` and ``< 2.11`` are supported.
     pip install redis-limpyd
 
 
+Note: Version 1.0, 1.0.1 and 1.1 where broken so removed from PyPI
+
+
 Documentation
 =============
 

@@ -1,8 +1,13 @@
 Changelog
 =========
 
+Release *v1.2* - ``2018-01-31``
+---------------------------------
+* Repair packaging
+
 Release *v1.1* - ``2018-01-30``
 ---------------------------------
+* BROKEN RELEASE, sorry
 * Official support for redis-py 2.10.6
 * Resolve two race conditions (``get`` and more important, ``pipeline``)
 * Add *scan* methods for databases/models/instances/fields (sets, hsets, zsets)
@@ -10,10 +15,12 @@ Release *v1.1* - ``2018-01-30``
 
 Release *v1.0.1* - ``2018-01-30``
 ---------------------------------
+* BROKEN RELEASE, sorry
 * Official support for PyPy & PyPy3
 
 Release *v1.0* - ``2018-01-29``
 -------------------------------
+* BROKEN RELEASE, sorry
 * Add real indexing capabilities
 * Correct/enhance slicing
 * Remove support for python 3.3 (keeps 2.7 and 3.4 to 3.6)
