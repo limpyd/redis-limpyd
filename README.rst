@@ -67,7 +67,7 @@ So you can use it like this:
 Install
 =======
 
-Python versions ``2.7`` and ``3.4`` to ``3.6`` are supported (CPython and PyPy).
+Python versions ``2.7`` and ``3.5`` to ``3.8`` are supported (CPython and PyPy).
 
 Redis-py_ versions ``>= 2.9.1`` and ``< 2.11`` are supported.
 
