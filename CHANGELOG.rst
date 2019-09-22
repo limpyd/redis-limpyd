@@ -1,8 +1,8 @@
 Changelog
 =========
 
-Release *v1.3.dev0* - ``2019-09-22``
-------------------------------------
+Release *v1.3* - ``2019-09-22``
+-------------------------------
 * Official support for Python 3.7 and 3.8
 * Remove support for Python 3.4
 
