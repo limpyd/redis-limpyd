@@ -1,12 +1,17 @@
 Changelog
 =========
 
+Release *v1.3.dev0* - ``2019-09-22``
+------------------------------------
+* Official support for Python 3.7 and 3.8
+* Remove support for Python 3.4
+
 Release *v1.2* - ``2018-01-31``
----------------------------------
+-------------------------------
 * Repair packaging
 
 Release *v1.1* - ``2018-01-30``
----------------------------------
+-------------------------------
 * BROKEN RELEASE, sorry
 * Official support for redis-py 2.10.6
 * Resolve two race conditions (``get`` and more important, ``pipeline``)

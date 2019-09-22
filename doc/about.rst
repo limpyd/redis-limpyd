@@ -14,7 +14,7 @@ The project is hosted on Github at https://github.com/limpyd/redis-limpyd
 Install
 =======
 
-Python versions ``2.7`` and ``3.4`` to ``3.6`` are supported (CPython and PyPy)
+Python versions ``2.7`` and ``3.5`` to ``3.8`` are supported (CPython and PyPy)
 
 Redis-py_ versions ``>= 2.9.1`` and ``< 2.11`` are supported.
 
