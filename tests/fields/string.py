@@ -46,16 +46,55 @@ class StringFieldTest(BaseModelTest):
         vegetable = self.model(name="aubergine")
         with self.assertNumCommands(1):
             vegetable.color.incr()
+        self.assertEqual(vegetable.color.get(), '1')
+        with self.assertNumCommands(1):
+            vegetable.color.incr()
+        self.assertEqual(vegetable.color.get(), '2')
+
+    def test_incrby_should_not_make_index_calls(self):
+        vegetable = self.model(name="aubergine")
+        with self.assertNumCommands(1):
+            vegetable.color.incrby(2)
+        self.assertEqual(vegetable.color.get(), '2')
+        with self.assertNumCommands(1):
+            vegetable.color.incrby(3)
+        self.assertEqual(vegetable.color.get(), '5')
+        with self.assertNumCommands(1):
+            vegetable.color.incrby(-2)
+        self.assertEqual(vegetable.color.get(), '3')
 
     def test_incrbyfloat_should_not_make_index_calls(self):
         vegetable = self.model(name="aubergine")
         with self.assertNumCommands(1):
             vegetable.color.incrbyfloat("1.5")
+        self.assertEqual(vegetable.color.get(), '1.5')
+        with self.assertNumCommands(1):
+            vegetable.color.incrbyfloat(2.2)
+        self.assertEqual(vegetable.color.get(), '3.7')
+        with self.assertNumCommands(1):
+            vegetable.color.incrbyfloat(-1.1)
+        self.assertEqual(vegetable.color.get(), '2.6')
 
     def test_decr_should_not_make_index_calls(self):
         vegetable = self.model(name="aubergine")
         with self.assertNumCommands(1):
             vegetable.color.decr()
+        self.assertEqual(vegetable.color.get(), '-1')
+        with self.assertNumCommands(1):
+            vegetable.color.decr()
+        self.assertEqual(vegetable.color.get(), '-2')
+
+    def test_decrby_should_not_make_index_calls(self):
+        vegetable = self.model(name="aubergine")
+        with self.assertNumCommands(1):
+            vegetable.color.decrby(2)
+        self.assertEqual(vegetable.color.get(), '-2')
+        with self.assertNumCommands(1):
+            vegetable.color.decrby(3)
+        self.assertEqual(vegetable.color.get(), '-5')
+        with self.assertNumCommands(1):
+            vegetable.color.decrby(-2)
+        self.assertEqual(vegetable.color.get(), '-3')
 
     def test_getset_should_not_make_index_calls(self):
         vegetable = self.model(name="aubergine", color="green")
@@ -93,9 +132,10 @@ class IndexableStringFieldTest(BaseModelTest):
         self.assertCollection([], name='aubergine')
         self.assertCollection([vegetable._pk], name='pepper')
 
-    def test_set_should_deindex_before_reindexing(self):
+    def test_getset_should_deindex_before_reindexing(self):
         vegetable = self.model()
-        vegetable.name.set('aubergine')
+        name = vegetable.name.getset('aubergine')
+        self.assertIsNone(name)
         self.assertCollection([vegetable._pk], name='aubergine')
 
         name = vegetable.name.getset('pepper')
@@ -132,7 +172,35 @@ class IndexableStringFieldTest(BaseModelTest):
         self.assertCollection([], pip=10)
         self.assertCollection([vegetable._pk], pip=9)
 
+    def test_decrby_should_deindex_and_reindex(self):
+        vegetable = self.model()
+        vegetable.pip.set(10)
+        self.assertCollection([vegetable._pk], pip=10)
+        with self.assertNumCommands(4 + self.COUNT_LOCK_COMMANDS):
+            # Check number of queries
+            # - 2 for getting old value and deindexing it
+            # - 1 for decr
+            # - 1 for reindex
+            # + n for the lock
+            vegetable.pip.decrby(3)
+        self.assertCollection([], pip=10)
+        self.assertCollection([vegetable._pk], pip=7)
+
     def test_incr_should_deindex_and_reindex(self):
+        vegetable = self.model()
+        vegetable.pip.set(10)
+        self.assertCollection([vegetable._pk], pip=10)
+        with self.assertNumCommands(4 + self.COUNT_LOCK_COMMANDS):
+            # Check number of queries
+            # - 2 for getting old value and deindexing it
+            # - 1 for decr
+            # - 1 for reindex
+            # + n for the lock
+            vegetable.pip.incr()
+        self.assertCollection([], pip=10)
+        self.assertCollection([vegetable._pk], pip=11)
+
+    def test_incrby_should_deindex_and_reindex(self):
         vegetable = self.model()
         vegetable.pip.set(10)
         self.assertCollection([vegetable._pk], pip=10)

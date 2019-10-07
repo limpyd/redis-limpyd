@@ -154,8 +154,10 @@ Modifiers
 
 - ``append``
 - ``decr``
+- ``decrby``
 - ``getset``
 - ``incr``
+- ``incrby``
 - ``incrbyfloat`` [1]_
 - ``set``
 - ``setbit``

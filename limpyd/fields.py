@@ -673,14 +673,16 @@ class StringField(SingleValueField):
     proxy_setter = "set"
 
     available_getters = ('get', 'getbit', 'getrange', 'strlen', 'bitcount', )
-    available_modifiers = ('delete', 'getset', 'set', 'append', 'decr',
-                           'incr', 'incrbyfloat', 'setbit', 'setnx',
-                           'setrange', )
+    available_modifiers = ('delete', 'getset', 'set', 'append', 'decr', 'decrby',
+                           'incr', 'incrby', 'incrbyfloat', 'setbit', 'setnx',
+                           'setrange', 'setex', 'psetex')
 
     _call_getset = SingleValueField._call_set
     _call_append = _call_setrange = _call_setbit = SingleValueField._reset
     _call_decr = SingleValueField._reindex_from_result
+    _call_decrby = SingleValueField._reindex_from_result
     _call_incr = SingleValueField._reindex_from_result
+    _call_incrby = SingleValueField._reindex_from_result
     _call_incrbyfloat = SingleValueField._reindex_from_result
 
     def _call_setnx(self, command, value):

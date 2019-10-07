@@ -1,7 +1,7 @@
 Changelog
 =========
 
-Release *v2.0.dev0* - ``2019-10-07``
+Release *v2.0.dev1* - ``2019-10-07``
 ------------------------------------
 * Support for redis-py >= 3 only
 * Support for redis-server >= 3 only
@@ -9,6 +9,7 @@ Release *v2.0.dev0* - ``2019-10-07``
 * Breaking change: `zadd` flags other than `ch` are explicitely not supported
 * Breaking change: `zincrby` arguments are swaped (`amount, value` instead of `value, amount`)
 * Breaking change: Redis server with `LUA` scripting support is mandatory
+* Add `decrby` and `incrby` to `StringField`
 
 Release *v1.3.1* - ``2019-10-11``
 ---------------------------------
