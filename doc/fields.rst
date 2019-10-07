@@ -106,6 +106,17 @@ If not specified, it's default to ``True``, except if the ``lockable`` attribute
 Field types
 ===========
 
+All field types, except if mentioned otherwise, have these commands related to expiring: [2]_
+
+- ``expire``
+- ``pexpire``
+- ``expireat``
+- ``pexpireat``
+- ``ttl``
+- ``pttl``
+- ``persist``
+
+
 .. _StringField:
 
 StringField
@@ -159,9 +170,11 @@ Modifiers
 - ``incr``
 - ``incrby``
 - ``incrbyfloat`` [1]_
+- ``psetex`` [2]_
 - ``set``
 - ``setbit``
 - ``setnx``
+- ``setex`` [2]_
 - ``setrange``
 
 
@@ -234,7 +247,7 @@ Example with simple commands:
     >>> example.foo.hget()
     'FOO'
 
-The InstanceHashField_ type support these `Redis hash commands`_:
+The InstanceHashField_ type does not support the expiring related commands. It support these `Redis hash commands`_:
 
 Getters
 """""""
@@ -658,6 +671,7 @@ Note that whatever name you use for the PKField_ (or AutoPKField_), you can alwa
     >>> example.id.get()
     1
 
+As a special field, and for obvious reasons, PKField_ does not support the expiring related commands.
 
 AutoPKField
 -----------
@@ -676,3 +690,5 @@ See PKField_ for more details.
 .. _`Redis hash commands`: http://redis.io/commands#hash
 
 .. [1] When working with floats, pass them as strings to avoid precision problems.
+
+.. [2] Commands that expire values cannot be called on indexable fields.

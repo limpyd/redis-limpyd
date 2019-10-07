@@ -180,6 +180,9 @@ class RedisField(RedisProxyCommand):
     _field_parts = 1
     default_indexes = None
 
+    available_getters = {'expire', 'expireat', 'pexpire', 'pexpireat', 'ttl', 'pttl', 'persist'}
+    available_modifiers = set()
+
     def __init__(self, *args, **kwargs):
         """
         Manage all field attributes
@@ -636,6 +639,18 @@ class RedisField(RedisProxyCommand):
             self.index(result)
         return result
 
+    def _deny_if_indexable(self, command, *args, **kwargs):
+        """
+        Shortcut for commands that cannot be executed on indexable fields
+        """
+        if self.indexable:
+            raise ImplementationError('Indexable fields cannot be expired')
+        return self._traverse_command(command, *args, **kwargs)
+    _call_expire = _deny_if_indexable
+    _call_pexpire = _deny_if_indexable
+    _call_expireat = _deny_if_indexable
+    _call_pexpireat = _deny_if_indexable
+
     def _del(self, command, *args, **kwargs):
         """
         Shortcut for commands that remove all values of the field.
@@ -672,10 +687,14 @@ class StringField(SingleValueField):
     proxy_getter = "get"
     proxy_setter = "set"
 
-    available_getters = ('get', 'getbit', 'getrange', 'strlen', 'bitcount', )
-    available_modifiers = ('delete', 'getset', 'set', 'append', 'decr', 'decrby',
-                           'incr', 'incrby', 'incrbyfloat', 'setbit', 'setnx',
-                           'setrange', 'setex', 'psetex')
+    available_getters = SingleValueField.available_getters | {
+        'get', 'getbit', 'getrange', 'strlen', 'bitcount',
+    }
+    available_modifiers = SingleValueField.available_modifiers | {
+        'delete', 'getset', 'set', 'append', 'decr', 'decrby',
+        'incr', 'incrby', 'incrbyfloat', 'setbit', 'setnx',
+        'setrange', 'setex', 'psetex',
+    }
 
     _call_getset = SingleValueField._call_set
     _call_append = _call_setrange = _call_setbit = SingleValueField._reset
@@ -684,6 +703,8 @@ class StringField(SingleValueField):
     _call_incr = SingleValueField._reindex_from_result
     _call_incrby = SingleValueField._reindex_from_result
     _call_incrbyfloat = SingleValueField._reindex_from_result
+    _call_setex = SingleValueField._deny_if_indexable
+    _call_psetex = SingleValueField._deny_if_indexable
 
     def _call_setnx(self, command, value):
         """
@@ -816,11 +837,15 @@ class SortedSetField(MultiValuesField):
     proxy_getter = "zmembers"
     proxy_setter = "zadd"
 
-    available_getters = ('zcard', 'zcount', 'zrange', 'zrangebyscore',
-                         'zrank', 'zrevrange', 'zrevrangebyscore',
-                         'zrevrank', 'zscore', 'zscan', 'sort', 'zscan_iter', )
-    available_modifiers = ('delete', 'zadd', 'zincrby', 'zrem',
-                           'zremrangebyrank', 'zremrangebyscore', )
+    available_getters = MultiValuesField.available_getters | {
+        'zcard', 'zcount', 'zrange', 'zrangebyscore',
+        'zrank', 'zrevrange', 'zrevrangebyscore',
+        'zrevrank', 'zscore', 'zscan', 'sort', 'zscan_iter',
+    }
+    available_modifiers = MultiValuesField.available_modifiers | {
+        'delete', 'zadd', 'zincrby', 'zrem',
+        'zremrangebyrank', 'zremrangebyscore',
+    }
 
     _call_zrem = MultiValuesField._rem
     _call_zremrangebyscore = _call_zremrangebyrank = RedisField._reset
@@ -914,8 +939,12 @@ class SetField(MultiValuesField):
     proxy_getter = "smembers"
     proxy_setter = "sadd"
 
-    available_getters = ('scard', 'sismember', 'smembers', 'srandmember', 'sscan', 'sort', 'sscan_iter', )
-    available_modifiers = ('delete', 'sadd', 'srem', 'spop', )
+    available_getters = MultiValuesField.available_getters | {
+        'scard', 'sismember', 'smembers', 'srandmember', 'sscan', 'sort', 'sscan_iter',
+    }
+    available_modifiers = MultiValuesField.available_modifiers | {
+        'delete', 'sadd', 'srem', 'spop',
+    }
 
     _call_sadd = MultiValuesField._add
     _call_srem = MultiValuesField._rem
@@ -941,10 +970,14 @@ class ListField(MultiValuesField):
     proxy_getter = "lmembers"
     proxy_setter = "rpush"
 
-    available_getters = ('lindex', 'llen', 'lrange', )
-    available_modifiers = ('delete', 'linsert', 'lpop', 'lpush', 'lpushx',
-                           'lrem', 'rpop', 'rpush', 'rpushx', 'lset',
-                           'ltrim', 'sort', )
+    available_getters = MultiValuesField.available_getters | {
+        'lindex', 'llen', 'lrange',
+    }
+    available_modifiers = MultiValuesField.available_modifiers | {
+        'delete', 'linsert', 'lpop', 'lpush', 'lpushx',
+        'lrem', 'rpop', 'rpush', 'rpushx', 'lset',
+        'ltrim', 'sort',
+    }
 
     _call_lpop = _call_rpop = MultiValuesField._pop
     _call_lpush = _call_rpush = MultiValuesField._add
@@ -1010,10 +1043,14 @@ class HashField(MultiValuesField):
     proxy_getter = "hgetall"
     proxy_setter = "hmset"
 
-    available_getters = ('hget', 'hgetall', 'hmget', 'hkeys', 'hvals',
-                         'hlen', 'hscan', 'hscan_iter', )
-    available_modifiers = ('delete', 'hdel', 'hmset', 'hsetnx', 'hset',
-                           'hincrby', 'hincrbyfloat', )
+    available_getters = MultiValuesField.available_getters | {
+        'hget', 'hgetall', 'hmget', 'hkeys', 'hvals',
+        'hlen', 'hscan', 'hscan_iter',
+    }
+    available_modifiers = MultiValuesField.available_modifiers | {
+        'delete', 'hdel', 'hmset', 'hsetnx', 'hset',
+        'hincrby', 'hincrbyfloat',
+    }
 
     scannable = True
     _call_hscan = MultiValuesField._scan
@@ -1134,9 +1171,8 @@ class InstanceHashField(SingleValueField):
     proxy_getter = "hget"
     proxy_setter = "hset"
 
-    available_getters = ('hget', )
-    available_modifiers = ('hdel', 'hset', 'hsetnx', 'hincrby',
-                           'hincrbyfloat', )
+    available_getters = {'hget', }
+    available_modifiers = {'hdel', 'hset', 'hsetnx', 'hincrby', 'hincrbyfloat', }
 
     _call_hset = SingleValueField._call_set
     _call_hdel = RedisField._del
@@ -1193,8 +1229,8 @@ class PKField(SingleValueField):
     proxy_getter = "get"
     proxy_setter = "set"
 
-    available_getters = ('get',)
-    available_modifiers = ('set',)
+    available_getters = {'get', }
+    available_modifiers = {'set', }
 
     name = 'pk'  # Default name ok the pk, can be changed by declaring a new PKField
     indexable = False  # Not an `indexable` field...

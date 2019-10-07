@@ -1,8 +1,9 @@
 # -*- coding:utf-8 -*-
 from __future__ import unicode_literals
+from datetime import datetime, timedelta
 
 from limpyd import fields
-from limpyd.exceptions import UniquenessError
+from limpyd.exceptions import ImplementationError, UniquenessError
 
 from ..model import TestRedisModel, BaseModelTest
 
@@ -117,6 +118,64 @@ class StringFieldTest(BaseModelTest):
         vegetable = self.model(name="aubergine")
         vegetable.name.delete()
         self.assertEqual(vegetable.name.get(), None)
+
+    def test_setex_is_possible_if_not_indexable(self):
+        vegetable = self.model(name="aubergine")
+        vegetable.color.setex(3, 'green')
+        self.assertEqual(vegetable.color.get(), "green")
+        self.assertTrue(vegetable.color.ttl() > 0)
+        vegetable.color.setex(2, 'dark green')
+        self.assertEqual(vegetable.color.get(), "dark green")
+        self.assertTrue(vegetable.color.ttl() > 0)
+        vegetable.color.persist()
+        self.assertEqual(vegetable.color.ttl(), -1)
+
+    def test_psetex_is_possible_if_not_indexable(self):
+        vegetable = self.model(name="aubergine")
+        vegetable.color.psetex(30, 'green')
+        self.assertEqual(vegetable.color.get(), "green")
+        self.assertTrue(vegetable.color.pttl() > 0)
+        vegetable.color.psetex(20, 'dark green')
+        self.assertEqual(vegetable.color.get(), "dark green")
+        self.assertTrue(vegetable.color.pttl() > 0)
+        vegetable.color.persist()
+        self.assertEqual(vegetable.color.pttl(), -1)
+
+    def test_expire_is_possible_if_not_indexable(self):
+        vegetable = self.model(name="aubergine")
+        vegetable.color.set('green')
+        self.assertEqual(vegetable.color.ttl(), -1)
+        vegetable.color.expire(2)
+        self.assertTrue(vegetable.color.ttl() > 0)
+        vegetable.color.persist()
+        self.assertEqual(vegetable.color.ttl(), -1)
+
+    def test_pexpire_is_possible_if_not_indexable(self):
+        vegetable = self.model(name="aubergine")
+        vegetable.color.set('green')
+        self.assertEqual(vegetable.color.pttl(), -1)
+        vegetable.color.pexpire(20)
+        self.assertTrue(vegetable.color.pttl() > 0)
+        vegetable.color.persist()
+        self.assertEqual(vegetable.color.pttl(), -1)
+
+    def test_expireat_is_possible_if_not_indexable(self):
+        vegetable = self.model(name="aubergine")
+        vegetable.color.set('green')
+        self.assertEqual(vegetable.color.ttl(), -1)
+        vegetable.color.expireat((datetime.now() + timedelta(seconds=2)).replace(microsecond=0))
+        self.assertTrue(vegetable.color.ttl() > 0)
+        vegetable.color.persist()
+        self.assertEqual(vegetable.color.ttl(), -1)
+
+    def test_pexpireat_is_possible_if_not_indexable(self):
+        vegetable = self.model(name="aubergine")
+        vegetable.color.set('green')
+        self.assertEqual(vegetable.color.pttl(), -1)
+        vegetable.color.pexpireat((datetime.now() + timedelta(seconds=2)))
+        self.assertTrue(vegetable.color.pttl() > 0)
+        vegetable.color.persist()
+        self.assertEqual(vegetable.color.pttl(), -1)
 
 
 class IndexableStringFieldTest(BaseModelTest):
@@ -266,6 +325,36 @@ class IndexableStringFieldTest(BaseModelTest):
         self.assertEqual(vegetable.pip.get(), 'P')
         self.assertCollection([], pip='@')
         self.assertCollection([vegetable._pk], pip='P')
+
+    def test_setex_is_not_possible_if_indexable(self):
+        vegetable = self.model()
+        with self.assertRaises(ImplementationError):
+            vegetable.name.setex(3, 'aubergine')
+
+    def test_psetex_is_not_possible_if_indexable(self):
+        vegetable = self.model()
+        with self.assertRaises(ImplementationError):
+            vegetable.name.psetex(30, 'aubergine')
+
+    def test_expire_is_not_possible_if_indexable(self):
+        vegetable = self.model(name='aubergine')
+        with self.assertRaises(ImplementationError):
+            vegetable.name.expire(3)
+
+    def test_pexpire_is_not_possible_if_indexable(self):
+        vegetable = self.model(name='aubergine')
+        with self.assertRaises(ImplementationError):
+            vegetable.name.pexpire(30)
+
+    def test_expireat_is_not_possible_if_indexable(self):
+        vegetable = self.model(name='aubergine')
+        with self.assertRaises(ImplementationError):
+            vegetable.name.expireat((datetime.now() + timedelta(seconds=2)).replace(microsecond=0))
+
+    def test_pexpireat_is_not_possible_if_indexable(self):
+        vegetable = self.model(name='aubergine')
+        with self.assertRaises(ImplementationError):
+            vegetable.name.pexpireat((datetime.now() + timedelta(seconds=2)))
 
 
 class Ferry(TestRedisModel):
