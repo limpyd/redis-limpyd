@@ -715,6 +715,19 @@ class StringField(SingleValueField):
             self.index(value)
         return result
 
+    def _call_set(self, command, value, ex=None, px=None, nx=False, xx=False):
+        """Deny expiring args if indexable, and deny other flags"""
+
+        if self.indexable and (ex is not None or px is not None):
+            raise ImplementationError('Indexable fields cannot be expired')
+
+        if nx:
+            raise LimpydException("nx argument to SET is not supported by limpyd")
+        if xx:
+            raise LimpydException("xx argument to SET is not supported by limpyd")
+
+        return super(StringField, self)._call_set(command, value, ex=ex, px=px)
+
 
 class MultiValuesField(RedisField):
     """

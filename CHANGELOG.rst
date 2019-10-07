@@ -1,7 +1,7 @@
 Changelog
 =========
 
-Release *v2.0.dev2* - ``2019-10-07``
+Release *v2.0.dev3* - ``2019-10-07``
 ------------------------------------
 * Support for redis-py >= 3 only
 * Support for redis-server >= 3 only
@@ -9,9 +9,11 @@ Release *v2.0.dev2* - ``2019-10-07``
 * Breaking change: `zadd` flags other than `ch` are explicitely not supported
 * Breaking change: `zincrby` arguments are swaped (`amount, value` instead of `value, amount`)
 * Breaking change: Redis server with `LUA` scripting support is mandatory
+* Breaking change: `set` flags other than `ex` and `px` are explicitely not supported
 * Add `decrby` and `incrby` to `StringField`
 * Add expiring commands to all normal fields (not `InstanceHashField` and `*PKField`): `expire`, `pexpire`, `expireat`, `pexpireat`, `ttl`, `pttl`, `persite`. But `*expire*` commands can only be called on non-indexable fields
 * Add `setex` and `psetex` to `StringField`. Can only be called on non-indexable fields.
+* Deny `ex` and `px` flag to `set` if field is indexable
 
 Release *v1.3.1* - ``2019-10-11``
 ---------------------------------

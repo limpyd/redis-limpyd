@@ -171,7 +171,7 @@ Modifiers
 - ``incrby``
 - ``incrbyfloat`` [1]_
 - ``psetex`` [2]_
-- ``set``
+- ``set`` (Flags ``ex`` and ``px`` are supported for non-indexable fields. Flags ``nx`` and ``xx`` are not supported)
 - ``setbit``
 - ``setnx``
 - ``setex`` [2]_

@@ -177,6 +177,16 @@ class StringFieldTest(BaseModelTest):
         vegetable.color.persist()
         self.assertEqual(vegetable.color.pttl(), -1)
 
+    def test_set_with_ex_is_possible_if_not_indexable(self):
+        vegetable = self.model(name="aubergine")
+        vegetable.color.set('green', ex=3)
+        self.assertTrue(vegetable.color.ttl() > 0)
+
+    def test_set_with_px_is_possible_if_not_indexable(self):
+        vegetable = self.model(name="aubergine")
+        vegetable.color.set('green', px=3000)
+        self.assertTrue(vegetable.color.pttl() > 0)
+
 
 class IndexableStringFieldTest(BaseModelTest):
 
@@ -355,6 +365,16 @@ class IndexableStringFieldTest(BaseModelTest):
         vegetable = self.model(name='aubergine')
         with self.assertRaises(ImplementationError):
             vegetable.name.pexpireat((datetime.now() + timedelta(seconds=2)))
+
+    def test_set_with_ex_is_not_possible_if_indexable(self):
+        vegetable = self.model()
+        with self.assertRaises(ImplementationError):
+            vegetable.name.set('aubergine', ex=3)
+
+    def test_set_with_px_is_not_possible_if_indexable(self):
+        vegetable = self.model()
+        with self.assertRaises(ImplementationError):
+            vegetable.name.set('aubergine', px=30)
 
 
 class Ferry(TestRedisModel):
