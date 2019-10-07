@@ -688,7 +688,7 @@ class StringField(SingleValueField):
     proxy_setter = "set"
 
     available_getters = SingleValueField.available_getters | {
-        'get', 'getbit', 'getrange', 'strlen', 'bitcount',
+        'get', 'getbit', 'getrange', 'strlen', 'bitcount', 'bitpos',
     }
     available_modifiers = SingleValueField.available_modifiers | {
         'delete', 'getset', 'set', 'append', 'decr', 'decrby',

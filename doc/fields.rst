@@ -154,6 +154,7 @@ Getters
 """""""
 
 - ``bitcount``
+- ``bitpos``
 - ``get``
 - ``getbit``
 - ``getrange``
