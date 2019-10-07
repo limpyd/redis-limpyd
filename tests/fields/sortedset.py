@@ -170,7 +170,28 @@ class IndexableSortedSetFieldTest(BaseModelTest):
         self.assertEqual(obj.field.zscore('foo'), 9.4)
         self.assertCollection([obj._pk], field='foo')
 
-    def test_zremrange_reindex_all_values(self):
+    def test_zremrangebylex_reindex_all_values(self):
+        obj = self.model()
+
+        obj.field.zadd(foo=0, bar=0, baz=0)
+
+        # we remove two values
+        with self.assertNumCommands(7 + self.COUNT_LOCK_COMMANDS):
+            # check that we had 7 commands:
+            # - 1 to get all existing values to deindex
+            # - 3 to deindex all values
+            # - 1 for the zremrangebylex
+            # - 1 to get all remaining values to index
+            # - 1 to index the only remaining value
+            # + n for the lock (set at the beginning, check/unset at the end))
+            obj.field.zremrangebylex('-', '[baz')  # start at beginning, ends with baz included
+
+        # check that all values are correctly indexed/deindexed
+        self.assertCollection([], field='bar')
+        self.assertCollection([], field='baz')
+        self.assertCollection([obj._pk], field='foo')
+
+    def test_zremrangebyscore_reindex_all_values(self):
         obj = self.model()
 
         obj.field.zadd(foo=1, bar=2, baz=3)
@@ -180,10 +201,10 @@ class IndexableSortedSetFieldTest(BaseModelTest):
             # check that we had 7 commands:
             # - 1 to get all existing values to deindex
             # - 3 to deindex all values
-            # - 1 for the zremrange
+            # - 1 for the zremrangebyscore
             # - 1 to get all remaining values to index
             # - 1 to index the only remaining value
-            # + n for the lock (set at the biginning, check/unset at the end))
+            # + n for the lock (set at the beginning, check/unset at the end))
             obj.field.zremrangebyscore(1, 2)
 
         # check that all values are correctly indexed/deindexed
@@ -204,7 +225,7 @@ class IndexableSortedSetFieldTest(BaseModelTest):
             # - 1 for the zremrangebyrank
             # - 1 to get all remaining values to index
             # - 2 to index the remaining values
-            # + n for the lock (set at the biginning, check/unset at the end))
+            # + n for the lock (set at the beginning, check/unset at the end))
             obj.field.zremrangebyrank(1, 2)
 
         # check that all values are correctly indexed/deindexed
@@ -212,6 +233,64 @@ class IndexableSortedSetFieldTest(BaseModelTest):
         self.assertCollection([], field='bar')
         self.assertCollection([], field='baz')
         self.assertCollection([obj._pk], field='faz')
+
+    def test_zpopmax_reindex_all_values(self):
+        if self.database.redis_version < (5, ):
+            self.skipTest("ZPOPMAX supported by redis-server version >=5")
+
+        obj = self.model()
+
+        obj.field.zadd(foo=1, bar=2, baz=3)
+
+        # we remove two values
+        with self.assertNumCommands(7 + self.COUNT_LOCK_COMMANDS):
+            # check that we had 7 commands:
+            # - 1 to get all existing values to deindex
+            # - 3 to deindex all values
+            # - 1 for the zpopmax
+            # - 1 to get all remaining values to index
+            # - 1 to index the only remaining value
+            # + n for the lock (set at the beginning, check/unset at the end))
+            poped_values = obj.field.zpopmax(2)
+
+        self.assertListEqual(poped_values, [
+            ('baz', 3),
+            ('bar', 2),
+        ])
+
+        # check that all values are correctly indexed/deindexed
+        self.assertCollection([], field='baz')
+        self.assertCollection([], field='bar')
+        self.assertCollection([obj._pk], field='foo')
+
+    def test_zpopmin_reindex_all_values(self):
+        if self.database.redis_version < (5, ):
+            self.skipTest("ZPOPMIN supported by redis-server version >=5")
+
+        obj = self.model()
+
+        obj.field.zadd(foo=1, bar=2, baz=3)
+
+        # we remove two values
+        with self.assertNumCommands(7 + self.COUNT_LOCK_COMMANDS):
+            # check that we had 7 commands:
+            # - 1 to get all existing values to deindex
+            # - 3 to deindex all values
+            # - 1 for the zpopmin
+            # - 1 to get all remaining values to index
+            # - 1 to index the only remaining value
+            # + n for the lock (set at the beginning, check/unset at the end))
+            poped_values = obj.field.zpopmin(2)
+
+        self.assertListEqual(poped_values, [
+            ('foo', 1),
+            ('bar', 2),
+        ])
+
+        # check that all values are correctly indexed/deindexed
+        self.assertCollection([], field='foo')
+        self.assertCollection([], field='bar')
+        self.assertCollection([obj._pk], field='baz')
 
     def test_delete_should_deindex(self):
         obj = self.model()

@@ -604,10 +604,13 @@ Getters
 
 - ``zcard``
 - ``zcount``
+- ``zlexcount``
 - ``zrange``
+- ``zrangebylex``
 - ``zrangebyscore``
 - ``zrank``
 - ``zrevrange``
+- ``zrevrangebylex``
 - ``zrevrangebyscore``
 - ``zrevrank``
 - ``zscore``
@@ -619,10 +622,12 @@ Modifiers
 
 - ``zadd`` (Flag ``ch`` is supported. Flags ``nx``, ``xx`` and ``incr`` are not)
 - ``zincrby``
+- ``zpopmax`` (only works if redis-server version >= 5)
+- ``zpopmin`` (only works if redis-server version >= 5)
 - ``zrem``
+- ``zremrangebylex``
 - ``zremrangebyrank``
 - ``zremrangebyscore``
-
 
 .. _PKField:
 

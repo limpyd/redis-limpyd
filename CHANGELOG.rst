@@ -1,7 +1,7 @@
 Changelog
 =========
 
-Release *v2.0.dev8* - ``2019-10-07``
+Release *v2.0.dev9* - ``2019-10-08``
 ------------------------------------
 * Support for redis-py >= 3 only
 * Support for redis-server >= 3 only
@@ -18,6 +18,8 @@ Release *v2.0.dev8* - ``2019-10-07``
 * Add new commands to `ListField`: `lcontains`, `lrank` and `lcount`, to know if a value is in the list, where, and how many times. This is done on the redis server side via lua scripting.
 * Optimize deindexing when calling `hmset` or `hdel`
 * Add `hstrlen` to `HashField`
+* Add `zlexcount`, `zrangebylex`, `zremrangebylex` and `zrevrangebylex` to `SortedSetField`
+* Add `zpopmax` and `zpopmin` `SortedSetField` (only for redis-server >= 5)
 
 Release *v1.3.1* - ``2019-10-11``
 ---------------------------------

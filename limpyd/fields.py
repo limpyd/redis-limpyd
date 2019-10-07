@@ -854,14 +854,16 @@ class SortedSetField(MultiValuesField):
         'zcard', 'zcount', 'zrange', 'zrangebyscore',
         'zrank', 'zrevrange', 'zrevrangebyscore',
         'zrevrank', 'zscore', 'zscan', 'sort', 'zscan_iter',
+        'zlexcount', 'zrangebylex', 'zrevrangebylex',
     }
     available_modifiers = MultiValuesField.available_modifiers | {
         'delete', 'zadd', 'zincrby', 'zrem',
         'zremrangebyrank', 'zremrangebyscore',
+        'zpopmin' ,'zpopmax', 'zremrangebylex',
     }
 
     _call_zrem = MultiValuesField._rem
-    _call_zremrangebyscore = _call_zremrangebyrank = RedisField._reset
+    _call_zremrangebylex = _call_zremrangebyscore = _call_zremrangebyrank = RedisField._reset
 
     scannable = True
     _call_zscan = MultiValuesField._scan
@@ -939,6 +941,12 @@ class SortedSetField(MultiValuesField):
                 mapping[newkey] = mapping.pop(oldkey)
 
         return args, kwargs
+
+    def _call_zpopmax(self, command, *args, **kwargs):
+        if self.database.redis_version < (5, ):
+            raise ImplementationError("%s is not a valid command for redis-server version < 5" % command.upper())
+        return self._reset(command, *args, **kwargs)
+    _call_zpopmin = _call_zpopmax
 
 
 class SetField(MultiValuesField):
