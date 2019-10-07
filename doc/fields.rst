@@ -213,6 +213,7 @@ Getters
 - ``hexists``
 - ``hlen``
 - ``hscan`` (returns a generator with all/matching key/value pairs, you don't have to manage the cursor)
+- ``hstrlen`` (only works if redis-server version >= 3.2)
 
 Modifiers
 """""""""

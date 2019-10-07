@@ -1137,7 +1137,7 @@ class HashField(MultiValuesField):
 
     available_getters = MultiValuesField.available_getters | {
         'hget', 'hgetall', 'hmget', 'hkeys', 'hvals',
-        'hlen', 'hscan', 'hscan_iter',
+        'hlen', 'hscan', 'hscan_iter', 'hstrlen',
     }
     available_modifiers = MultiValuesField.available_modifiers | {
         'delete', 'hdel', 'hmset', 'hsetnx', 'hset',
@@ -1193,6 +1193,12 @@ class HashField(MultiValuesField):
     def _call_hmget(self, command, *args):
         # redispy needs a list, not args
         return self._traverse_command(command, args)
+
+    def _call_hstrlen(self, command, key):
+        if self.database.redis_version < (3, 2):
+            raise ImplementationError("HSTRLEN is not a valid command for redis-server version < 3.2")
+        return self._traverse_command(command, key)
+
 
     def index(self, values=None, only_index=None):
         """

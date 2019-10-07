@@ -18,6 +18,8 @@ class HashFieldTest(BaseModelTest):
         obj = self.model(headers=headers)
         self.assertEqual(obj.headers.hget('from'), 'foo@bar.com')
         self.assertEqual(obj.headers.hget('to'), 'me@world.org')
+        self.assertEqual(obj.headers.hstrlen('from'), 11)
+        self.assertEqual(obj.headers.hstrlen('to'), 12)
 
     def test_hmset_should_set_values(self):
         obj = self.model()
