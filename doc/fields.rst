@@ -537,9 +537,12 @@ The ListField_ type support these `Redis list commands <http://redis.io/commands
 Getters
 """""""
 
+- ``lcontains`` [3]_ (Checks if the list contains a value: accepts a value, returns a boolean)
+- ``lcount`` [3]_ (Count how many times a value is in the list: accepts a value, returns an integer)
 - ``lindex``
 - ``llen``
 - ``lrange``
+- ``lrank`` [3]_ (Get the position of a value in the list: accepts a value, returns None if not in the list, or an integer)
 - ``sort`` (with arguments like in redis-py_, see redis-py-sort_)
 
 Modifiers
@@ -693,3 +696,5 @@ See PKField_ for more details.
 .. [1] When working with floats, pass them as strings to avoid precision problems.
 
 .. [2] Commands that expire values cannot be called on indexable fields.
+
+.. [3] Commands not in redis nor in redis-py, but implemented in limpyd and executed on the redis server side via lua scripting

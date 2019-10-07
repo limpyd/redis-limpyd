@@ -995,7 +995,7 @@ class ListField(MultiValuesField):
     proxy_setter = "rpush"
 
     available_getters = MultiValuesField.available_getters | {
-        'lindex', 'llen', 'lrange',
+        'lindex', 'llen', 'lrange', 'lrank', 'lcontains', 'lcount',
     }
     available_modifiers = MultiValuesField.available_modifiers | {
         'delete', 'linsert', 'lpop', 'lpush', 'lpushx',
@@ -1007,11 +1007,79 @@ class ListField(MultiValuesField):
     _call_lpush = _call_rpush = MultiValuesField._add
     _call_ltrim = RedisField._reset
 
+    scripts = {
+        'lrank': {
+            # get position of a value in a list
+            'lua': """
+                local list_key = KEYS[1]
+                local value = ARGV[1]
+                local items = redis.call('lrange', list_key, 0, -1)
+                for i, item in ipairs(items) do
+                    if items[i] == value then
+                        return i - 1
+                    end
+                end
+                return nil
+            """,
+        },
+        'lcount': {
+            # count occurrences of a value in a list
+            'lua': """
+                local list_key = KEYS[1]
+                local value = ARGV[1]
+                local items = redis.call('lrange', list_key, 0, -1)
+                local count = 0
+                for i, item in ipairs(items) do
+                    if items[i] == value then
+                        count = count + 1
+                    end
+                end
+                return count
+            """,
+        },
+    }
+
     def lmembers(self):
         """
         Used as a proxy_getter to get all values stored in the field.
         """
         return self.lrange(0, -1)
+
+    def _call_lrank(self, command, value):
+        """
+        Addon to redis, to know if a value is in the list without having to retrieve all the list,
+        thanks to lua scripting.
+        Returns None if the value is not in the list, else its position, 0-indexed.
+        """
+        return self.database.call_script(
+            # be sure to use the script dict at the class level
+            # to avoid registering it many times
+            script_dict=self.__class__.scripts[command],
+            keys=[self.key],
+            args=[value]
+        )
+
+    def _call_lcontains(self, command, value):
+        """
+        Addon to redis, to know if a value is in the list without having to retrieve all the list,
+        thanks to lua scripting. This is done via lrank defined above
+        Returns a boolean indicating if the value is in the list.
+        """
+        return self.lrank(value) is not None
+
+    def _call_lcount(self, command, value):
+        """
+        Addon to redis, to know how many times value is in the list without having to retrieve all
+        the list, thanks to lua scripting.
+        Returns an integer: 0 if not found, else the number of occurences
+        """
+        return self.database.call_script(
+            # be sure to use the script dict at the class level
+            # to avoid registering it many times
+            script_dict=self.__class__.scripts[command],
+            keys=[self.key],
+            args=[value]
+        )
 
     def _pushx(self, command, *args, **kwargs):
         """
