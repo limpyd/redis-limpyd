@@ -961,11 +961,22 @@ class SetField(MultiValuesField):
 
     _call_sadd = MultiValuesField._add
     _call_srem = MultiValuesField._rem
-    _call_spop = MultiValuesField._pop
 
     scannable = True
     _call_sscan = MultiValuesField._scan
     _call_sscan_iter = MultiValuesField._scan
+
+    def _call_spop(self, command, count=None):
+        if count is not None and self.database.redis_version < (3, 2):
+            raise ImplementationError("Count argument to SPOP is invalid for redis-server version < 3.2")
+
+        if count and self.indexable:
+            # deindex all returned values (`_pop` assuming only one value)
+            result = self._traverse_command(command, count=count)
+            self.deindex(result)
+            return result
+
+        return super(SetField, self)._pop(command, count=count)
 
 
 class ListField(MultiValuesField):

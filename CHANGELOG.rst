@@ -1,7 +1,7 @@
 Changelog
 =========
 
-Release *v2.0.dev4* - ``2019-10-07``
+Release *v2.0.dev5* - ``2019-10-07``
 ------------------------------------
 * Support for redis-py >= 3 only
 * Support for redis-server >= 3 only
@@ -14,6 +14,7 @@ Release *v2.0.dev4* - ``2019-10-07``
 * Add expiring commands to all normal fields (not `InstanceHashField` and `*PKField`): `expire`, `pexpire`, `expireat`, `pexpireat`, `ttl`, `pttl`, `persite`. But `*expire*` commands can only be called on non-indexable fields
 * Add `setex` and `psetex` to `StringField`. Can only be called on non-indexable fields.
 * Deny `ex` and `px` flag to `set` if field is indexable
+* Add support for `count` argument to `spop` (only for redis-server >= 3.2)
 
 Release *v1.3.1* - ``2019-10-11``
 ---------------------------------

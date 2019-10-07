@@ -492,7 +492,7 @@ Modifiers
 """""""""
 
 - ``sadd``
-- ``spop``
+- ``spop``  (with ``count`` argument supported if redis-server version >= 3.2)
 - ``srem``
 
 
