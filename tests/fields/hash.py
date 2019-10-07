@@ -31,10 +31,15 @@ class HashFieldTest(BaseModelTest):
 
     def test_hmset_should_be_indexable(self):
         obj = self.model()
-        obj.headers.hmset(**{'from': 'you@moon.io'})
-        self.assertEqual(set(self.model.collection(headers__from='you@moon.io')), {obj._pk})
+        headers = {
+            'from': 'foo@bar.com',
+            'to': 'me@world.org'
+        }
+        obj.headers.hmset(**headers)
+        self.assertCollection([obj._pk], headers__from='foo@bar.com')
+        self.assertCollection([obj._pk], headers__to='me@world.org')
 
-        # Now change value and check first has been deindexed and new redindexed
+        # Now change value and check old has been deindexed and new reindexed
         obj.headers.hmset(**{'from': 'you@mars.io'})
         self.assertCollection([], headers__from='you@moon.io')
         self.assertCollection([obj._pk], headers__from='you@mars.io')
@@ -44,10 +49,9 @@ class HashFieldTest(BaseModelTest):
         obj.headers.hset('from', 'someone@cassini.io')
         self.assertEqual(obj.headers.hget('from'), 'someone@cassini.io')
 
-        self.assertEqual(set(self.model.collection(headers__from='someone@cassini.io')),
-                         {obj._pk})
+        self.assertCollection([obj._pk], headers__from='someone@cassini.io')
 
-        # Now change value and check first has been deindexed and new redindexed
+        # Now change value and check old has been deindexed and new reindexed
         obj.headers.hset('from', 'someoneelse@cassini.io')
         self.assertCollection([], headers__from='someone@cassini.io')
         self.assertCollection([obj._pk], headers__from='someoneelse@cassini.io')
@@ -72,9 +76,11 @@ class HashFieldTest(BaseModelTest):
         obj.headers.hmset(**headers)
         self.assertEqual(obj.headers.hget('from'), 'foo@bar.com')
         self.assertEqual(obj.headers.hget('to'), 'me@world.org')
-        obj.headers.hdel('from')
+        count = obj.headers.hdel('from', 'cc')  # try to delete "cc", a non-existing entry
+        self.assertEqual(count, 1)
         self.assertEqual(obj.headers.hget('from'), None)
         self.assertCollection([], headers__from='foo@bar.com')
+        self.assertCollection([obj._pk], headers__to='me@world.org')
 
         # Do not raise if we try to del a key that does not exist
         # (follow redis usage)

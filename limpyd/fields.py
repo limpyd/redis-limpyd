@@ -1150,9 +1150,9 @@ class HashField(MultiValuesField):
 
     def _call_hmset(self, command, *args, **kwargs):
         if self.indexable:
-            current = self.proxy_get()
-            _to_deindex = dict((k, current[k]) for k in iterkeys(kwargs) if k in current)
-            self.deindex(_to_deindex)
+            keys = list(kwargs.keys())
+            current = self.hmget(*keys)
+            self.deindex({key: value for key, value in zip(keys, current) if value is not None})
             self.index(kwargs)
         return self._traverse_command(command, kwargs)
 
@@ -1179,8 +1179,8 @@ class HashField(MultiValuesField):
 
     def _call_hdel(self, command, *args):
         if self.indexable:
-            current = self.proxy_get()
-            self.deindex(dict((k, current[k]) for k in args if k in current))
+            current = self.hmget(*args)
+            self.deindex({key: value for key, value in zip(args, current) if value is not None})
         return self._traverse_command(command, *args)
 
     def _call_hsetnx(self, command, key, value):

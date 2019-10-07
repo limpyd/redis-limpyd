@@ -1,7 +1,7 @@
 Changelog
 =========
 
-Release *v2.0.dev6* - ``2019-10-07``
+Release *v2.0.dev7* - ``2019-10-07``
 ------------------------------------
 * Support for redis-py >= 3 only
 * Support for redis-server >= 3 only
@@ -16,6 +16,7 @@ Release *v2.0.dev6* - ``2019-10-07``
 * Deny `ex` and `px` flag to `set` if field is indexable
 * Add support for `count` argument to `spop` (only for redis-server >= 3.2)
 * Add new commands to `ListField`: `lcontains`, `lrank` and `lcount`, to know if a value is in the list, where, and how many times. This is done on the redis server side via lua scripting.
+* Optimize deindexing when calling `hmset` or `hdel`
 
 Release *v1.3.1* - ``2019-10-11``
 ---------------------------------
