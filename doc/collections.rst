@@ -127,13 +127,13 @@ If you want to retrieve already instantiated objects, instead of only primary ke
     >>> Person.collection(firstname='John').sort(by='lastname', alpha=True).instances()[0]
     [<[2] John "Jon" Doe (1965)>
 
-Note that for each primary key got from Redis, a real instance is created, with a check for ``pk`` existence. As it can lead to a lot of Redis calls (one for each instance), if you are sure that all primary keys really exists (it must be the case if nothing special was done), you can skip these tests by passing the ``skip_exist_test`` named argument to ``True`` when calling ``instances``:
+Note that for each primary key got from Redis, a real instance is created, with a check for ``pk`` existence. As it can lead to a lot of Redis calls (one for each instance), if you are sure that all primary keys really exists (it must be the case if nothing special was done), you can skip these tests by passing the ``lazy`` named argument to ``True`` when calling ``instances``:
 
 .. code:: python
 
-    >>> Person.collection().instances(skip_exist_test=True)
+    >>> Person.collection().instances(lazy=True)
 
-Note that when you'll update an instance got with ``skip_exist_test`` set to ``True``, the existence of the primary key will be done before the update, raising an exception if not found.
+Note that when you'll update an instance got with ``lazy`` set to ``True``, the existence of the primary key will be done before the update, raising an exception if not found.
 
 To cancel retrieving instances and get the default return format, call the ``primary_keys`` method:
 
@@ -144,7 +144,7 @@ To cancel retrieving instances and get the default return format, call the ``pri
 
 .. code:: python
 
-    >>> Person.collection().instances(skip_exist_test=True).primary_keys()
+    >>> Person.collection().instances(lazy=True).primary_keys()
 
 Indexing
 ========

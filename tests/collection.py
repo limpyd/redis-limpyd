@@ -435,7 +435,7 @@ class InstancesTest(CollectionBaseTest):
             radiohead._pk
         )
 
-    def test_skip_exist_test_should_not_test_pk_existence(self):
+    def test_lazy_should_not_test_pk_existence(self):
         # allow a scard (call to __len__) to be included in the commands
 
         with self.assertNumCommands(min_num=5, max_num=6):
@@ -443,7 +443,16 @@ class InstancesTest(CollectionBaseTest):
             list(Boat.collection().instances())
         with self.assertNumCommands(min_num=1, max_num=2):
             # 1 command for the collection, none to test PKs
-            list(Boat.collection().instances(skip_exist_test=True))
+            list(Boat.collection().instances(lazy=True))
+
+        # add a fake id in an index to test the lazyness
+        index_key = Boat.get_field('name')._indexes[0].get_storage_key('Pen Duick I')
+        self.connection.sadd(index_key, 9999)
+        # raise without lazy
+        with self.assertRaises(DoesNotExist):
+            list(Boat.collection(name='Pen Duick I').instances())
+        # pass with lazy
+        list(Boat.collection(name='Pen Duick I').instances(lazy=True))
 
     def test_instances_should_work_if_filtering_on_only_a_pk(self):
         boats = list(Boat.collection(pk=1).instances())

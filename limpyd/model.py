@@ -336,9 +336,9 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
         return collection(**filters)
 
     @classmethod
-    def instances(cls, **filters):
+    def instances(cls, lazy=False, **filters):
         # FIXME Keep as shortcut or remove for clearer API?
-        return cls.collection(**filters).instances()
+        return cls.collection(**filters).instances(lazy=lazy)
 
     @classmethod
     def _field_is_pk(cls, name):

@@ -714,7 +714,7 @@ class ExtendedCollectionManager(CollectionManager):
                 self.cls.get_connection().expire(store_key, ttl)
 
             # set choices about instances/values from the current to the new collection
-            for attr in ('_instances', '_instances_skip_exist_test', '_values'):
+            for attr in ('_instances', '_lazy_instances', '_values'):
                 setattr(stored_collection, attr, deepcopy(getattr(self, attr)))
 
             # finally return the new collection

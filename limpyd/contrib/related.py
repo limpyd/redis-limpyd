@@ -416,12 +416,12 @@ class SimpleValueRelatedFieldMixin(RelatedFieldMixin):
         group.owner.instance()
 
     """
-    def instance(self, skip_exist_test=False):
+    def instance(self, lazy=False):
         """
         Returns the instance of the related object linked by the field.
         """
         model = self.database._models[self.related_to]
-        meth = model.lazy_connect if skip_exist_test else model
+        meth = model.lazy_connect if lazy else model
         return meth(self.proxy_get())
 
 

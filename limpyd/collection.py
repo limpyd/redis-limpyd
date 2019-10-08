@@ -40,8 +40,8 @@ class CollectionManager(object):
         }
         self._instances = False  # True when instances are asked
                                  # instead of raw pks
-        self._instances_skip_exist_test = False  # If True will return instances
-                                                 # without testing if pk exist
+        self._lazy_instances = False  # If True will return instances
+                                      # without testing if pk exist
         self._sort = None  # Will store sorting parameters
         self._sort_limits = None  # Will store slice parameters (start and num)
         self._len = None  # Store the result of the final collection, to avoid
@@ -315,7 +315,7 @@ class CollectionManager(object):
         """
         # we want instances, so create an object for each pk, without
         # checking for pk existence if asked
-        meth = self.cls.lazy_connect if self._instances_skip_exist_test else self.cls
+        meth = self.cls.lazy_connect if self._lazy_instances else self.cls
         return [meth(pk) for pk in pks]
 
     def _prepare_results(self, results):
@@ -515,15 +515,15 @@ class CollectionManager(object):
         finally:
             self._sort_limits, self._len_mode = old_sort_limits_and_len_mode
 
-    def instances(self, skip_exist_test=False):
+    def instances(self, lazy=False):
         """
         Ask the collection to return a list of instances.
-        If skip_exist_test is set to True, the instances returned by the
+        If lazy is set to True, the instances returned by the
         collection won't have their primary key checked for existence.
         """
         self.reset_result_type()
         self._instances = True
-        self._instances_skip_exist_test = skip_exist_test
+        self._lazy_instances = lazy
         return self
 
     def _get_simple_fields(self):
