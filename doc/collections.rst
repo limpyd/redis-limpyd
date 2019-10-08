@@ -18,7 +18,7 @@ The filtering has some limitations:
 
 The result of a call to the ``collection`` is lazy. The query is only sent to ``Redis`` when data is really needed, to display or do computation with them.
 
-By default, a collection returns a list of primary keys for all the matching objects, but you can sort them, retrieve only a part, and/or directly get full instances instead of primary keys.
+By default, a collection yields a list of primary keys for all the matching objects, but you can sort them, retrieve only a part, and/or directly get full instances instead of primary keys. In each case, you'll get a generator, not a list.
 
 We will explain Filtering_, Sorting_, Slicing_, Instantiating_, Indexing_, and Laziness_ below, based on this example:
 
@@ -51,13 +51,13 @@ To filter, simply call the ``collection`` (class)method with fields you want to 
 
 .. code:: python
 
-    >>> Person.collection(firstname='John')
+    >>> list(Person.collection(firstname='John'))
     ['1', '2']
-    >>> Person.collection(firstname='john', lastname='Smith')
+    >>> list(Person.collection(firstname='john', lastname='Smith'))
     ['1']
-    >>> Person.collection(birth_year=1965)
+    >>> list(Person.collection(birth_year=1965))
     ['2']
-    >>> Person.collection(birth_year=1965, lastname='Smith')
+    >>> list(Person.collection(birth_year=1965, lastname='Smith'))
     []
 
 You cannot pass two filters with the same name. All filters are ``and``-ed.
@@ -75,9 +75,9 @@ To slice the result, simply act as if the result of a collection is a list:
 
 .. code:: python
 
-    >>> Person.collection(firstname='John')
+    >>> list(Person.collection(firstname='John'))
     ['1', '2']
-    >>> Person.collection(firstname='John')[1:2]
+    >>> list(Person.collection(firstname='John')[1:2])
     ['2']
 
 
@@ -96,33 +96,44 @@ Example:
 
 .. code:: python
 
-    >>> Person.collection(firstname='John')
+    >>> list(Person.collection(firstname='John'))
     ['1', '2']
-    >>> Person.collection(firstname='John').sort(by='lastname', alpha=True)
+    >>> list(Person.collection(firstname='John').sort(by='lastname', alpha=True))
     ['2', '1']
-    >>> Person.collection(firstname='John').sort(by='lastname', alpha=True)[1:2]
-    ['1']
-    >>> Person.collection().sort(by='birth_year')
+    >>> list(Person.collection().sort(by='birth_year'))
     ['3', '1', '4', '2']
 
 Note: using ``by='pk'`` (or the real name of the ``pk`` field) is the same as not using ``by``: it will sort by primary keys,
 using a numeric filter (use ``alpha=True`` if your ``pk`` is not numeric)
 
+Calling ``sort`` will return a new, lazy, collection instance. The original one can still be used:
+
+.. code:: python
+
+    >>> collection = Person.collection(firstname='John')
+    >>> list(collection)
+    ['1', '2']
+    >>> sorted_collection = collection.sort(by='lastname', alpha=True)
+    >>> list(sorted_collection)
+    ['2', '1']
+    >>> collection[0]
+    '1'
+
 
 Instantiating
 =============
 
-If you want to retrieve already instantiated objects, instead of only primary keys and having to do instantiation yourself, you simply have to call ``instances()`` on the result of the collection. The result of the collection and its methods (``sort`` and ``instances``) return a collection, so you can chain calls:
+If you want to retrieve already instantiated objects, instead of only primary keys and having to do instantiation yourself, you simply have to call ``instances()`` on the result of the collection. The result of the collection and its methods (``sort`` and ``instances``) return a new collection, so you can chain calls:
 
 .. code:: python
 
-    >>> Person.collection(firstname='John')
+    >>> list(Person.collection(firstname='John'))
     ['1', '2']
-    >>> Person.collection(firstname='John').instances()
+    >>> list(Person.collection(firstname='John').instances())
     [<[1] John "Joe" Smith (1960)>, <[2] John "Jon" Doe (1965)>]
-    >>> Person.collection(firstname='John').instances().sort(by='lastname', alpha=True)
+    >>> list(Person.collection(firstname='John').instances().sort(by='lastname', alpha=True))
     [<[2] John "Jon" Doe (1965)>, <[1] John "Joe" Smith (1960)>]
-    >>> Person.collection(firstname='John').sort(by='lastname', alpha=True).instances()
+    >>> list(Person.collection(firstname='John').sort(by='lastname', alpha=True).instances())
     [<[2] John "Jon" Doe (1965)>, <[1] John "Joe" Smith (1960)>]
     >>> Person.collection(firstname='John').sort(by='lastname', alpha=True).instances()[0]
     [<[2] John "Jon" Doe (1965)>
@@ -133,18 +144,20 @@ Note that for each primary key got from Redis, a real instance is created, with 
 
     >>> Person.collection().instances(lazy=True)
 
-Note that when you'll update an instance got with ``lazy`` set to ``True``, the existence of the primary key will be done before the update, raising an exception if not found.
+Note that when you'll update an instance got with ``lazy`` set to ``True``, the existence of the primary key will be done before the update, raising an exception if not found. On the contrary, if ``lazy`` if set to ``False`` (the default), instances that does not exist won't be returned.
 
 To cancel retrieving instances and get the default return format, call the ``primary_keys`` method:
 
 .. code:: python
 
-    >>> Person.collection(firstname='John').instances().primary_keys()
+    >>> list(Person.collection(firstname='John').instances().primary_keys())
     >>> ['1', '2']
 
 .. code:: python
 
     >>> Person.collection().instances(lazy=True).primary_keys()
+
+Note: like for ``sort``, calling ``instances`` and ``primary_keys`` return a new, lazy, collection. And iterating on the results is done via a python generator (returned objects are created one by one)
 
 Indexing
 ========
@@ -339,7 +352,7 @@ You can clear/rebuild only your own index this way:
 Laziness
 ========
 
-The result of a collection is lazy. In fact it's the collection itself, it's why we can chain calls to ``sort`` and ``instances``.
+The result of a collection is lazy. In fact it's the collection itself, it's why we can chain calls to ``sort`` and ``instances`` (note that these calls create a new collection since version 2 of limpyd: they do not update the current one)
 
 The query is sent to Redis only when the data are needed. In the previous examples, data was needed to display them.
 

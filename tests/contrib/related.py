@@ -85,15 +85,15 @@ class RelatedNameTest(LimpydBaseTest):
         ybon = Person(name='ybon')
         ybon.prefered_group.set(core_devs._pk)
 
-        self.assertEqual(set(core_devs.person_set()), {ybon._pk})
+        self.assertSetEqual(set(core_devs.person_set()), {ybon._pk})
 
     def test_defined_related_name_should_exists_as_collection(self):
         core_devs = Group(name='limpyd core devs')
         ybon = Person(name='ybon')
         core_devs.owner.hset(ybon._pk)
 
-        self.assertEqual(set(ybon.owned_groups()), {core_devs._pk})
-        self.assertEqual(set(ybon.owned_groups()), set(Group.collection(owner=ybon._pk)))
+        self.assertSetEqual(set(ybon.owned_groups()), {core_devs._pk})
+        self.assertSetEqual(set(ybon.owned_groups()), set(Group.collection(owner=ybon._pk)))
 
     def test_placeholders_in_related_name_should_be_replaced(self):
         class PersonTest(TestRedisModel):
@@ -107,7 +107,7 @@ class RelatedNameTest(LimpydBaseTest):
         ybon.most_hated_group.set(ms_php._pk)
 
         self.assertTrue(hasattr(ms_php, 'related_name_persontest_set'))
-        self.assertEqual(set(ms_php.related_name_persontest_set()), {ybon._pk})
+        self.assertSetEqual(set(ms_php.related_name_persontest_set()), {ybon._pk})
 
     def test_related_name_should_follow_namespace(self):
         class SubTest(object):
@@ -134,8 +134,8 @@ class RelatedNameTest(LimpydBaseTest):
                 person.first_group.set(group1._pk)
                 person.second_group.set(group2._pk)
 
-                self.assertEqual(set(group1.persontest_set()), {person._pk})
-                self.assertEqual(set(group2.persontest_set()), {person._pk})
+                self.assertSetEqual(set(group1.persontest_set()), {person._pk})
+                self.assertSetEqual(set(group2.persontest_set()), {person._pk})
 
         SubTest.run()
 
@@ -191,8 +191,8 @@ class RelatedNameTest(LimpydBaseTest):
 
         self.assertTrue(hasattr(other, 'related_name_sub_childa_related'))
         self.assertTrue(hasattr(other, 'related_name_sub_childb_related'))
-        self.assertEqual(set(other.related_name_sub_childa_related()), {childa._pk})
-        self.assertEqual(set(other.related_name_sub_childb_related()), {childb._pk})
+        self.assertSetEqual(set(other.related_name_sub_childa_related()), {childa._pk})
+        self.assertSetEqual(set(other.related_name_sub_childb_related()), {childb._pk})
 
     def test_related_name_as_invalid_identifier_should_raise(self):
         with self.assertRaises(ImplementationError):
@@ -313,7 +313,7 @@ class MultiValuesCollectionTest(LimpydBaseTest):
         members2 = self.core_devs.members.collection()
         self.assertTrue(isinstance(members1, ExtendedCollectionManager))
 
-        self.assertEqual(list(members1), list(members2))
+        self.assertListEqual(list(members1), list(members2))
 
 
 class FKTest(LimpydBaseTest):
@@ -325,12 +325,12 @@ class FKTest(LimpydBaseTest):
         # test with FKInstanceHashField
         core_devs.owner.hset(ybon)
         self.assertEqual(core_devs.owner.hget(), ybon._pk)
-        self.assertEqual(set(ybon.owned_groups()), {core_devs._pk})
+        self.assertSetEqual(set(ybon.owned_groups()), {core_devs._pk})
 
         # test with FKStringField
         ybon.prefered_group.set(core_devs)
         self.assertEqual(ybon.prefered_group.get(), core_devs._pk)
-        self.assertEqual(set(core_devs.person_set()), {ybon._pk})
+        self.assertSetEqual(set(core_devs.person_set()), {ybon._pk})
 
     def test_fk_can_be_given_as_fk(self):
         core_devs = Group(name='limpyd core devs')
@@ -340,7 +340,7 @@ class FKTest(LimpydBaseTest):
         core_devs.owner.hset(ybon)
         fan_boys.owner.hset(core_devs.owner)
         self.assertEqual(fan_boys.owner.hget(), ybon._pk)
-        self.assertEqual(set(ybon.owned_groups()), {core_devs._pk, fan_boys._pk})
+        self.assertSetEqual(set(ybon.owned_groups()), {core_devs._pk, fan_boys._pk})
 
     def test_can_update_fk(self):
         core_devs = Group(name='limpyd core devs')
@@ -348,11 +348,11 @@ class FKTest(LimpydBaseTest):
         twidi = Person(name='twidi')
 
         core_devs.owner.hset(ybon)
-        self.assertEqual(set(ybon.owned_groups()), {core_devs._pk})
+        self.assertSetEqual(set(ybon.owned_groups()), {core_devs._pk})
 
         core_devs.owner.hset(twidi)
-        self.assertEqual(set(ybon.owned_groups()), set())
-        self.assertEqual(set(twidi.owned_groups()), {core_devs._pk})
+        self.assertSetEqual(set(ybon.owned_groups()), set())
+        self.assertSetEqual(set(twidi.owned_groups()), {core_devs._pk})
 
     def test_many_fk_can_be_set_on_same_object(self):
         core_devs = Group(name='limpyd core devs')
@@ -361,7 +361,7 @@ class FKTest(LimpydBaseTest):
 
         core_devs.owner.hset(twidi)
         fan_boys.owner.hset(twidi)
-        self.assertEqual(set(twidi.owned_groups()), {core_devs._pk, fan_boys._pk})
+        self.assertSetEqual(set(twidi.owned_groups()), {core_devs._pk, fan_boys._pk})
 
     def test_fk_can_be_set_on_same_model(self):
         main_group = Group(name='limpyd groups')
@@ -370,7 +370,7 @@ class FKTest(LimpydBaseTest):
 
         core_devs.parent.set(main_group)
         fan_boys.parent.set(main_group)
-        self.assertEqual(set(main_group.children()), {core_devs._pk, fan_boys._pk})
+        self.assertSetEqual(set(main_group.children()), {core_devs._pk, fan_boys._pk})
 
     def test_calling_instance_on_fkfield_should_retrieve_the_related_instance(self):
         twidi = Person(name='twidi')
@@ -408,7 +408,7 @@ class FKTest(LimpydBaseTest):
 
         core_devs.owner.hset(ybon)
         core_devs.delete()
-        self.assertEqual(set(ybon.owned_groups()), set())
+        self.assertSetEqual(set(ybon.owned_groups()), set())
 
 
 class M2MSetTest(LimpydBaseTest):
@@ -421,8 +421,8 @@ class M2MSetTest(LimpydBaseTest):
         core_devs.members.sadd(ybon._pk, twidi)
 
         self.assertEqual(core_devs.members.smembers(), {twidi._pk, ybon._pk})
-        self.assertEqual(set(ybon.membership()), {core_devs._pk})
-        self.assertEqual(set(twidi.membership()), {core_devs._pk})
+        self.assertSetEqual(set(ybon.membership()), {core_devs._pk})
+        self.assertSetEqual(set(twidi.membership()), {core_devs._pk})
 
     def test_set_m2m_values_can_be_given_as_fk(self):
         core_devs = Group(name='limpyd core devs')
@@ -441,8 +441,8 @@ class M2MSetTest(LimpydBaseTest):
         core_devs.members.srem(ybon)
 
         self.assertEqual(core_devs.members.smembers(), {twidi._pk})
-        self.assertEqual(set(ybon.membership()), set())
-        self.assertEqual(set(twidi.membership()), {core_devs._pk})
+        self.assertSetEqual(set(ybon.membership()), set())
+        self.assertSetEqual(set(twidi.membership()), {core_devs._pk})
 
     def test_m2m_can_be_set_on_the_same_model(self):
         ybon = Person(name='ybon')
@@ -451,7 +451,7 @@ class M2MSetTest(LimpydBaseTest):
         twidi.following.sadd(ybon)
 
         self.assertEqual(twidi.following.smembers(), {ybon._pk})
-        self.assertEqual(set(ybon.followers()), {twidi._pk})
+        self.assertSetEqual(set(ybon.followers()), {twidi._pk})
 
     def test_deleting_an_object_must_clean_m2m(self):
         core_devs = Group(name='limpyd core devs')
@@ -462,7 +462,7 @@ class M2MSetTest(LimpydBaseTest):
         ybon.delete()
 
         self.assertEqual(core_devs.members.smembers(), {twidi._pk})
-        self.assertEqual(set(twidi.membership()), {core_devs._pk})
+        self.assertSetEqual(set(twidi.membership()), {core_devs._pk})
 
     def test_deleting_a_m2m_should_clear_collections(self):
         core_devs = Group(name='limpyd core devs')
@@ -472,8 +472,8 @@ class M2MSetTest(LimpydBaseTest):
         core_devs.members.sadd(ybon._pk, twidi)
         core_devs.delete()
 
-        self.assertEqual(set(twidi.membership()), set([]))
-        self.assertEqual(set(ybon.membership()), set([]))
+        self.assertSetEqual(set(twidi.membership()), set([]))
+        self.assertSetEqual(set(ybon.membership()), set([]))
 
 
 class M2MListTest(LimpydBaseTest):
@@ -490,8 +490,8 @@ class M2MListTest(LimpydBaseTest):
         core_devs.members.rpush(ybon._pk, twidi)
 
         self.assertEqual(core_devs.members.lrange(0, -1), [ybon._pk, twidi._pk])
-        self.assertEqual(set(ybon.members_set2()), {core_devs._pk})
-        self.assertEqual(set(twidi.members_set2()), {core_devs._pk})
+        self.assertSetEqual(set(ybon.members_set2()), {core_devs._pk})
+        self.assertSetEqual(set(twidi.members_set2()), {core_devs._pk})
 
 
 class M2MSortedSetTest(LimpydBaseTest):
@@ -508,8 +508,8 @@ class M2MSortedSetTest(LimpydBaseTest):
         core_devs.members.zadd({ybon: 20, twidi._pk: 10})
 
         self.assertEqual(core_devs.members.zrange(0, -1), [twidi._pk, ybon._pk])
-        self.assertEqual(set(ybon.members_set3()), {core_devs._pk})
-        self.assertEqual(set(twidi.members_set3()), {core_devs._pk})
+        self.assertSetEqual(set(ybon.members_set3()), {core_devs._pk})
+        self.assertSetEqual(set(twidi.members_set3()), {core_devs._pk})
 
     def test_zset_m2m_values_are_scored(self):
         core_devs = M2MSortedSetTest.Group3(name='limpyd core devs')
@@ -563,12 +563,12 @@ class DatabaseTest(LimpydBaseTest):
             b.c_set()
 
         # the link A <-> B should work
-        self.assertEqual(list(b.a_set()), [])
+        self.assertListEqual(list(b.a_set()), [])
 
         # move B to db2 to allow relation to work
         B.use_database(db2)
         b = B(foo='bar')
-        self.assertEqual(list(b.c_set()), [])
+        self.assertListEqual(list(b.c_set()), [])
 
         # now the link A <-> B should be broken
         with self.assertRaises(AttributeError):
@@ -588,6 +588,6 @@ class DatabaseTest(LimpydBaseTest):
         c.b.set(b)
 
         # all relation should work
-        self.assertEqual(list(a.b_set()), [b._pk])
-        self.assertEqual(list(b.a_set()), [a._pk])
-        self.assertEqual(list(b.c_set()), [c._pk])
+        self.assertListEqual(list(a.b_set()), [b._pk])
+        self.assertListEqual(list(b.a_set()), [a._pk])
+        self.assertListEqual(list(b.c_set()), [c._pk])

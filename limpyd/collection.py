@@ -1,5 +1,8 @@
 # -*- coding:utf-8 -*-
 from __future__ import unicode_literals
+
+from copy import copy
+
 from future.builtins import object
 from collections import namedtuple
 
@@ -10,6 +13,7 @@ from limpyd.fields import MultiValuesField
 
 
 ParsedFilter = namedtuple('ParsedFilter', ['index', 'suffix', 'extra_field_parts', 'value'])
+
 
 NONE_SLICE = slice(None, None, None)
 
@@ -53,17 +57,27 @@ class CollectionManager(object):
                                 # True by default to manage the __iter__ + __len__
                                 # case, specifically set to False in other cases
 
-        self.scripted_slicing = True
+    def clone(self):
+        new = self.__class__(self.cls)
+        new._lazy_collection = {key: copy(value) for key, value in self._lazy_collection.items()} if self._lazy_collection is not None else None
+        new._instances = self._instances
+        new._lazy_instances = self._lazy_instances
+        new._sort = self._sort.copy() if self._sort is not None else None
+        new._sort_limits = self._sort_limits.copy() if self._sort_limits is not None else None
+        new._len = self._len
+        new._len_mode = self._len_mode
+        return new
 
     def __iter__(self):
         old_sort_limits_and_len_mode = None if self._sort_limits is None else self._sort_limits.copy(), self._len_mode
         try:
             self._len_mode = False
-            return self._collection.__iter__()
+            return self._get_collection()
         finally:
             self._sort_limits, self._len_mode = old_sort_limits_and_len_mode
 
-    def _optimize_slice(self, the_slice, can_reverse):
+    @staticmethod
+    def _optimize_slice(the_slice, can_reverse):
         """
 
         Parameters
@@ -131,13 +145,12 @@ class CollectionManager(object):
         # in all other cases we recover the whole collection and slice it in python
         return False, None, None, False, slice(start, stop, step)
 
-    def __getitem__(self, arg):
+    def _getitem(self, arg):
         old_sort_limits_and_len_mode = None if self._sort_limits is None else self._sort_limits.copy(), self._len_mode
         old_sort = None if self._sort is None else self._sort.copy()
         try:
             self._len_mode = False
             self._sort_limits = {}
-            self._optimized_slicing = False  # just to store the fact that the call was optimized
             if isinstance(arg, slice):
                 # A slice has been requested
                 # We try to reduce the data to get back from redis
@@ -167,7 +180,7 @@ class CollectionManager(object):
                     if self._sort is None: self._sort = {}
                     self._sort['desc'] = not self._sort.get('desc', False)
 
-                return self._collection[python_slice]
+                return list(self._get_collection(slice=python_slice))
 
             else:
                 # A single item has been requested
@@ -175,20 +188,22 @@ class CollectionManager(object):
                 # data transfer and use the fast redis offset system
                 start = arg
                 self._sort_limits['num'] = 1  # one element
-                self._optimized_slicing = True
                 if start >= 0:
                     self._sort_limits['start'] = start
-                    return self._collection[0]
+                    return next(self._get_collection())
                 else:
                     # we sort the result in the reverse way, mark the final result as
                     # reversed to re-reverse it at the end
                     if self._sort is None: self._sort = {}
                     self._sort['desc'] = not self._sort.get('desc', False)
                     self._sort_limits['start'] = - start - 1
-                    return self._collection[0]
+                    return next(self._get_collection())
         finally:
             self._sort_limits, self._len_mode = old_sort_limits_and_len_mode
             self._sort = old_sort
+
+    def __getitem__(self, arg):
+        return self.clone()._getitem(arg)
 
     def _get_pk(self):
         """
@@ -221,8 +236,7 @@ class CollectionManager(object):
             sort_options = None
         return sort_options
 
-    @property
-    def _collection(self):
+    def _get_collection(self, slice=None):
         """
         Effectively retrieve data according to lazy_collection.
         """
@@ -237,10 +251,10 @@ class CollectionManager(object):
             try:
                 pk = self._get_pk()
             except ValueError:
-                return []
+                return iter(())
             else:
                 if pk is not None and not self.cls.get_field('pk').exists(pk):
-                    return []
+                    return iter(())
 
             # Prepare options and final set to get/sort
             sort_options = self._prepare_sort_options(bool(pk))
@@ -283,7 +297,7 @@ class CollectionManager(object):
                         conn.delete(*keys_to_delete)
 
                 # Format return values if needed
-                return self._prepare_results(collection)
+                return self._prepare_results(collection, slice=slice)
         finally:
             self._sort_limits, self._len_mode = old_sort_limits_and_len_mode
 
@@ -316,20 +330,28 @@ class CollectionManager(object):
         # we want instances, so create an object for each pk, without
         # checking for pk existence if asked
         meth = self.cls.lazy_connect if self._lazy_instances else self.cls
-        return [meth(pk) for pk in pks]
+        for pk in pks:
+            try:
+                yield meth(pk)
+            except DoesNotExist:
+                continue
 
-    def _prepare_results(self, results):
+    def _prepare_results(self, results, _len_hint=None, slice=None):
         """
         Called in _collection to prepare results from redis before returning
         them.
         """
+
+        # cache the len for future use
+        self._len = _len_hint if _len_hint is not None else len(results)
+
+        if slice is not None:
+            results = list(results)[slice]
+
         if self._instances:
             results = self._to_instances(results)
         else:
-            results = list(results)
-
-        # cache the len for future use
-        self._len = len(results)
+            results = iter(results)
 
         return results
 
@@ -431,7 +453,7 @@ class CollectionManager(object):
         return final_set
 
     def __call__(self, **filters):
-        return self._add_filters(**filters)
+        return self.clone()._add_filters(**filters)
 
     def _field_is_pk(self, field_name):
         """Check if the given name is the pk field, suffixed or not with "__eq" """
@@ -502,16 +524,16 @@ class CollectionManager(object):
     def __len__(self):
         if self._len is None:
             if not self._len_mode:
-                self._len = self._collection.__len__()
+                self._len = self._get_collection().__len__()
             else:
-                self._collection
+                self._get_collection()
         return self._len
 
     def __repr__(self):
         old_sort_limits_and_len_mode = None if self._sort_limits is None else self._sort_limits.copy(), self._len_mode
         try:
             self._len_mode = False
-            return self._collection.__repr__()
+            return self._get_collection().__repr__()
         finally:
             self._sort_limits, self._len_mode = old_sort_limits_and_len_mode
 
@@ -521,10 +543,11 @@ class CollectionManager(object):
         If lazy is set to True, the instances returned by the
         collection won't have their primary key checked for existence.
         """
-        self.reset_result_type()
-        self._instances = True
-        self._lazy_instances = lazy
-        return self
+        clone = self.clone()
+        clone._reset_result_type()
+        clone._instances = True
+        clone._lazy_instances = lazy
+        return clone
 
     def _get_simple_fields(self):
         """
@@ -545,10 +568,11 @@ class CollectionManager(object):
         but if `instances`, `values` or `values_list` was previously called,
         a call to `primary_keys` restore this default behaviour.
         """
-        self.reset_result_type()
-        return self
+        clone = self.clone()
+        clone._reset_result_type()
+        return clone
 
-    def reset_result_type(self):
+    def _reset_result_type(self):
         """
         Reset the type of values attened for the collection (ie cancel a
         previous "instances" call)
@@ -571,7 +595,7 @@ class CollectionManager(object):
                 parameters['by'] = field.sort_wildcard
         return parameters
 
-    def sort(self, **parameters):
+    def _apply_sort(self, **parameters):
         """
         Parameters:
         `by`: pass either a field name or a wildcard string to sort on
@@ -581,6 +605,9 @@ class CollectionManager(object):
         parameters = self._coerce_by_parameter(parameters)
         self._sort = parameters
         return self
+
+    def sort(self, **parameters):
+        return self.clone()._apply_sort(**parameters)
 
     def _unique_key(self):
         """

@@ -104,12 +104,12 @@ class LimpydBaseTest(unittest.TestCase):
 
         # check we have the correct dataset
         if check_only_length:
-            assert len(list(collection)) == len(check_data), 'Wrong dataset for this test'
+            assert len(collection) == len(check_data), 'Wrong dataset for this test'
         else:
             assert sorted(collection) == check_data, 'Wrong dataset for this test'
 
         # do all the slices
-        total, optimized = 0, 0
+        total = 0
         for start in list(range(-limit, limit+1)) + [None]:
             for stop in list(range(-limit, limit+1)) + [None]:
                 for step in range(-limit, limit+1):
@@ -118,28 +118,29 @@ class LimpydBaseTest(unittest.TestCase):
                     with self.subTest(Start=start, Stop=stop, step=step):
                         total += 1
 
-                        result = collection[start:stop:step]
+                        sliced_collection = collection[start:stop:step]
                         expected = check_data[start:stop:step]
 
-                        if check_only_length:
-                            result = len(result)
-                            expected = len(expected)
+                        if not check_only_length:
+                            self.assertEqual(
+                                list(sliced_collection),
+                                expected,
+                                'Unexpected result for `%s:%s:%s`' % (
+                                    '' if start is None else start,
+                                    '' if stop is None else stop,
+                                    '' if step is None else step,
+                                )
+                            )
 
                         self.assertEqual(
-                            result,
-                            expected,
-                            'Unexpected result for `%s:%s:%s`' % (
+                            len(sliced_collection),
+                            len(expected),
+                            'Unexpected length result for `%s:%s:%s`' % (
                                 '' if start is None else start,
                                 '' if stop is None else stop,
                                 '' if step is None else step,
                             )
                         )
-                        if collection._optimized_slicing:
-                            optimized += 1
-
-        # ensure we have enough calls that are optimized
-        self.assertGreaterEqual(optimized * 100.0 / total, 60,
-                                    "Less than 60% slicing resulted in non-optimized calls")
 
 
 class _AssertNumCommandsContext(object):

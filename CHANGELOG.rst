@@ -1,7 +1,7 @@
 Changelog
 =========
 
-Release *v2.0.dev10* - ``2019-10-08``
+Release *v2.0.dev11* - ``2019-10-08``
 ------------------------------------
 * Support for redis-py >= 3 only
 * Support for redis-server >= 3 only
@@ -11,6 +11,8 @@ Release *v2.0.dev10* - ``2019-10-08``
 * Breaking change: Redis server with `LUA` scripting support is mandatory
 * Breaking change: `set` flags other than `ex` and `px` are explicitely not supported
 * Breaking change: `skip_exist_test` to ``Collection.instances()`` is renamed to `lazy`
+* Breaking change: collections return generators instead of lists
+* Breaking change: collections method (`filter`, `values`...) return a new collection instead of updating the current one
 * Add `decrby`, `incrby` and `bitpos` to `StringField`
 * Add expiring commands to all normal fields (not `InstanceHashField` and `*PKField`): `expire`, `pexpire`, `expireat`, `pexpireat`, `ttl`, `pttl`, `persite`. But `*expire*` commands can only be called on non-indexable fields
 * Add `setex` and `psetex` to `StringField`. Can only be called on non-indexable fields.
@@ -21,6 +23,7 @@ Release *v2.0.dev10* - ``2019-10-08``
 * Add `hstrlen` to `HashField`
 * Add `zlexcount`, `zrangebylex`, `zremrangebylex` and `zrevrangebylex` to `SortedSetField`
 * Add `zpopmax` and `zpopmin` `SortedSetField` (only for redis-server >= 5)
+* When calling `instances` in a collection, the ones that may have raised a `DoesNotExist` exception are now skipped
 
 Release *v1.3.1* - ``2019-10-11``
 ---------------------------------
