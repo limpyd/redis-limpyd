@@ -409,8 +409,21 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
             inst = cls.get(**kwargs)
             created = False
         except DoesNotExist:
-            inst = cls(**kwargs)
-            created = True
+            try:
+                inst = cls(**kwargs)
+                created = True
+            except UniquenessError:
+                # This can happen if two ``get_or_connect`` where called in a very very short timespan:
+                # - Call 1 checks for existence
+                # - It does not exist and will create one
+                # - At this moment call 2 checks for existence
+                # - It does not exist and will create one
+                # - At this moment call 1 create the redis instance
+                # - But when call 2 wants to create the instance, it exists
+                # To solve this, in case of `UniquenessError`, it means it's already created so we
+                # can just get it from redis
+                inst = cls.get(**kwargs)
+                created = False
         except Exception:
             raise
         return inst, created
