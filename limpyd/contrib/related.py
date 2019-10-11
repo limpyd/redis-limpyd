@@ -519,9 +519,8 @@ class M2MSortedSetField(MultiValuesRelatedFieldMixin, fields.SortedSetField):
         """
         if 'values_callback' not in kwargs:
             kwargs['values_callback'] = self.from_python_many
-        pieces = fields.SortedSetField.coerce_zadd_args(*args, **kwargs)
-        return super(M2MSortedSetField, self).zadd(*pieces)
+        return super(M2MSortedSetField, self).zadd(*args, **kwargs)
 
-    def zincrby(self, value, amount=1):
+    def zincrby(self, amount, value):
         value = self.from_python(value)
-        return super(M2MSortedSetField, self).zincrby(value, amount)
+        return super(M2MSortedSetField, self).zincrby(amount, value)

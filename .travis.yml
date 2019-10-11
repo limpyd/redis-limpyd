@@ -10,16 +10,11 @@ python:
  - "3.6"
  - "3.7"
  - "3.8-dev"
- - "pypy"
- - "pypy3"
-
-env:
- - REDIS="redis==2.9.1"
- - REDIS="redis==2.10.6"
+ - "pypy"  # 2.7
+ - "pypy3"  # 3.6
 
 install:
-- "pip install ."
-- "pip install $REDIS"
+- pip install .
 
 script: "python run_tests.py"
 

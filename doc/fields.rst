@@ -564,7 +564,7 @@ You can use this model like this:
 .. code:: python
 
     >>> example = Example()
-    >>> example.stuff.zadd(foo=2.5, bar=1.1)
+    >>> example.stuff.zadd(foo=2.5, bar=1.1)  # or example.stuff.zadd({'foo': 2.5, 'bar': 1.1})
     2  # number of values added to the sorted set
     >>> example.stuff.zrange(0, -1)
     ['bar', 'foo']
@@ -597,7 +597,7 @@ Getters
 Modifiers
 """""""""
 
-- ``zadd``
+- ``zadd`` (Flag ``ch`` is supported. Flags ``nx``, ``xx`` and ``incr`` are not)
 - ``zincrby``
 - ``zrem``
 - ``zremrangebyrank``

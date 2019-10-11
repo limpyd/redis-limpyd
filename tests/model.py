@@ -544,7 +544,7 @@ class PostCommandTest(LimpydBaseTest):
         def post_command(self, sender, name, result, args, kwargs):
             if isinstance(sender, fields.RedisField) and sender.name == "name":
                 if name in sender.available_modifiers:
-                    self.last_modification_date.hset(datetime.now())
+                    self.last_modification_date.hset(str(datetime.now()))
                 elif name == "hget":
                     result = "modifed_result"
             return result

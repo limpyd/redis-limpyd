@@ -56,19 +56,15 @@ class ExtendedCollectionManager(CollectionManager):
     def _list_to_set(self, list_key, set_key):
         """
         Store all content of the given ListField in a redis set.
-        Use scripting if available to avoid retrieving all values locally from
-        the list before sending them back to the set
+        Use lua scripting to avoid retrieving all values locally from the list before sending them
+        back to the set
         """
-        if self.cls.database.support_scripting():
-            self.cls.database.call_script(
-                # be sure to use the script dict at the class level
-                # to avoid registering it many times
-                script_dict=self.__class__.scripts['list_to_set'],
-                keys=[list_key, set_key]
-            )
-        else:
-            conn = self.cls.get_connection()
-            conn.sadd(set_key, *conn.lrange(list_key, 0, -1))
+        self.cls.database.call_script(
+            # be sure to use the script dict at the class level
+            # to avoid registering it many times
+            script_dict=self.__class__.scripts['list_to_set'],
+            keys=[list_key, set_key]
+        )
 
     @property
     def _collection(self):
@@ -807,16 +803,8 @@ class _StoredCollection(object):
     """
     Simple object to store the key of a stored collection, to be used in
     ExtendedCollectionManager based on a stored collection.
-    The stored key is a list, so it's managed as a ListField (but we only need
-    its key, and lmembers if no scripting)
+    The stored key is a list, so it's managed as a ListField (but we only need its key)
     """
     def __init__(self, connection, key):
         self.connection = connection
         self.key = key
-
-    def lmembers(self):
-        """
-        Return the list of all members of the list, used by _list_to_set if
-        no scripting
-        """
-        return self.connection.lrange(self.key, 0, -1)

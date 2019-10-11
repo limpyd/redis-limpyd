@@ -293,8 +293,8 @@ class MultiValuesCollectionTest(LimpydBaseTest):
             members = M2MSortedSetField(Person, related_name='members_zset')
 
         core_devs = GroupAsSortedSet(name='limpyd core devs')
-        core_devs.members.zadd(100, self.ybon)
-        core_devs.members.zadd(50, self.twidi)
+        core_devs.members.zadd({self.ybon: 100})
+        core_devs.members.zadd({self.twidi: 50})
 
         members_pk = set(core_devs.members())
         self.assertTrue(members_pk, {'twidi', 'ybon'})
@@ -505,7 +505,7 @@ class M2MSortedSetTest(LimpydBaseTest):
         ybon = Person(name='ybon')
         twidi = Person(name='twidi')
 
-        core_devs.members.zadd(20, ybon, 10, twidi._pk)
+        core_devs.members.zadd({ybon: 20, twidi._pk: 10})
 
         self.assertEqual(core_devs.members.zrange(0, -1), [twidi._pk, ybon._pk])
         self.assertEqual(set(ybon.members_set3()), {core_devs._pk})
@@ -516,7 +516,7 @@ class M2MSortedSetTest(LimpydBaseTest):
         ybon = Person(name='ybon')
         twidi = Person(name='twidi')
 
-        core_devs.members.zadd(20, ybon, 10, twidi)
+        core_devs.members.zadd({ybon: 20, twidi: 10})
 
         self.assertEqual(core_devs.members.zrange(0, -1, withscores=True), [
             (twidi._pk, 10.0),

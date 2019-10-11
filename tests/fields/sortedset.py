@@ -1,7 +1,7 @@
 from __future__ import unicode_literals
 
 from limpyd import fields
-from limpyd.exceptions import UniquenessError
+from limpyd.exceptions import LimpydException, UniquenessError
 
 from ..model import TestRedisModel, BaseModelTest
 
@@ -9,6 +9,100 @@ from ..model import TestRedisModel, BaseModelTest
 class SortedSetModel(TestRedisModel):
     field = fields.SortedSetField(indexable=True)
 
+
+class SpecialZaddArgumentsTest(BaseModelTest):
+
+    model = SortedSetModel
+
+    def test_passing_mapping_as_unnamed_arg(self):
+        obj = self.model()
+        # only the mapping
+        count = obj.field.zadd({'foo': 1})
+        self.assertEqual(obj.field.zrange(0, -1, withscores=True), [
+            ('foo', 1.0),
+        ])
+        self.assertEqual(count, 1)  # one added
+        # if we change, count will be zero (counts only added)
+        count = obj.field.zadd({'foo': 2})
+        self.assertEqual(obj.field.zrange(0, -1, withscores=True), [
+            ('foo', 2.0),
+        ])
+        self.assertEqual(count, 0)  # zero added
+        # if we change and add, count is one
+        count = obj.field.zadd({'foo': 2, 'bar': 3})
+        self.assertEqual(obj.field.zrange(0, -1, withscores=True), [
+            ('foo', 2.0), ('bar', 3.0)
+        ])
+        self.assertEqual(count, 1)  # one added
+        # with ch, count includes changed
+        count = obj.field.zadd({'foo': 2.1, 'qux': 4}, True)
+        self.assertEqual(obj.field.zrange(0, -1, withscores=True), [
+            ('foo', 2.1), ('bar', 3.0), ('qux', 4.0)
+        ])
+        self.assertEqual(count, 2)  # one added and one changed
+        # ch can be passed as kwargs
+        count = obj.field.zadd({'foo': 2.2, 'xxx': 5}, ch=True)
+        self.assertEqual(obj.field.zrange(0, -1, withscores=True), [
+            ('foo', 2.2), ('bar', 3.0), ('qux', 4.0), ('xxx', 5.0)
+        ])
+        self.assertEqual(count, 2)  # one added and one changed
+        # only two args max accepted
+        with self.assertRaises(LimpydException):
+            obj.field.zadd({'foo': 2.2, 'xxx': 5}, True, False)
+        # if ch as kwarg, only one arg accepted
+        with self.assertRaises(LimpydException):
+            obj.field.zadd({'foo': 2.2, 'xxx': 5}, True, ch=True)
+        # only ch is accepted as kwarg
+        with self.assertRaises(LimpydException):
+            obj.field.zadd({'foo': 2.2, 'xxx': 5}, nx=True)
+        # cannot pass mapping as arg and kwarg
+        with self.assertRaises(LimpydException):
+            obj.field.zadd({'foo': 2.2, 'xxx': 5}, mapping={'x': 1, 'y': 2})
+
+    def test_passing_value_score_as_named_arguments(self):
+        obj = self.model()
+        # one value
+        count = obj.field.zadd(foo=1)
+        self.assertEqual(obj.field.zrange(0, -1, withscores=True), [
+            ('foo', 1.0),
+        ])
+        self.assertEqual(count, 1)  # one added
+        # many values
+        count = obj.field.zadd(foo=1.1, bar=2, baz=3)
+        self.assertEqual(obj.field.zrange(0, -1, withscores=True), [
+            ('foo', 1.1), ('bar', 2.0), ('baz', 3.0)
+        ])
+        self.assertEqual(count, 2)  # two added
+        # can pass ch
+        count = obj.field.zadd(foo=1.2, xxx=4, ch=True)
+        self.assertEqual(obj.field.zrange(0, -1, withscores=True), [
+            ('foo', 1.2), ('bar', 2.0), ('baz', 3.0), ('xxx', 4.0)
+        ])
+        self.assertEqual(count, 2)  # one added and one changed
+        # but not other flags
+        with self.assertRaises(LimpydException):
+            obj.field.zadd(foo=1.2, xxx=4, nx=True)
+        # it doesn't work if a mapping is passed too
+        with self.assertRaises(TypeError):
+            obj.field.zadd(mapping={'x': 1, 'y': 2}, foo=1.2, xxx=4)
+
+    def test_passing_mapping_as_kwarg(self):
+        obj = self.model()
+        # one value
+        count = obj.field.zadd(mapping={'foo': 1})
+        self.assertEqual(obj.field.zrange(0, -1, withscores=True), [
+            ('foo', 1.0),
+        ])
+        self.assertEqual(count, 1)  # one added
+        # can pass ch
+        count = obj.field.zadd(mapping={'foo': 1.1, 'bar': 2}, ch=True)
+        self.assertEqual(obj.field.zrange(0, -1, withscores=True), [
+            ('foo', 1.1), ('bar', 2)
+        ])
+        self.assertEqual(count, 2)  # one added and one changed
+        # but not other flags
+        with self.assertRaises(LimpydException):
+            obj.field.zadd(mapping={'foo': 1.1, 'bar': 2}, nx=True)
 
 class IndexableSortedSetFieldTest(BaseModelTest):
 
@@ -19,16 +113,11 @@ class IndexableSortedSetFieldTest(BaseModelTest):
         self.assertCollection([obj._pk], field='foo')
         self.assertCollection([obj._pk], field='bar')
 
-    def test_sortedset_can_be_set_at_init_from_a_list(self):
-        obj = self.model(field=[1, 'foo', 2, 'bar'])
-        self.assertCollection([obj._pk], field='foo')
-        self.assertCollection([obj._pk], field='bar')
-
     def test_indexable_sorted_sets_are_indexed(self):
         obj = self.model()
 
         # add one value
-        obj.field.zadd(1.0, 'foo')
+        obj.field.zadd(foo=1.0)
         self.assertCollection([obj._pk], field='foo')
         self.assertCollection([], field='bar')
 
@@ -36,7 +125,7 @@ class IndexableSortedSetFieldTest(BaseModelTest):
         with self.assertNumCommands(2 + self.COUNT_LOCK_COMMANDS):
             # check that only 2 commands occured: zadd + index of value
             # + n for the lock (set at the biginning, check/unset at the end))
-            obj.field.zadd(2.0, 'bar')
+            obj.field.zadd({'bar': 2.0})
         # check collections
         self.assertCollection([obj._pk], field='foo')
         self.assertCollection([obj._pk], field='bar')
@@ -64,13 +153,22 @@ class IndexableSortedSetFieldTest(BaseModelTest):
         with self.assertNumCommands(2 + self.COUNT_LOCK_COMMANDS):
             # check that we had only 2 commands: one for zincr, one for indexing the value
             # + n for the lock (set at the biginning, check/unset at the end))
-            obj.field.zincrby('foo', 5.0)
+            obj.field.zincrby(5.0, 'foo')
+
+        # check new value in sorted set
+        self.assertEqual(obj.field.zscore('foo'), 5.0)
 
         # check that the new value is indexed
         self.assertCollection([obj._pk], field='foo')
 
         # check that the previous value was not deindexed
         self.assertCollection([obj._pk], field='ignorable')
+
+        # incr again...
+        with self.assertNumCommands(2 + self.COUNT_LOCK_COMMANDS):
+            obj.field.zincrby(4.4, 'foo')
+        self.assertEqual(obj.field.zscore('foo'), 9.4)
+        self.assertCollection([obj._pk], field='foo')
 
     def test_zremrange_reindex_all_values(self):
         obj = self.model()

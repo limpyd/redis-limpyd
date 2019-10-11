@@ -6,7 +6,7 @@ from contextlib import contextmanager
 import sys
 import unittest
 
-from redis import VERSION as redispy_version, Redis
+from redis import Redis
 
 from limpyd.database import (RedisDatabase, DEFAULT_CONNECTION_SETTINGS)
 
@@ -19,9 +19,7 @@ test_database = RedisDatabase(**TEST_CONNECTION_SETTINGS)
 
 class LimpydBaseTest(unittest.TestCase):
 
-    COUNT_LOCK_COMMANDS = 3
-    if redispy_version >= (2, 10, 0):
-        COUNT_LOCK_COMMANDS = 6
+    COUNT_LOCK_COMMANDS = 4
 
     database = test_database
 
@@ -217,7 +215,3 @@ class _AssertNumCommandsContext(object):
                 )
             )
 
-skip_if_no_zrangebylex = (
-    not hasattr(Redis, 'zrangebylex'),
-    'Redis-py %s does not support zrangebylex' % '.'.join(map(str, redispy_version))
-)

@@ -9,7 +9,7 @@ from limpyd.database import RedisDatabase
 from limpyd.exceptions import ImplementationError, UniquenessError
 from limpyd.indexes import EqualIndex, TextRangeIndex, NumberRangeIndex
 
-from .base import LimpydBaseTest, TEST_CONNECTION_SETTINGS, skip_if_no_zrangebylex
+from .base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
 from .model import Bike, Email, TestRedisModel, Boat
 
 
@@ -212,7 +212,6 @@ class RangeIndexTestModel(TestRedisModel):
     value = fields.StringField(indexable=True, indexes=[NumberRangeIndex])
 
 
-@unittest.skipIf(*skip_if_no_zrangebylex)
 class TextRangeIndexTestCase(LimpydBaseTest):
 
     def setUp(self):
@@ -449,7 +448,6 @@ class TextRangeIndexTestCase(LimpydBaseTest):
         })
 
 
-@unittest.skipIf(*skip_if_no_zrangebylex)
 class NumberRangeIndexTestCase(LimpydBaseTest):
 
     def setUp(self):
@@ -881,7 +879,6 @@ class CleanTestCase(LimpydBaseTest):
         with self.assertRaises(AssertionError):
             CleanModel1().get_field('field')._indexes[0].rebuild()
 
-    @unittest.skipIf(*skip_if_no_zrangebylex)
     def test_range_index(self):
 
         class CleanModel2(TestRedisModel):
@@ -1144,7 +1141,6 @@ class InSuffixTestCase(LimpydBaseTest):
             {pk4}
         )
 
-    @unittest.skipIf(*skip_if_no_zrangebylex)
     def test_range_index(self):
 
         pk1 = RangeIndexTestModel(name="Pen Duick I", value=1898).pk.get()

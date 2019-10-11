@@ -10,7 +10,7 @@ from limpyd.utils import unique_key
 from limpyd.exceptions import *
 from tests.indexes import RangeIndexTestModel
 
-from ..base import LimpydBaseTest, test_database, skip_if_no_zrangebylex
+from ..base import LimpydBaseTest, test_database
 from ..model import TestRedisModel, Boat as BaseBoat
 
 
@@ -85,7 +85,6 @@ class CompatibilityTest(BaseTest):
         self.assertEqual(len(active_names), 2)
         self.assertEqual(active_names, ['bar', 'foo'])
 
-    @unittest.skipIf(*skip_if_no_zrangebylex)
     def test_range_index_should_work(self):
         class TextRangeIndexTestModelExtended(RangeIndexTestModel):
             collection_manager = ExtendedCollectionManager
@@ -339,13 +338,13 @@ class IntersectTest(BaseTest):
 
     def test_intersect_should_accept_sortedset_key_as_string(self):
         zset_key = unique_key(self.connection)
-        self.connection.zadd(zset_key, 1.0, 1, 2.0, 2)
+        self.connection.zadd(zset_key, {1: 1.0, 2: 2.0})
         collection = set(Group.collection().intersect(zset_key))
         self.assertEqual(self.last_interstore_call['command'], 'zinterstore')
         self.assertEqual(collection, {'1', '2'})
 
         zset_key = unique_key(self.connection)
-        self.connection.zadd(zset_key, 1.0, 1, 2.0, 2, 10.0, 10, 50.0, 50)
+        self.connection.zadd(zset_key, {1: 1.0, 2: 2.0, 10: 10.0, 50: 50.0})
         collection = set(Group.collection().intersect(zset_key))
         self.assertEqual(collection, {'1', '2'})
 
@@ -415,20 +414,7 @@ class IntersectTest(BaseTest):
         collection = set(Group.collection().intersect(container.groups_set))
         self.assertEqual(collection, {'1', '2'})
 
-    def test_intersect_should_accept_listfield_without_scripting(self):
-        container = GroupsContainer()
-
-        container.groups_list.lpush(1, 2)
-        collection = set(Group.collection().intersect(container.groups_list))
-        self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
-        self.assertEqual(collection, {'1', '2'})
-
-        container.groups_list.lpush(10, 50)
-        collection = set(Group.collection().intersect(container.groups_list))
-        self.assertEqual(collection, {'1', '2'})
-
-    @unittest.skipUnless(test_database.support_scripting(), "Redis scripting not available")
-    def test_intersect_should_accept_listfield_via_scripting(self):
+    def test_intersect_should_accept_listfield(self):
         container = GroupsContainer()
 
         container.groups_list.lpush(1, 2)
@@ -443,17 +429,17 @@ class IntersectTest(BaseTest):
     def test_intersect_should_accept_sortedsetfield(self):
         container = GroupsContainer()
 
-        container.groups_sortedset.zadd(1.0, 1, 2.0, 2)
+        container.groups_sortedset.zadd({1: 1.0, 2: 2.0})
         collection = set(Group.collection().intersect(container.groups_sortedset))
         self.assertEqual(collection, {'1', '2'})
 
-        container.groups_sortedset.zadd(10.0, 10, 50.0, 50)
+        container.groups_sortedset.zadd({10: 10.0, 50: 50.0})
         collection = set(Group.collection().intersect(container.groups_sortedset))
         self.assertEqual(collection, {'1', '2'})
 
     def test_passing_sortedset_in_intersect_use_zinterstore(self):
         container = GroupsContainer()
-        container.groups_sortedset.zadd(1.0, 1, 2.0, 2)
+        container.groups_sortedset.zadd({1: 1.0, 2: 2.0})
         collection = Group.collection().intersect(container.groups_sortedset)
 
         # execute the collection
@@ -508,7 +494,7 @@ class IntersectTest(BaseTest):
 
     def test_slicing_sortedset(self):
         container = GroupsContainer()
-        container.groups_sortedset.zadd(1.0, 1, 2.0, 2, 3.0, 3, 4.0, 4)
+        container.groups_sortedset.zadd({1: 1.0, 2:2.0, 3: 3.0, 4: 4.0})
 
         self.assertSlicingIsCorrect(
             collection=Group.collection().intersect(container.groups_sortedset),
@@ -520,7 +506,7 @@ class SortByScoreTest(BaseTest):
     def setUp(self):
         super(SortByScoreTest, self).setUp()
         self.container = GroupsContainer()
-        self.container.groups_sortedset.zadd(1000, 1, 200, 2, 3000, 3, 40, 4)
+        self.container.groups_sortedset.zadd({1: 1000, 2: 200, 3: 3000, 4: 40})
         self.sorted_pks = ['4', '2', '1', '3']
         self.reversed_sorted_pks = list(reversed(self.sorted_pks))
         self.active_sorted_pks = ['2', '1']
@@ -831,7 +817,7 @@ class StoreTest(BaseTest):
 class LenTest(BaseTest):
     def test_len_should_work_with_sortedsets(self):
         container = GroupsContainer()
-        container.groups_sortedset.zadd(1.0, 1, 2.0, 2)
+        container.groups_sortedset.zadd({1: 1.0, 2: 2.0})
         collection = Group.collection().intersect(container.groups_sortedset)
         collection.sort(by='name')  # to fail if sort called, becase alpha not set
         self.assertEqual(len(collection), 2)

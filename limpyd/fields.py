@@ -9,7 +9,6 @@ from inspect import isclass
 from logging import getLogger
 from copy import copy
 
-from redis import VERSION as redispy_version
 from redis.exceptions import RedisError
 
 from limpyd.database import Lock
@@ -795,27 +794,11 @@ class MultiValuesField(RedisField):
             if value is not None:
                 self.get_unique_index().check_uniqueness(value)
 
-    if redispy_version >= (2, 10, 0):
+    def _scan(self, command, match=None, count=None):
+        assert self.scannable, 'Field is not scannable'
+        assert not command.endswith('_iter'), 'Use %s instead of %s' % (command[:-5], command)
 
-        def _scan(self, command, match=None, count=None):
-            assert self.scannable, 'Field is not scannable'
-            assert not command.endswith('_iter'), 'Use %s instead of %s' % (command[:-5], command)
-
-            return self._traverse_command(command + '_iter', match=match, count=count)
-
-    else:
-        # no *scan_iter in redis-py < 2.10
-
-        def _scan(self, command, match=None, count=None):
-            assert self.scannable, 'Field is not scannable'
-
-            cursor = 0
-            while True:
-                cursor, data = self._traverse_command(command, cursor, match=match, count=count)
-                for item in (data.items() if hasattr(data, 'items') else data):
-                    yield item
-                if not cursor or cursor == '0':
-                    break
+        return self._traverse_command(command + '_iter', match=match, count=count)
 
 
 class SortedSetField(MultiValuesField):
@@ -833,7 +816,7 @@ class SortedSetField(MultiValuesField):
 
     available_getters = ('zcard', 'zcount', 'zrange', 'zrangebyscore',
                          'zrank', 'zrevrange', 'zrevrangebyscore',
-                         'zrevrank', 'zscore', 'zscan', 'sort')
+                         'zrevrank', 'zscore', 'zscan', 'sort', 'zscan_iter', )
     available_modifiers = ('delete', 'zadd', 'zincrby', 'zrem',
                            'zremrangebyrank', 'zremrangebyscore', )
 
@@ -842,9 +825,7 @@ class SortedSetField(MultiValuesField):
 
     scannable = True
     _call_zscan = MultiValuesField._scan
-    if redispy_version >= (2, 10, 0):
-        _call_zscan_iter = MultiValuesField._scan
-        available_getters = available_getters + ('zscan_iter', )
+    _call_zscan_iter = MultiValuesField._scan
 
     def zmembers(self):
         """
@@ -854,67 +835,70 @@ class SortedSetField(MultiValuesField):
 
     def _call_zadd(self, command, *args, **kwargs):
         """
-        We do the same computation of the zadd method of StrictRedis to keep keys
-        to index them (instead of indexing the whole set)
-        Members (value/score) can be passed:
-            - in *args, with score followed by the value, 0+ times (to respect
-              the redis order)
-            - in **kwargs, with value as key and score as value
-        Example: zadd(1.1, 'my-key', 2.2, 'name1', 'name2', name3=3.3, name4=4.4)
+        Normal redis-py 3+ signature: mapping, nx=False, xx=False, ch=False, incr=False
+        So the normal way in redis-py 3+ to pass data to zadd is to pass a mapping.
+        But to avoid too much rewriting when using the version of limpyd supporting
+        redis-py 3+, we still allow passing data as named arguments.
+        The old way of passing scores and values as unnamed argument is not supported anymore.
+        When passing data as named arguments, special redis arguments, ie nx, xx, ch and incr
+        will NOT be treated as data.
+        We actually don't support xx, nx and incr options.
         """
+        args, kwargs = self.coerce_zadd_args(*args, **kwargs)
         if self.indexable:
-            keys = []
-            if args:
-                if len(args) % 2 != 0:
-                    raise RedisError("ZADD requires an equal number of "
-                                     "values and scores")
-                keys.extend(args[1::2])
-            keys.extend(kwargs)  # add kwargs keys (values to index)
-            self.index(keys)
+            mapping = args[0] if args else kwargs['mapping']
+            self.index(mapping.keys())
         return self._traverse_command(command, *args, **kwargs)
 
-    def _call_zincrby(self, command, value, *args, **kwargs):
+    def _call_zincrby(self, command, amount, value):
         """
         This command update a score of a given value. But it can be a new value
         of the sorted set, so we index it.
         """
         if self.indexable:
             self.index([value])
-        return self._traverse_command(command, value, *args, **kwargs)
+        return self._traverse_command(command, amount, value)
 
     @staticmethod
     def coerce_zadd_args(*args, **kwargs):
         """
-        Take arguments attended by a zadd call, named or not, and return a flat list
-        that can be used.
+        Take arguments attended by a zadd call, named or not, and return kwargs that can be used
+        directly..
         A callback can be called with all "values" (as *args) if defined as the
         `values_callback` named argument. Real values will then be the result of
         this callback.
         """
         values_callback = kwargs.pop('values_callback', None)
 
-        pieces = []
+        # if args, it must be two max, with first being the mapping and if two, the second is `ch`
         if args:
-            if len(args) % 2 != 0:
-                raise RedisError("ZADD requires an equal number of "
-                                 "values and scores")
-            pieces.extend(args)
+            if not kwargs and len(args) > 2 or kwargs and (len(args) > 1 or list(kwargs.keys()) != ['ch']):
+                raise LimpydException("ZADD accepts only two argumnets: 'mapping' and 'ch'")
+            kwargs['mapping'] = args[0]
+            if len(args) > 1:
+                kwargs['ch'] = args[1]
+            args = []
 
-        for pair in iteritems(kwargs):
-            pieces.append(pair[1])
-            pieces.append(pair[0])
+        if 'mapping' not in kwargs:
+            # handle our special case allowing passing value=score arguments
+            mapping = kwargs.copy()
+            final_kwargs = {}
+            for key in {'nx', 'xx', 'ch', 'incr'}:
+                if key in kwargs:
+                    final_kwargs[key] = mapping.pop(key)
+            kwargs = final_kwargs
+            kwargs['mapping'] = mapping
 
-        values = pieces[1::2]
+        for key in {'nx', 'xx', 'incr'}:
+            if key in kwargs:
+                raise LimpydException("%s argument to ZADD is not supported by limpyd" % key)
+
         if values_callback:
-            values = values_callback(*values)
+            mapping = args[0] if args else kwargs['mapping']
+            for oldkey, newkey in list(zip(mapping.keys(), values_callback(*mapping.keys()))):
+                mapping[newkey] = mapping.pop(oldkey)
 
-        scores = pieces[0::2]
-
-        pieces = []
-        for z in zip(scores, values):
-            pieces.extend(z)
-
-        return pieces
+        return args, kwargs
 
 
 class SetField(MultiValuesField):
@@ -928,7 +912,7 @@ class SetField(MultiValuesField):
     proxy_getter = "smembers"
     proxy_setter = "sadd"
 
-    available_getters = ('scard', 'sismember', 'smembers', 'srandmember', 'sscan', 'sort', )
+    available_getters = ('scard', 'sismember', 'smembers', 'srandmember', 'sscan', 'sort', 'sscan_iter', )
     available_modifiers = ('delete', 'sadd', 'srem', 'spop', )
 
     _call_sadd = MultiValuesField._add
@@ -937,9 +921,7 @@ class SetField(MultiValuesField):
 
     scannable = True
     _call_sscan = MultiValuesField._scan
-    if redispy_version >= (2, 10, 0):
-        _call_sscan_iter = MultiValuesField._scan
-        available_getters = available_getters + ('sscan_iter', )
+    _call_sscan_iter = MultiValuesField._scan
 
 
 class ListField(MultiValuesField):
@@ -1027,15 +1009,13 @@ class HashField(MultiValuesField):
     proxy_setter = "hmset"
 
     available_getters = ('hget', 'hgetall', 'hmget', 'hkeys', 'hvals',
-                         'hlen', 'hscan', )
+                         'hlen', 'hscan', 'hscan_iter', )
     available_modifiers = ('delete', 'hdel', 'hmset', 'hsetnx', 'hset',
                            'hincrby', 'hincrbyfloat', )
 
     scannable = True
     _call_hscan = MultiValuesField._scan
-    if redispy_version >= (2, 10, 0):
-        _call_hscan_iter = MultiValuesField._scan
-        available_getters = available_getters + ('hscan_iter', )
+    _call_hscan_iter = MultiValuesField._scan
 
     def _call_hmset(self, command, *args, **kwargs):
         if self.indexable:
@@ -1356,7 +1336,8 @@ class FieldLock(Lock):
     release.
     """
 
-    def __init__(self, field, timeout=5, sleep=0.1):
+    def __init__(self, field, timeout=5, sleep=0.1,
+                 blocking=True, blocking_timeout=None, thread_local=True):
         """
         Save the field and create a real lock,, using the correct connection
         and a computed lock key based on the names of the field and its model.
@@ -1368,6 +1349,9 @@ class FieldLock(Lock):
             name=make_key(field._model._name, 'lock-for-update', field.name),
             timeout=timeout,
             sleep=sleep,
+            blocking=blocking,
+            blocking_timeout=blocking_timeout,
+            thread_local=thread_local
         )
 
     def _get_already_locked_by_model(self):
@@ -1391,12 +1375,12 @@ class FieldLock(Lock):
         sub-lock status.
         """
         if not self.field.lockable:
-            return
+            return True
         if self.already_locked_by_model:
             self.sub_lock_mode = True
-            return
+            return True
         self.already_locked_by_model = True
-        super(FieldLock, self).acquire(*args, **kwargs)
+        return super(FieldLock, self).acquire(*args, **kwargs)
 
     def release(self, *args, **kwargs):
         """
