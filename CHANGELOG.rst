@@ -1,8 +1,8 @@
 Changelog
 =========
 
-Release *v2.0.dev11* - ``2019-10-08``
-------------------------------------
+Release *v2* - ``2019-10-11``
+-----------------------------
 * Support for redis-py >= 3 only
 * Support for redis-server >= 3 only
 * Breaking change: `zadd` value/scores cannot be passed as positional arguments anymore
