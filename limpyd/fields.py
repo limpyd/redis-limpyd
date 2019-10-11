@@ -180,6 +180,9 @@ class RedisField(RedisProxyCommand):
     _field_parts = 1
     default_indexes = None
 
+    available_getters = {'expire', 'expireat', 'pexpire', 'pexpireat', 'ttl', 'pttl', 'persist'}
+    available_modifiers = set()
+
     def __init__(self, *args, **kwargs):
         """
         Manage all field attributes
@@ -636,6 +639,18 @@ class RedisField(RedisProxyCommand):
             self.index(result)
         return result
 
+    def _deny_if_indexable(self, command, *args, **kwargs):
+        """
+        Shortcut for commands that cannot be executed on indexable fields
+        """
+        if self.indexable:
+            raise ImplementationError('Indexable fields cannot be expired')
+        return self._traverse_command(command, *args, **kwargs)
+    _call_expire = _deny_if_indexable
+    _call_pexpire = _deny_if_indexable
+    _call_expireat = _deny_if_indexable
+    _call_pexpireat = _deny_if_indexable
+
     def _del(self, command, *args, **kwargs):
         """
         Shortcut for commands that remove all values of the field.
@@ -672,16 +687,24 @@ class StringField(SingleValueField):
     proxy_getter = "get"
     proxy_setter = "set"
 
-    available_getters = ('get', 'getbit', 'getrange', 'strlen', 'bitcount', )
-    available_modifiers = ('delete', 'getset', 'set', 'append', 'decr',
-                           'incr', 'incrbyfloat', 'setbit', 'setnx',
-                           'setrange', )
+    available_getters = SingleValueField.available_getters | {
+        'get', 'getbit', 'getrange', 'strlen', 'bitcount', 'bitpos',
+    }
+    available_modifiers = SingleValueField.available_modifiers | {
+        'delete', 'getset', 'set', 'append', 'decr', 'decrby',
+        'incr', 'incrby', 'incrbyfloat', 'setbit', 'setnx',
+        'setrange', 'setex', 'psetex',
+    }
 
     _call_getset = SingleValueField._call_set
     _call_append = _call_setrange = _call_setbit = SingleValueField._reset
     _call_decr = SingleValueField._reindex_from_result
+    _call_decrby = SingleValueField._reindex_from_result
     _call_incr = SingleValueField._reindex_from_result
+    _call_incrby = SingleValueField._reindex_from_result
     _call_incrbyfloat = SingleValueField._reindex_from_result
+    _call_setex = SingleValueField._deny_if_indexable
+    _call_psetex = SingleValueField._deny_if_indexable
 
     def _call_setnx(self, command, value):
         """
@@ -691,6 +714,19 @@ class StringField(SingleValueField):
         if self.indexable and value is not None and result:
             self.index(value)
         return result
+
+    def _call_set(self, command, value, ex=None, px=None, nx=False, xx=False):
+        """Deny expiring args if indexable, and deny other flags"""
+
+        if self.indexable and (ex is not None or px is not None):
+            raise ImplementationError('Indexable fields cannot be expired')
+
+        if nx:
+            raise LimpydException("nx argument to SET is not supported by limpyd")
+        if xx:
+            raise LimpydException("xx argument to SET is not supported by limpyd")
+
+        return super(StringField, self)._call_set(command, value, ex=ex, px=px)
 
 
 class MultiValuesField(RedisField):
@@ -814,14 +850,20 @@ class SortedSetField(MultiValuesField):
     proxy_getter = "zmembers"
     proxy_setter = "zadd"
 
-    available_getters = ('zcard', 'zcount', 'zrange', 'zrangebyscore',
-                         'zrank', 'zrevrange', 'zrevrangebyscore',
-                         'zrevrank', 'zscore', 'zscan', 'sort', 'zscan_iter', )
-    available_modifiers = ('delete', 'zadd', 'zincrby', 'zrem',
-                           'zremrangebyrank', 'zremrangebyscore', )
+    available_getters = MultiValuesField.available_getters | {
+        'zcard', 'zcount', 'zrange', 'zrangebyscore',
+        'zrank', 'zrevrange', 'zrevrangebyscore',
+        'zrevrank', 'zscore', 'zscan', 'sort', 'zscan_iter',
+        'zlexcount', 'zrangebylex', 'zrevrangebylex',
+    }
+    available_modifiers = MultiValuesField.available_modifiers | {
+        'delete', 'zadd', 'zincrby', 'zrem',
+        'zremrangebyrank', 'zremrangebyscore',
+        'zpopmin' ,'zpopmax', 'zremrangebylex',
+    }
 
     _call_zrem = MultiValuesField._rem
-    _call_zremrangebyscore = _call_zremrangebyrank = RedisField._reset
+    _call_zremrangebylex = _call_zremrangebyscore = _call_zremrangebyrank = RedisField._reset
 
     scannable = True
     _call_zscan = MultiValuesField._scan
@@ -900,6 +942,12 @@ class SortedSetField(MultiValuesField):
 
         return args, kwargs
 
+    def _call_zpopmax(self, command, *args, **kwargs):
+        if self.database.redis_version < (5, ):
+            raise ImplementationError("%s is not a valid command for redis-server version < 5" % command.upper())
+        return self._reset(command, *args, **kwargs)
+    _call_zpopmin = _call_zpopmax
+
 
 class SetField(MultiValuesField):
     """
@@ -912,16 +960,31 @@ class SetField(MultiValuesField):
     proxy_getter = "smembers"
     proxy_setter = "sadd"
 
-    available_getters = ('scard', 'sismember', 'smembers', 'srandmember', 'sscan', 'sort', 'sscan_iter', )
-    available_modifiers = ('delete', 'sadd', 'srem', 'spop', )
+    available_getters = MultiValuesField.available_getters | {
+        'scard', 'sismember', 'smembers', 'srandmember', 'sscan', 'sort', 'sscan_iter',
+    }
+    available_modifiers = MultiValuesField.available_modifiers | {
+        'delete', 'sadd', 'srem', 'spop',
+    }
 
     _call_sadd = MultiValuesField._add
     _call_srem = MultiValuesField._rem
-    _call_spop = MultiValuesField._pop
 
     scannable = True
     _call_sscan = MultiValuesField._scan
     _call_sscan_iter = MultiValuesField._scan
+
+    def _call_spop(self, command, count=None):
+        if count is not None and self.database.redis_version < (3, 2):
+            raise ImplementationError("Count argument to SPOP is invalid for redis-server version < 3.2")
+
+        if count and self.indexable:
+            # deindex all returned values (`_pop` assuming only one value)
+            result = self._traverse_command(command, count=count)
+            self.deindex(result)
+            return result
+
+        return super(SetField, self)._pop(command, count=count)
 
 
 class ListField(MultiValuesField):
@@ -939,20 +1002,92 @@ class ListField(MultiValuesField):
     proxy_getter = "lmembers"
     proxy_setter = "rpush"
 
-    available_getters = ('lindex', 'llen', 'lrange', )
-    available_modifiers = ('delete', 'linsert', 'lpop', 'lpush', 'lpushx',
-                           'lrem', 'rpop', 'rpush', 'rpushx', 'lset',
-                           'ltrim', 'sort', )
+    available_getters = MultiValuesField.available_getters | {
+        'lindex', 'llen', 'lrange', 'lrank', 'lcontains', 'lcount',
+    }
+    available_modifiers = MultiValuesField.available_modifiers | {
+        'delete', 'linsert', 'lpop', 'lpush', 'lpushx',
+        'lrem', 'rpop', 'rpush', 'rpushx', 'lset',
+        'ltrim', 'sort',
+    }
 
     _call_lpop = _call_rpop = MultiValuesField._pop
     _call_lpush = _call_rpush = MultiValuesField._add
     _call_ltrim = RedisField._reset
+
+    scripts = {
+        'lrank': {
+            # get position of a value in a list
+            'lua': """
+                local list_key = KEYS[1]
+                local value = ARGV[1]
+                local items = redis.call('lrange', list_key, 0, -1)
+                for i, item in ipairs(items) do
+                    if items[i] == value then
+                        return i - 1
+                    end
+                end
+                return nil
+            """,
+        },
+        'lcount': {
+            # count occurrences of a value in a list
+            'lua': """
+                local list_key = KEYS[1]
+                local value = ARGV[1]
+                local items = redis.call('lrange', list_key, 0, -1)
+                local count = 0
+                for i, item in ipairs(items) do
+                    if items[i] == value then
+                        count = count + 1
+                    end
+                end
+                return count
+            """,
+        },
+    }
 
     def lmembers(self):
         """
         Used as a proxy_getter to get all values stored in the field.
         """
         return self.lrange(0, -1)
+
+    def _call_lrank(self, command, value):
+        """
+        Addon to redis, to know if a value is in the list without having to retrieve all the list,
+        thanks to lua scripting.
+        Returns None if the value is not in the list, else its position, 0-indexed.
+        """
+        return self.database.call_script(
+            # be sure to use the script dict at the class level
+            # to avoid registering it many times
+            script_dict=self.__class__.scripts[command],
+            keys=[self.key],
+            args=[value]
+        )
+
+    def _call_lcontains(self, command, value):
+        """
+        Addon to redis, to know if a value is in the list without having to retrieve all the list,
+        thanks to lua scripting. This is done via lrank defined above
+        Returns a boolean indicating if the value is in the list.
+        """
+        return self.lrank(value) is not None
+
+    def _call_lcount(self, command, value):
+        """
+        Addon to redis, to know how many times value is in the list without having to retrieve all
+        the list, thanks to lua scripting.
+        Returns an integer: 0 if not found, else the number of occurences
+        """
+        return self.database.call_script(
+            # be sure to use the script dict at the class level
+            # to avoid registering it many times
+            script_dict=self.__class__.scripts[command],
+            keys=[self.key],
+            args=[value]
+        )
 
     def _pushx(self, command, *args, **kwargs):
         """
@@ -1008,10 +1143,14 @@ class HashField(MultiValuesField):
     proxy_getter = "hgetall"
     proxy_setter = "hmset"
 
-    available_getters = ('hget', 'hgetall', 'hmget', 'hkeys', 'hvals',
-                         'hlen', 'hscan', 'hscan_iter', )
-    available_modifiers = ('delete', 'hdel', 'hmset', 'hsetnx', 'hset',
-                           'hincrby', 'hincrbyfloat', )
+    available_getters = MultiValuesField.available_getters | {
+        'hget', 'hgetall', 'hmget', 'hkeys', 'hvals',
+        'hlen', 'hscan', 'hscan_iter', 'hstrlen',
+    }
+    available_modifiers = MultiValuesField.available_modifiers | {
+        'delete', 'hdel', 'hmset', 'hsetnx', 'hset',
+        'hincrby', 'hincrbyfloat',
+    }
 
     scannable = True
     _call_hscan = MultiValuesField._scan
@@ -1019,9 +1158,9 @@ class HashField(MultiValuesField):
 
     def _call_hmset(self, command, *args, **kwargs):
         if self.indexable:
-            current = self.proxy_get()
-            _to_deindex = dict((k, current[k]) for k in iterkeys(kwargs) if k in current)
-            self.deindex(_to_deindex)
+            keys = list(kwargs.keys())
+            current = self.hmget(*keys)
+            self.deindex({key: value for key, value in zip(keys, current) if value is not None})
             self.index(kwargs)
         return self._traverse_command(command, kwargs)
 
@@ -1048,8 +1187,8 @@ class HashField(MultiValuesField):
 
     def _call_hdel(self, command, *args):
         if self.indexable:
-            current = self.proxy_get()
-            self.deindex(dict((k, current[k]) for k in args if k in current))
+            current = self.hmget(*args)
+            self.deindex({key: value for key, value in zip(args, current) if value is not None})
         return self._traverse_command(command, *args)
 
     def _call_hsetnx(self, command, key, value):
@@ -1062,6 +1201,12 @@ class HashField(MultiValuesField):
     def _call_hmget(self, command, *args):
         # redispy needs a list, not args
         return self._traverse_command(command, args)
+
+    def _call_hstrlen(self, command, key):
+        if self.database.redis_version < (3, 2):
+            raise ImplementationError("HSTRLEN is not a valid command for redis-server version < 3.2")
+        return self._traverse_command(command, key)
+
 
     def index(self, values=None, only_index=None):
         """
@@ -1132,9 +1277,8 @@ class InstanceHashField(SingleValueField):
     proxy_getter = "hget"
     proxy_setter = "hset"
 
-    available_getters = ('hget', )
-    available_modifiers = ('hdel', 'hset', 'hsetnx', 'hincrby',
-                           'hincrbyfloat', )
+    available_getters = {'hget', }
+    available_modifiers = {'hdel', 'hset', 'hsetnx', 'hincrby', 'hincrbyfloat', }
 
     _call_hset = SingleValueField._call_set
     _call_hdel = RedisField._del
@@ -1191,8 +1335,8 @@ class PKField(SingleValueField):
     proxy_getter = "get"
     proxy_setter = "set"
 
-    available_getters = ('get',)
-    available_modifiers = ('set',)
+    available_getters = {'get', }
+    available_modifiers = {'set', }
 
     name = 'pk'  # Default name ok the pk, can be changed by declaring a new PKField
     indexable = False  # Not an `indexable` field...

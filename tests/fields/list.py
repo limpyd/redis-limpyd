@@ -207,6 +207,67 @@ class IndexableListFieldTest(BaseModelTest):
         self.assertEqual(obj.field.proxy_get(), [])
 
 
+class ListAddonCommandsTest(BaseModelTest):
+
+    model = ListModel
+
+    def test_lrank(self):
+        obj = self.model()
+        self.assertIsNone(obj.field.lrank('foo'))
+        obj.field.rpush('bar')
+        self.assertIsNone(obj.field.lrank('foo'))
+        obj.field.rpush('foo')
+        self.assertEqual(obj.field.lrank('foo'), 1)
+        obj.field.lrem(1, 'foo')
+        self.assertIsNone(obj.field.lrank('foo'))
+        # checks it works fine with numbers too
+        self.assertIsNone(obj.field.lrank(111))
+        obj.field.rpush(111)
+        self.assertEqual(obj.field.lrank(111), 1)
+        self.assertEqual(obj.field.lrank('111'), 1)
+        obj.field.rpush('222')
+        self.assertEqual(obj.field.lrank(222), 2)
+        self.assertEqual(obj.field.lrank('222'), 2)
+
+    def test_lcontains(self):
+        obj = self.model()
+        self.assertFalse(obj.field.lcontains('foo'))
+        obj.field.rpush('bar')
+        self.assertFalse(obj.field.lcontains('foo'))
+        obj.field.rpush('foo')
+        self.assertTrue(obj.field.lcontains('foo'), 1)
+        obj.field.lrem(1, 'foo')
+        self.assertFalse(obj.field.lcontains('foo'))
+        # checks it works fine with numbers too
+        self.assertFalse(obj.field.lrank(111))
+        obj.field.rpush(111)
+        self.assertTrue(obj.field.lrank(111))
+        self.assertTrue(obj.field.lrank('111'))
+        obj.field.rpush('222')
+        self.assertTrue(obj.field.lrank(222))
+        self.assertTrue(obj.field.lrank('222'))
+
+    def test_lcount(self):
+        obj = self.model()
+        self.assertEqual(obj.field.lcount('foo'), 0)
+        obj.field.rpush('bar')
+        self.assertEqual(obj.field.lcount('foo'), 0)
+        obj.field.rpush('foo')
+        self.assertEqual(obj.field.lcount('foo'), 1)
+        obj.field.rpush('baz', 'foo')
+        self.assertEqual(obj.field.lcount('foo'), 2)
+        obj.field.lrem(3, 'foo')
+        self.assertEqual(obj.field.lcount('foo'), 0)
+        # checks it works fine with numbers too
+        self.assertEqual(obj.field.lcount(111), 0)
+        obj.field.rpush(111)
+        self.assertEqual(obj.field.lcount(111), 1)
+        self.assertEqual(obj.field.lcount('111'), 1)
+        obj.field.rpush('222', 222)
+        self.assertEqual(obj.field.lcount(222), 2)
+        self.assertEqual(obj.field.lcount('222'), 2)
+
+
 class Menu(TestRedisModel):
     dishes = fields.ListField(unique=True)
 

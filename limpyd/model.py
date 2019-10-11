@@ -134,8 +134,8 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
     DoesNotExist = DoesNotExist
     default_indexes = None
 
-    available_getters = ('hmget', 'hgetall', 'hkeys', 'hvals', 'hlen')
-    available_modifiers = ('hmset', 'hdel')
+    available_getters = {'hmget', 'hgetall', 'hkeys', 'hvals', 'hlen', }
+    available_modifiers = {'hmset', 'hdel', }
 
     def __init__(self, *args, **kwargs):
         """
