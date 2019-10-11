@@ -1,6 +1,10 @@
 Changelog
 =========
 
+Release *v1.3.1.dev0* - ``2019-10-11``
+--------------------------------------
+* Resolve race condition in `get_or_connect`
+
 Release *v1.3* - ``2019-09-22``
 -------------------------------
 * Official support for Python 3.7 and 3.8
