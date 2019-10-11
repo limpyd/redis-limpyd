@@ -439,7 +439,7 @@ class BaseIndex(object):
         else:
             start = 0
             while True:
-                instances = self.model.collection().sort().instances(skip_exist_test=True)[start:start + chunk_size]
+                instances = self.model.collection().sort().instances(lazy=True)[start:start + chunk_size]
                 for instance in instances:
                     field = instance.get_instance_field(self.field.name)
                     value = field.proxy_get()
@@ -476,7 +476,7 @@ class BaseIndex(object):
 
         start = 0
         while True:
-            instances = self.model.collection().sort().instances(skip_exist_test=True)[start:start + chunk_size]
+            instances = self.model.collection().sort().instances(lazy=True)[start:start + chunk_size]
             for instance in instances:
                 field = instance.get_instance_field(self.field.name)
                 value = field.proxy_get()
