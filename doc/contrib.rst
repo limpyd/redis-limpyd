@@ -563,9 +563,9 @@ Example:
 
 .. code:: python
 
-    >>> Person.collection(firstname='John').values()
+    >>> list(Person.collection(firstname='John').values())
     [{'pk': '1', 'firstname': 'John', 'lastname': 'Smith', 'birth_year': '1960'}, {'pk': '2', 'firstname': 'John', 'lastname': 'Doe', 'birth_year': '1965'}]
-    >>> Person.collection(firstname='John').values('pk', 'lastname')
+    >>> list(Person.collection(firstname='John').values('pk', 'lastname'))
     [{'pk': '1', 'lastname': 'Smith'}, {'pk': '2', 'lastname': 'Doe'}]
 
 
@@ -578,18 +578,18 @@ Example:
 
 .. code:: python
 
-    >>> Person.collection(firstname='John').values_list()
+    >>> list(Person.collection(firstname='John').values_list())
     [('1', 'John', 'Smith', '1960'), (2', 'John', 'Doe', '1965')]
-    >>> Person.collection(firstname='John').values_list('pk', 'lastname')
+    >>> list(Person.collection(firstname='John').values_list('pk', 'lastname'))
     [('1', 'Smith'), ('2', 'Doe')]
 
 If you want to retrieve a single field, you can ask to get a flat list as a final result, by passing the ``flat`` named argument to ``True``:
 
 .. code:: python
 
-    >>> Person.collection(firstname='John').values_list('pk', 'lastname')  # without flat
+    >>> list(Person.collection(firstname='John').values_list('pk', 'lastname'))  # without flat
     [('Smith', ), ('Doe', )]
-    >>> Person.collection(firstname='John').values_list('lastname', flat=True)  # with flat
+    >>> list(Person.collection(firstname='John').values_list('lastname', flat=True))  # with flat
     ['Smith', 'Doe']
 
 
@@ -597,7 +597,7 @@ To cancel retrieving values and get the default return format, call the ``primar
 
 .. code:: python
 
-    >>> Person.collection(firstname='John').values().primary_keys()  # works with values_list too
+    >>> list(Person.collection(firstname='John').values().primary_keys())  # works with values_list too
     >>> ['1', '2']
 
 
@@ -619,9 +619,9 @@ With the ExtendedCollectionManager_ available in ``contrib.collection``, you can
 
     >>> collection = Person.collection(firstname='John')
     >>> if want_to_filter_by_city:
-    >>>     collection.filter(city='New York')
+    >>>     collection = collection.filter(city='New York')  # `filter` creates a new collection
 
-``filter`` return the collection object itself, so it can be chained.
+``filter`` returns a new collection object, so it can be chained, as all methods of a collection.
 
 Note that all filters are ``and``-ed, so if you pass two filters on the same field, you may have an empty result.
 
@@ -633,7 +633,7 @@ Say you already have a list of primary keys, maybe got from a previous filter, a
 
 This ``intersect`` method takes a list of primary keys and will intersect, if possible at the Redis_ level, the result with this list.
 
-``intersect`` return the collection itself, so it can be chained, as all methods of a collection. You may call this method many times to intersect many lists, but you can also pass many lists in one ``intersect`` call.
+``intersect`` returns a new collection, so it can be chained, as all methods of a collection. You may call this method many times to intersect many lists, but you can also pass many lists in one ``intersect`` call.
 
 Here is an example:
 
@@ -681,19 +681,19 @@ Say you have a list of friends in a sorted set, with the date you met them as a 
     >>> # start by filtering by city
     >>> collection = Person.collection(city=current_user.city.get())
     >>> # then intersect with friends
-    >>> collection.intersect(current_user.friends)
+    >>> collection = collection.intersect(current_user.friends)  # `intersect` creates a new collection
     >>> # finally keep sorting by friends meet date
-    >>> collection.sort(by_score=current_user.friends)
+    >>> collection = collection.sort(by_score=current_user.friends)  # `sort` creates a new collection
 
 With the sort by score, as you have to use the ``sort`` method, you can still use the ``alpha`` and ``desc`` arguments (see :ref:`collection-sorting`)
 
-When using ``values`` or ``values_list`` (see `Retrieving values`_), you may want to retrieve the score between other fields. To do so, simply use the ``SORTED_SCORE`` constant (defined in ``contrib.collection``) as a field name to pass to ``values`` or ``values_list``:
+When using ``values`` or ``values_list`` (see `Retrieving values`_), you may want to retrieve the score among other fields. To do so, simply use the ``SORTED_SCORE`` constant (defined in ``contrib.collection``) as a field name to pass to ``values`` or ``values_list``:
 
 .. code:: python
 
     >>> from limpyd.contrib.collection import SORTED_SCORE
     >>> # (following previous example)
-    >>> collection.sort(by_score=current_user.friends).values('name', SORTED_SCORE)
+    >>> list(collection.sort(by_score=current_user.friends).values('name', SORTED_SCORE))
     [{'name': 'John Smith', 'sorted_score': '1985.0'}]  # here 1985.0 is the score
 
 
@@ -738,8 +738,8 @@ An example to show all of this, based on the previous example (see `Sort by scor
 
     >>> # Start by making a collection with heavy calculation
     >>> collection = Person.collection(city=current_user.city.get())
-    >>> collection.intersect(current_user.friends)
-    >>> collection.sort(by_score=current_user.friends)
+    >>> collection = collection.intersect(current_user.friends)  # `intersect` creates a new collection
+    >>> collection = collection.sort(by_score=current_user.friends)  # `sort` creates a new collection
 
     >>> # then store the result
     >>> stored_collection = collection.store(ttl=3600)  # keep the result for one hour

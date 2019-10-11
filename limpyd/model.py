@@ -134,8 +134,8 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
     DoesNotExist = DoesNotExist
     default_indexes = None
 
-    available_getters = ('hmget', 'hgetall', 'hkeys', 'hvals', 'hlen')
-    available_modifiers = ('hmset', 'hdel')
+    available_getters = {'hmget', 'hgetall', 'hkeys', 'hvals', 'hlen', }
+    available_modifiers = {'hmset', 'hdel', }
 
     def __init__(self, *args, **kwargs):
         """
@@ -336,9 +336,9 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
         return collection(**filters)
 
     @classmethod
-    def instances(cls, **filters):
+    def instances(cls, lazy=False, **filters):
         # FIXME Keep as shortcut or remove for clearer API?
-        return cls.collection(**filters).instances()
+        return cls.collection(**filters).instances(lazy=lazy)
 
     @classmethod
     def _field_is_pk(cls, name):
@@ -365,7 +365,7 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
         # get only the first element of the unsorted collection (the fastest)
         try:
             cls.collection(**kwargs).sort(by='nosort')[0]
-        except IndexError:
+        except StopIteration:
             return False
         else:
             return True
@@ -392,7 +392,7 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
                 else:
                     try:
                         pk = result[0]
-                    except IndexError:
+                    except StopIteration:
                         # object was deleted between the `len` check and now
                         raise DoesNotExist(u"No object matching filter: %s" % kwargs)
 

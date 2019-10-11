@@ -10,7 +10,7 @@ from limpyd.utils import unique_key
 from limpyd.exceptions import *
 from tests.indexes import RangeIndexTestModel
 
-from ..base import LimpydBaseTest, test_database, skip_if_no_zrangebylex
+from ..base import LimpydBaseTest, test_database
 from ..model import TestRedisModel, Boat as BaseBoat
 
 
@@ -85,7 +85,6 @@ class CompatibilityTest(BaseTest):
         self.assertEqual(len(active_names), 2)
         self.assertEqual(active_names, ['bar', 'foo'])
 
-    @unittest.skipIf(*skip_if_no_zrangebylex)
     def test_range_index_should_work(self):
         class TextRangeIndexTestModelExtended(RangeIndexTestModel):
             collection_manager = ExtendedCollectionManager
@@ -186,50 +185,50 @@ class FieldOrModelAsValueForSortAndFilterTest(BaseTest):
         # test using field from same model, without updating its value
         group = Group(name='foo')
         collection = Group.collection(name=group.name)
-        attended = {self.groups[0]._pk, group._pk}
-        self.assertEqual(set(collection), attended)
+        expected = {self.groups[0]._pk, group._pk}
+        self.assertSetEqual(set(collection), expected)
 
         # test using a field from same model, updating its value before running the collection
         group = Group(name='foo')
         collection = Group.collection(name=group.name)
-        attended = {self.groups[1]._pk, group._pk}
+        expected = {self.groups[1]._pk, group._pk}
         group.name.hset('bar')
-        self.assertEqual(set(collection), attended)
+        self.assertSetEqual(set(collection), expected)
 
     def test_filter_should_accept_field_from_other_model(self):
         # test using a field from another model, without updating its value
         query = FieldOrModelAsValueForSortAndFilterTest.Query(name='foo')
         collection = Group.collection(name=query.name)
-        attended = {self.groups[0]._pk}
-        self.assertEqual(set(collection), attended)
+        expected = {self.groups[0]._pk}
+        self.assertSetEqual(set(collection), expected)
 
         # test using a field from another model, updating its value before running the collection
         query = FieldOrModelAsValueForSortAndFilterTest.Query(name='foo')
         collection = Group.collection(name=query.name)
-        attended = {self.groups[1]._pk}
+        expected = {self.groups[1]._pk}
         query.name.hset('bar')
-        self.assertEqual(set(collection), attended)
+        self.assertSetEqual(set(collection), expected)
 
         # test using a field from another model, really creating the object later
         query = FieldOrModelAsValueForSortAndFilterTest.Query()
         collection = Group.collection(name=query.name)
-        attended = {self.groups[2]._pk}
+        expected = {self.groups[2]._pk}
         query.name.hset('baz')
-        self.assertEqual(set(collection), attended)
+        self.assertSetEqual(set(collection), expected)
 
     def test_filter_should_accept_pkfield_or_pkvalue(self):
         group = Group()
         # pass the pk, but value will be get when calling the collection
         collection = Group.collection(pk=group.pk)
         group.name.hset('aaa')  # create a pk for the object
-        attended = {group.pk.get()}
-        self.assertEqual(set(collection), attended)
+        expected = {group.pk.get()}
+        self.assertSetEqual(set(collection), expected)
 
     def test_filter_should_accept_instance_as_value(self):
         group = Group(name='foo')
         collection = Group.collection(pk=group)
-        attended = {group._pk}
-        self.assertEqual(set(collection), attended)
+        expected = {group._pk}
+        self.assertSetEqual(set(collection), expected)
 
 
 class FilterTest(BaseTest):
@@ -237,43 +236,43 @@ class FilterTest(BaseTest):
     def test_filter_method_should_add_filter(self):
         # test with one call
         collection = Group.collection(active=1).filter(public=1)
-        self.assertEqual(set(collection), {'1'})
+        self.assertSetEqual(set(collection), {'1'})
         # test with two calls
         collection = Group.collection(active=1)
-        self.assertEqual(set(collection), {'1', '2'})
-        collection.filter(public=1)
-        self.assertEqual(set(collection), {'1'})
+        self.assertSetEqual(set(collection), {'1', '2'})
+        collection = collection.filter(public=1)
+        self.assertSetEqual(set(collection), {'1'})
         # test with a pk
         collection = Group.collection(active=1).filter(pk=2)
-        self.assertEqual(set(collection), {'2'})
+        self.assertSetEqual(set(collection), {'2'})
         collection = Group.collection(active=1).filter(id=1)
-        self.assertEqual(set(collection), {'1'})
+        self.assertSetEqual(set(collection), {'1'})
         collection = Group.collection(active=1).filter(id=10)
-        self.assertEqual(set(collection), set())
+        self.assertSetEqual(set(collection), set())
         # test with pk, then filter with other
         collection = Group.collection(pk=2).filter(active=1)
-        self.assertEqual(set(collection), {'2'})
+        self.assertSetEqual(set(collection), {'2'})
 
     def test_filter_calls_could_be_chained(self):
         collection = Group.collection().filter(active=1).filter(public=1).filter(pk=1)
-        self.assertEqual(set(collection), {'1'})
+        self.assertSetEqual(set(collection), {'1'})
 
     def test_redefining_filter_should_return_empty_result(self):
         collection = Group.collection(active=1).filter(active=0)
-        self.assertEqual(set(collection), set())
+        self.assertSetEqual(set(collection), set())
 
-    def test_filter_should_returns_the_collection(self):
+    def test_filter_should_returns_a_new_collection(self):
         collection1 = Group.collection(active=1)
         collection2 = collection1.filter(active=0)
-        self.assertEqual(collection1, collection2)
+        self.assertIsNot(collection1, collection2)
 
     def test_filter_should_accept_pks(self):
         collection = Group.collection(pk=1)
-        self.assertEqual(set(collection), {'1'})
-        collection.filter(id=1)
-        self.assertEqual(set(collection), {'1'})
-        collection.filter(pk=2)
-        self.assertEqual(set(collection), set())
+        self.assertSetEqual(set(collection), {'1'})
+        collection = collection.filter(id=1)
+        self.assertSetEqual(set(collection), {'1'})
+        collection = collection.filter(pk=2)
+        self.assertSetEqual(set(collection), set())
 
 
 class IntersectTest(BaseTest):
@@ -339,13 +338,13 @@ class IntersectTest(BaseTest):
 
     def test_intersect_should_accept_sortedset_key_as_string(self):
         zset_key = unique_key(self.connection)
-        self.connection.zadd(zset_key, 1.0, 1, 2.0, 2)
+        self.connection.zadd(zset_key, {1: 1.0, 2: 2.0})
         collection = set(Group.collection().intersect(zset_key))
         self.assertEqual(self.last_interstore_call['command'], 'zinterstore')
         self.assertEqual(collection, {'1', '2'})
 
         zset_key = unique_key(self.connection)
-        self.connection.zadd(zset_key, 1.0, 1, 2.0, 2, 10.0, 10, 50.0, 50)
+        self.connection.zadd(zset_key, {1: 1.0, 2: 2.0, 10: 10.0, 50: 50.0})
         collection = set(Group.collection().intersect(zset_key))
         self.assertEqual(collection, {'1', '2'})
 
@@ -415,20 +414,7 @@ class IntersectTest(BaseTest):
         collection = set(Group.collection().intersect(container.groups_set))
         self.assertEqual(collection, {'1', '2'})
 
-    def test_intersect_should_accept_listfield_without_scripting(self):
-        container = GroupsContainer()
-
-        container.groups_list.lpush(1, 2)
-        collection = set(Group.collection().intersect(container.groups_list))
-        self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
-        self.assertEqual(collection, {'1', '2'})
-
-        container.groups_list.lpush(10, 50)
-        collection = set(Group.collection().intersect(container.groups_list))
-        self.assertEqual(collection, {'1', '2'})
-
-    @unittest.skipUnless(test_database.support_scripting(), "Redis scripting not available")
-    def test_intersect_should_accept_listfield_via_scripting(self):
+    def test_intersect_should_accept_listfield(self):
         container = GroupsContainer()
 
         container.groups_list.lpush(1, 2)
@@ -443,17 +429,17 @@ class IntersectTest(BaseTest):
     def test_intersect_should_accept_sortedsetfield(self):
         container = GroupsContainer()
 
-        container.groups_sortedset.zadd(1.0, 1, 2.0, 2)
+        container.groups_sortedset.zadd({1: 1.0, 2: 2.0})
         collection = set(Group.collection().intersect(container.groups_sortedset))
         self.assertEqual(collection, {'1', '2'})
 
-        container.groups_sortedset.zadd(10.0, 10, 50.0, 50)
+        container.groups_sortedset.zadd({10: 10.0, 50: 50.0})
         collection = set(Group.collection().intersect(container.groups_sortedset))
         self.assertEqual(collection, {'1', '2'})
 
     def test_passing_sortedset_in_intersect_use_zinterstore(self):
         container = GroupsContainer()
-        container.groups_sortedset.zadd(1.0, 1, 2.0, 2)
+        container.groups_sortedset.zadd({1: 1.0, 2: 2.0})
         collection = Group.collection().intersect(container.groups_sortedset)
 
         # execute the collection
@@ -467,7 +453,7 @@ class IntersectTest(BaseTest):
         self.assertEqual(result, ['1', '2'])
 
         # add a filter to the collection
-        collection.filter(public=1)
+        collection = collection.filter(public=1)
         # execute the collection
         result = list(collection)
         # check that we called an interstore
@@ -496,19 +482,19 @@ class IntersectTest(BaseTest):
 
     def test_intersect_can_be_called_with_filter(self):
         collection = Group.collection(active=1).filter(public=1).intersect([1, 2, 3, 10])
-        self.assertEqual(set(collection), {'1'})
+        self.assertSetEqual(set(collection), {'1'})
         self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
         collection = collection.intersect([2, 3, 50])
-        self.assertEqual(set(collection), set())
+        self.assertSetEqual(set(collection), set())
 
-    def test_intersect_should_returns_the_collection(self):
+    def test_intersect_should_returns_a_new_collection(self):
         collection1 = Group.collection(active=1)
         collection2 = collection1.intersect([1, 2])
-        self.assertEqual(collection1, collection2)
+        self.assertIsNot(collection1, collection2)
 
     def test_slicing_sortedset(self):
         container = GroupsContainer()
-        container.groups_sortedset.zadd(1.0, 1, 2.0, 2, 3.0, 3, 4.0, 4)
+        container.groups_sortedset.zadd({1: 1.0, 2:2.0, 3: 3.0, 4: 4.0})
 
         self.assertSlicingIsCorrect(
             collection=Group.collection().intersect(container.groups_sortedset),
@@ -520,7 +506,7 @@ class SortByScoreTest(BaseTest):
     def setUp(self):
         super(SortByScoreTest, self).setUp()
         self.container = GroupsContainer()
-        self.container.groups_sortedset.zadd(1000, 1, 200, 2, 3000, 3, 40, 4)
+        self.container.groups_sortedset.zadd({1: 1000, 2: 200, 3: 3000, 4: 40})
         self.sorted_pks = ['4', '2', '1', '3']
         self.reversed_sorted_pks = list(reversed(self.sorted_pks))
         self.active_sorted_pks = ['2', '1']
@@ -551,7 +537,7 @@ class SortByScoreTest(BaseTest):
         assert list(collection) == test_list, 'Wrong dataset for this test'
 
         limit = 3
-        total, optimized, not_optimized = 0, 0, 0
+        total = 0
         for start in list(range(-limit, limit+1)) + [None]:
             for stop in list(range(-limit, limit+1)) + [None]:
                 for step in range(-limit, limit+1):
@@ -567,13 +553,6 @@ class SortByScoreTest(BaseTest):
                                 '' if step is None else step,
                             )
                         )
-                        if collection._optimized_slicing:
-                            optimized += 1
-                        else:
-                            not_optimized += 1
-
-        self.assertGreaterEqual(optimized * 100.0 / total, 65,
-                                "Less than 65% slicing resulted in non-optimized calls")
 
     def test_sort_by_sortedset_with_index(self):
         # will compare indexing from the collection to a real python list
@@ -592,7 +571,7 @@ class SortByScoreTest(BaseTest):
                 try:
                     expected = test_list[index]
                 except IndexError:
-                    with self.assertRaises(IndexError):
+                    with self.assertRaises(StopIteraion):
                         collection[index]
                 else:
                     self.assertEqual(collection[index], expected)
@@ -644,7 +623,7 @@ class SortByScoreTest(BaseTest):
 
     def test_sort_by_sortedset_should_work_without_filter(self):
         collection = Group.collection().sort(by_score=self.container.groups_sortedset)
-        self.assertEqual(list(collection), self.sorted_pks)
+        self.assertListEqual(list(collection), self.sorted_pks)
         sorted_by_score_names = list(collection.values_list('name', flat=True))
         self.assertEqual(sorted_by_score_names, ['qux', 'bar', 'foo', 'baz'])
 
@@ -656,21 +635,21 @@ class SortByScoreTest(BaseTest):
     def test_sort_by_sortedset_should_work_with_pk(self):
         # only pk
         collection = Group.collection(pk=1).sort(by_score=self.container.groups_sortedset)
-        self.assertEqual(list(collection), ['1'])
+        self.assertListEqual(list(collection), ['1'])
         sorted_by_score_names = list(collection.values_list('name', flat=True))
         self.assertEqual(sorted_by_score_names, ['foo'])
 
         # pk and matching filter
         collection = Group.collection(pk=1, active=1).sort(
                                                         by_score=self.container.groups_sortedset)
-        self.assertEqual(list(collection), ['1'])
+        self.assertListEqual(list(collection), ['1'])
         sorted_by_score_names = list(collection.values_list('name', flat=True))
         self.assertEqual(sorted_by_score_names, ['foo'])
 
         # pk and not matching filter
         collection = Group.collection(pk=1, active=0).sort(
                                                         by_score=self.container.groups_sortedset)
-        self.assertEqual(list(collection), [])
+        self.assertListEqual(list(collection), [])
         sorted_by_score_names = list(collection.values_list('name', flat=True))
         self.assertEqual(sorted_by_score_names, [])
 
@@ -684,7 +663,7 @@ class SortByScoreTest(BaseTest):
         # test values
         collection = Group.collection(active=1).values('name', SORTED_SCORE).sort(
                                                         by_score=self.container.groups_sortedset)
-        self.assertEqual(list(collection), [
+        self.assertListEqual(list(collection), [
             {'name': 'bar', SORTED_SCORE: '200.0'},
             {'name': 'foo', SORTED_SCORE: '1000.0'},
         ])
@@ -692,16 +671,16 @@ class SortByScoreTest(BaseTest):
         # tests values_list
         collection = Group.collection(active=1).values_list('name', SORTED_SCORE).sort(
                                                         by_score=self.container.groups_sortedset)
-        self.assertEqual(list(collection), [('bar', '200.0'), ('foo', '1000.0')])
+        self.assertListEqual(list(collection), [('bar', '200.0'), ('foo', '1000.0')])
 
         # test without sorting by score
         collection = Group.collection(active=1).values_list('name', SORTED_SCORE)
-        self.assertEqual(set(collection), {('bar', None), ('foo', None)})
+        self.assertSetEqual(set(collection), {('bar', None), ('foo', None)})
 
         # test with pk
         collection = Group.collection(pk=1).values('name', SORTED_SCORE).sort(
                                                         by_score=self.container.groups_sortedset)
-        self.assertEqual(list(collection), [{'name': 'foo', SORTED_SCORE: '1000.0'}])
+        self.assertListEqual(list(collection), [{'name': 'foo', SORTED_SCORE: '1000.0'}])
 
 
 class StoreTest(BaseTest):
@@ -710,7 +689,7 @@ class StoreTest(BaseTest):
         collection = Group.collection(active=1).sort(by='-name', alpha=True)
         stored_collection = collection.store()
         self.assertNotEqual(collection, stored_collection)
-        self.assertEqual(list(collection), list(stored_collection))
+        self.assertListEqual(list(collection), list(stored_collection))
 
     def test_ttl_of_stored_collection_should_be_set(self):
         collection = Group.collection(active=1).sort(by='-name', alpha=True)
@@ -795,30 +774,29 @@ class StoreTest(BaseTest):
 
         dicts = list(stored_collection.values('pk', 'name'))
         self.assertEqual(len(dicts), 2)
-        self.assertEqual(dicts[0], {'pk': '1', 'name': 'foo'})
+        self.assertDictEqual(dicts[0], {'pk': '1', 'name': 'foo'})
 
         tuples = list(stored_collection.values_list('pk', 'name'))
         self.assertEqual(len(tuples), 2)
-        self.assertEqual(tuples[0], ('1', 'foo'))
+        self.assertTupleEqual(tuples[0], ('1', 'foo'))
 
     def test_stored_collection_could_be_stored(self):
         collection = Group.collection(active=1)
         stored_collection = collection.store()
-        stored_collection.filter(public=1)
-        final_collection = stored_collection.store()
+        final_collection = stored_collection.filter(public=1).store()
         result = self.connection.lrange(final_collection.stored_key, 0, -1)
-        self.assertEqual(result, ['1'])
+        self.assertListEqual(result, ['1'])
 
     def test_stored_collection_could_be_sorted(self):
         collection = Group.collection(active=1)
         stored_collection = collection.store()
         sorted_groups = list(stored_collection.sort(by='name', alpha=True))
-        self.assertEqual(sorted_groups, ['2', '1'])
+        self.assertListEqual(sorted_groups, ['2', '1'])
 
     def test_stored_collection_could_be_empty(self):
         collection = Group.collection(active=1, name='foobar')
         stored_collection = collection.store()
-        self.assertEqual(list(stored_collection), [])
+        self.assertListEqual(list(stored_collection), [])
 
     def test_slicing_stored_collection(self):
 
@@ -831,7 +809,7 @@ class StoreTest(BaseTest):
 class LenTest(BaseTest):
     def test_len_should_work_with_sortedsets(self):
         container = GroupsContainer()
-        container.groups_sortedset.zadd(1.0, 1, 2.0, 2)
+        container.groups_sortedset.zadd({1: 1.0, 2: 2.0})
         collection = Group.collection().intersect(container.groups_sortedset)
         collection.sort(by='name')  # to fail if sort called, becase alpha not set
         self.assertEqual(len(collection), 2)
@@ -854,7 +832,7 @@ class Boat(BaseBoat):
 class BaseValuesTest(BaseTest):
     def setUp(self):
         super(BaseTest, self).setUp()
-        self.assertEqual(set(Boat.collection()), set())
+        self.assertSetEqual(set(Boat.collection()), set())
         self.boat1 = Boat(name="Pen Duick I", length=15.1, launched=1898)
         self.boat2 = Boat(name="Pen Duick II", length=13.6, launched=1964)
         self.boat3 = Boat(name="Pen Duick III", length=17.45, launched=1966)
@@ -867,7 +845,7 @@ class ValuesTest(BaseValuesTest):
         self.assertEqual(len(boats), 4)
         for boat in boats:
             self.assertTrue(isinstance(boat, dict))
-            self.assertEqual(set(boat.keys()), {'pk', 'name', 'launched'})
+            self.assertSetEqual(set(boat.keys()), {'pk', 'name', 'launched'})
             test_boat = Boat(boat['pk'])
             self.assertEqual(test_boat.name.get(), boat['name'])
             self.assertEqual(test_boat.launched.get(), boat['launched'])
@@ -876,7 +854,7 @@ class ValuesTest(BaseValuesTest):
         boats = list(Boat.collection().values())
         self.assertEqual(len(boats), 4)
         self.assertTrue(isinstance(boats[0], dict))
-        self.assertEqual(set(boats[0].keys()), {'pk', 'name', 'power', 'launched', 'length'})
+        self.assertSetEqual(set(boats[0].keys()), {'pk', 'name', 'power', 'launched', 'length'})
 
     def test_values_should_only_accept_simple_fields(self):
         with self.assertRaises(ValueError):

@@ -544,7 +544,7 @@ class PostCommandTest(LimpydBaseTest):
         def post_command(self, sender, name, result, args, kwargs):
             if isinstance(sender, fields.RedisField) and sender.name == "name":
                 if name in sender.available_modifiers:
-                    self.last_modification_date.hset(datetime.now())
+                    self.last_modification_date.hset(str(datetime.now()))
                 elif name == "hget":
                     result = "modifed_result"
             return result
@@ -573,14 +573,14 @@ class InheritanceTest(LimpydBaseTest):
         """
         bike = Bike()
         self.assertEqual(len(bike._fields), 4)
-        self.assertEqual(set(bike._fields), {'pk', 'name', 'wheels', 'passengers'})
+        self.assertSetEqual(set(bike._fields), {'pk', 'name', 'wheels', 'passengers'})
         motorbike = MotorBike()
         self.assertEqual(len(motorbike._fields), 5)
-        self.assertEqual(set(motorbike._fields),
+        self.assertSetEqual(set(motorbike._fields),
                          {'pk', 'name', 'wheels', 'passengers', 'power'})
         boat = Boat()
         self.assertEqual(len(boat._fields), 5)
-        self.assertEqual(set(boat._fields), {'pk', 'name', 'launched', 'power', 'length'})
+        self.assertSetEqual(set(boat._fields), {'pk', 'name', 'launched', 'power', 'length'})
 
     def test_inheritance_values(self):
         """

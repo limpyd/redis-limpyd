@@ -3,7 +3,7 @@ from __future__ import unicode_literals
 
 import threading
 
-from redis.client import StrictPipeline
+from redis.client import Pipeline
 from redis.exceptions import WatchError
 
 from limpyd.database import RedisDatabase
@@ -105,7 +105,7 @@ class PipelineDatabase(RedisDatabase):
             self._pipelined_connection = None
 
 
-class _Pipeline(StrictPipeline):
+class _Pipeline(Pipeline):
     """
     A subclass of the redis pipeline class used by the database object, which
     save its internal connection and replace it by the pipeline, allowing

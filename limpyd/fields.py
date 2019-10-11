@@ -9,7 +9,6 @@ from inspect import isclass
 from logging import getLogger
 from copy import copy
 
-from redis import VERSION as redispy_version
 from redis.exceptions import RedisError
 
 from limpyd.database import Lock
@@ -180,6 +179,9 @@ class RedisField(RedisProxyCommand):
     _unique_supported = True
     _field_parts = 1
     default_indexes = None
+
+    available_getters = {'expire', 'expireat', 'pexpire', 'pexpireat', 'ttl', 'pttl', 'persist'}
+    available_modifiers = set()
 
     def __init__(self, *args, **kwargs):
         """
@@ -637,6 +639,18 @@ class RedisField(RedisProxyCommand):
             self.index(result)
         return result
 
+    def _deny_if_indexable(self, command, *args, **kwargs):
+        """
+        Shortcut for commands that cannot be executed on indexable fields
+        """
+        if self.indexable:
+            raise ImplementationError('Indexable fields cannot be expired')
+        return self._traverse_command(command, *args, **kwargs)
+    _call_expire = _deny_if_indexable
+    _call_pexpire = _deny_if_indexable
+    _call_expireat = _deny_if_indexable
+    _call_pexpireat = _deny_if_indexable
+
     def _del(self, command, *args, **kwargs):
         """
         Shortcut for commands that remove all values of the field.
@@ -673,16 +687,24 @@ class StringField(SingleValueField):
     proxy_getter = "get"
     proxy_setter = "set"
 
-    available_getters = ('get', 'getbit', 'getrange', 'strlen', 'bitcount', )
-    available_modifiers = ('delete', 'getset', 'set', 'append', 'decr',
-                           'incr', 'incrbyfloat', 'setbit', 'setnx',
-                           'setrange', )
+    available_getters = SingleValueField.available_getters | {
+        'get', 'getbit', 'getrange', 'strlen', 'bitcount', 'bitpos',
+    }
+    available_modifiers = SingleValueField.available_modifiers | {
+        'delete', 'getset', 'set', 'append', 'decr', 'decrby',
+        'incr', 'incrby', 'incrbyfloat', 'setbit', 'setnx',
+        'setrange', 'setex', 'psetex',
+    }
 
     _call_getset = SingleValueField._call_set
     _call_append = _call_setrange = _call_setbit = SingleValueField._reset
     _call_decr = SingleValueField._reindex_from_result
+    _call_decrby = SingleValueField._reindex_from_result
     _call_incr = SingleValueField._reindex_from_result
+    _call_incrby = SingleValueField._reindex_from_result
     _call_incrbyfloat = SingleValueField._reindex_from_result
+    _call_setex = SingleValueField._deny_if_indexable
+    _call_psetex = SingleValueField._deny_if_indexable
 
     def _call_setnx(self, command, value):
         """
@@ -692,6 +714,19 @@ class StringField(SingleValueField):
         if self.indexable and value is not None and result:
             self.index(value)
         return result
+
+    def _call_set(self, command, value, ex=None, px=None, nx=False, xx=False):
+        """Deny expiring args if indexable, and deny other flags"""
+
+        if self.indexable and (ex is not None or px is not None):
+            raise ImplementationError('Indexable fields cannot be expired')
+
+        if nx:
+            raise LimpydException("nx argument to SET is not supported by limpyd")
+        if xx:
+            raise LimpydException("xx argument to SET is not supported by limpyd")
+
+        return super(StringField, self)._call_set(command, value, ex=ex, px=px)
 
 
 class MultiValuesField(RedisField):
@@ -795,27 +830,11 @@ class MultiValuesField(RedisField):
             if value is not None:
                 self.get_unique_index().check_uniqueness(value)
 
-    if redispy_version >= (2, 10, 0):
+    def _scan(self, command, match=None, count=None):
+        assert self.scannable, 'Field is not scannable'
+        assert not command.endswith('_iter'), 'Use %s instead of %s' % (command[:-5], command)
 
-        def _scan(self, command, match=None, count=None):
-            assert self.scannable, 'Field is not scannable'
-            assert not command.endswith('_iter'), 'Use %s instead of %s' % (command[:-5], command)
-
-            return self._traverse_command(command + '_iter', match=match, count=count)
-
-    else:
-        # no *scan_iter in redis-py < 2.10
-
-        def _scan(self, command, match=None, count=None):
-            assert self.scannable, 'Field is not scannable'
-
-            cursor = 0
-            while True:
-                cursor, data = self._traverse_command(command, cursor, match=match, count=count)
-                for item in (data.items() if hasattr(data, 'items') else data):
-                    yield item
-                if not cursor or cursor == '0':
-                    break
+        return self._traverse_command(command + '_iter', match=match, count=count)
 
 
 class SortedSetField(MultiValuesField):
@@ -831,20 +850,24 @@ class SortedSetField(MultiValuesField):
     proxy_getter = "zmembers"
     proxy_setter = "zadd"
 
-    available_getters = ('zcard', 'zcount', 'zrange', 'zrangebyscore',
-                         'zrank', 'zrevrange', 'zrevrangebyscore',
-                         'zrevrank', 'zscore', 'zscan', 'sort')
-    available_modifiers = ('delete', 'zadd', 'zincrby', 'zrem',
-                           'zremrangebyrank', 'zremrangebyscore', )
+    available_getters = MultiValuesField.available_getters | {
+        'zcard', 'zcount', 'zrange', 'zrangebyscore',
+        'zrank', 'zrevrange', 'zrevrangebyscore',
+        'zrevrank', 'zscore', 'zscan', 'sort', 'zscan_iter',
+        'zlexcount', 'zrangebylex', 'zrevrangebylex',
+    }
+    available_modifiers = MultiValuesField.available_modifiers | {
+        'delete', 'zadd', 'zincrby', 'zrem',
+        'zremrangebyrank', 'zremrangebyscore',
+        'zpopmin' ,'zpopmax', 'zremrangebylex',
+    }
 
     _call_zrem = MultiValuesField._rem
-    _call_zremrangebyscore = _call_zremrangebyrank = RedisField._reset
+    _call_zremrangebylex = _call_zremrangebyscore = _call_zremrangebyrank = RedisField._reset
 
     scannable = True
     _call_zscan = MultiValuesField._scan
-    if redispy_version >= (2, 10, 0):
-        _call_zscan_iter = MultiValuesField._scan
-        available_getters = available_getters + ('zscan_iter', )
+    _call_zscan_iter = MultiValuesField._scan
 
     def zmembers(self):
         """
@@ -854,67 +877,76 @@ class SortedSetField(MultiValuesField):
 
     def _call_zadd(self, command, *args, **kwargs):
         """
-        We do the same computation of the zadd method of StrictRedis to keep keys
-        to index them (instead of indexing the whole set)
-        Members (value/score) can be passed:
-            - in *args, with score followed by the value, 0+ times (to respect
-              the redis order)
-            - in **kwargs, with value as key and score as value
-        Example: zadd(1.1, 'my-key', 2.2, 'name1', 'name2', name3=3.3, name4=4.4)
+        Normal redis-py 3+ signature: mapping, nx=False, xx=False, ch=False, incr=False
+        So the normal way in redis-py 3+ to pass data to zadd is to pass a mapping.
+        But to avoid too much rewriting when using the version of limpyd supporting
+        redis-py 3+, we still allow passing data as named arguments.
+        The old way of passing scores and values as unnamed argument is not supported anymore.
+        When passing data as named arguments, special redis arguments, ie nx, xx, ch and incr
+        will NOT be treated as data.
+        We actually don't support xx, nx and incr options.
         """
+        args, kwargs = self.coerce_zadd_args(*args, **kwargs)
         if self.indexable:
-            keys = []
-            if args:
-                if len(args) % 2 != 0:
-                    raise RedisError("ZADD requires an equal number of "
-                                     "values and scores")
-                keys.extend(args[1::2])
-            keys.extend(kwargs)  # add kwargs keys (values to index)
-            self.index(keys)
+            mapping = args[0] if args else kwargs['mapping']
+            self.index(mapping.keys())
         return self._traverse_command(command, *args, **kwargs)
 
-    def _call_zincrby(self, command, value, *args, **kwargs):
+    def _call_zincrby(self, command, amount, value):
         """
         This command update a score of a given value. But it can be a new value
         of the sorted set, so we index it.
         """
         if self.indexable:
             self.index([value])
-        return self._traverse_command(command, value, *args, **kwargs)
+        return self._traverse_command(command, amount, value)
 
     @staticmethod
     def coerce_zadd_args(*args, **kwargs):
         """
-        Take arguments attended by a zadd call, named or not, and return a flat list
-        that can be used.
+        Take arguments attended by a zadd call, named or not, and return kwargs that can be used
+        directly..
         A callback can be called with all "values" (as *args) if defined as the
         `values_callback` named argument. Real values will then be the result of
         this callback.
         """
         values_callback = kwargs.pop('values_callback', None)
 
-        pieces = []
+        # if args, it must be two max, with first being the mapping and if two, the second is `ch`
         if args:
-            if len(args) % 2 != 0:
-                raise RedisError("ZADD requires an equal number of "
-                                 "values and scores")
-            pieces.extend(args)
+            if not kwargs and len(args) > 2 or kwargs and (len(args) > 1 or list(kwargs.keys()) != ['ch']):
+                raise LimpydException("ZADD accepts only two argumnets: 'mapping' and 'ch'")
+            kwargs['mapping'] = args[0]
+            if len(args) > 1:
+                kwargs['ch'] = args[1]
+            args = []
 
-        for pair in iteritems(kwargs):
-            pieces.append(pair[1])
-            pieces.append(pair[0])
+        if 'mapping' not in kwargs:
+            # handle our special case allowing passing value=score arguments
+            mapping = kwargs.copy()
+            final_kwargs = {}
+            for key in {'nx', 'xx', 'ch', 'incr'}:
+                if key in kwargs:
+                    final_kwargs[key] = mapping.pop(key)
+            kwargs = final_kwargs
+            kwargs['mapping'] = mapping
 
-        values = pieces[1::2]
+        for key in {'nx', 'xx', 'incr'}:
+            if key in kwargs:
+                raise LimpydException("%s argument to ZADD is not supported by limpyd" % key)
+
         if values_callback:
-            values = values_callback(*values)
+            mapping = args[0] if args else kwargs['mapping']
+            for oldkey, newkey in list(zip(mapping.keys(), values_callback(*mapping.keys()))):
+                mapping[newkey] = mapping.pop(oldkey)
 
-        scores = pieces[0::2]
+        return args, kwargs
 
-        pieces = []
-        for z in zip(scores, values):
-            pieces.extend(z)
-
-        return pieces
+    def _call_zpopmax(self, command, *args, **kwargs):
+        if self.database.redis_version < (5, ):
+            raise ImplementationError("%s is not a valid command for redis-server version < 5" % command.upper())
+        return self._reset(command, *args, **kwargs)
+    _call_zpopmin = _call_zpopmax
 
 
 class SetField(MultiValuesField):
@@ -928,18 +960,31 @@ class SetField(MultiValuesField):
     proxy_getter = "smembers"
     proxy_setter = "sadd"
 
-    available_getters = ('scard', 'sismember', 'smembers', 'srandmember', 'sscan', 'sort', )
-    available_modifiers = ('delete', 'sadd', 'srem', 'spop', )
+    available_getters = MultiValuesField.available_getters | {
+        'scard', 'sismember', 'smembers', 'srandmember', 'sscan', 'sort', 'sscan_iter',
+    }
+    available_modifiers = MultiValuesField.available_modifiers | {
+        'delete', 'sadd', 'srem', 'spop',
+    }
 
     _call_sadd = MultiValuesField._add
     _call_srem = MultiValuesField._rem
-    _call_spop = MultiValuesField._pop
 
     scannable = True
     _call_sscan = MultiValuesField._scan
-    if redispy_version >= (2, 10, 0):
-        _call_sscan_iter = MultiValuesField._scan
-        available_getters = available_getters + ('sscan_iter', )
+    _call_sscan_iter = MultiValuesField._scan
+
+    def _call_spop(self, command, count=None):
+        if count is not None and self.database.redis_version < (3, 2):
+            raise ImplementationError("Count argument to SPOP is invalid for redis-server version < 3.2")
+
+        if count and self.indexable:
+            # deindex all returned values (`_pop` assuming only one value)
+            result = self._traverse_command(command, count=count)
+            self.deindex(result)
+            return result
+
+        return super(SetField, self)._pop(command, count=count)
 
 
 class ListField(MultiValuesField):
@@ -957,20 +1002,92 @@ class ListField(MultiValuesField):
     proxy_getter = "lmembers"
     proxy_setter = "rpush"
 
-    available_getters = ('lindex', 'llen', 'lrange', )
-    available_modifiers = ('delete', 'linsert', 'lpop', 'lpush', 'lpushx',
-                           'lrem', 'rpop', 'rpush', 'rpushx', 'lset',
-                           'ltrim', 'sort', )
+    available_getters = MultiValuesField.available_getters | {
+        'lindex', 'llen', 'lrange', 'lrank', 'lcontains', 'lcount',
+    }
+    available_modifiers = MultiValuesField.available_modifiers | {
+        'delete', 'linsert', 'lpop', 'lpush', 'lpushx',
+        'lrem', 'rpop', 'rpush', 'rpushx', 'lset',
+        'ltrim', 'sort',
+    }
 
     _call_lpop = _call_rpop = MultiValuesField._pop
     _call_lpush = _call_rpush = MultiValuesField._add
     _call_ltrim = RedisField._reset
+
+    scripts = {
+        'lrank': {
+            # get position of a value in a list
+            'lua': """
+                local list_key = KEYS[1]
+                local value = ARGV[1]
+                local items = redis.call('lrange', list_key, 0, -1)
+                for i, item in ipairs(items) do
+                    if items[i] == value then
+                        return i - 1
+                    end
+                end
+                return nil
+            """,
+        },
+        'lcount': {
+            # count occurrences of a value in a list
+            'lua': """
+                local list_key = KEYS[1]
+                local value = ARGV[1]
+                local items = redis.call('lrange', list_key, 0, -1)
+                local count = 0
+                for i, item in ipairs(items) do
+                    if items[i] == value then
+                        count = count + 1
+                    end
+                end
+                return count
+            """,
+        },
+    }
 
     def lmembers(self):
         """
         Used as a proxy_getter to get all values stored in the field.
         """
         return self.lrange(0, -1)
+
+    def _call_lrank(self, command, value):
+        """
+        Addon to redis, to know if a value is in the list without having to retrieve all the list,
+        thanks to lua scripting.
+        Returns None if the value is not in the list, else its position, 0-indexed.
+        """
+        return self.database.call_script(
+            # be sure to use the script dict at the class level
+            # to avoid registering it many times
+            script_dict=self.__class__.scripts[command],
+            keys=[self.key],
+            args=[value]
+        )
+
+    def _call_lcontains(self, command, value):
+        """
+        Addon to redis, to know if a value is in the list without having to retrieve all the list,
+        thanks to lua scripting. This is done via lrank defined above
+        Returns a boolean indicating if the value is in the list.
+        """
+        return self.lrank(value) is not None
+
+    def _call_lcount(self, command, value):
+        """
+        Addon to redis, to know how many times value is in the list without having to retrieve all
+        the list, thanks to lua scripting.
+        Returns an integer: 0 if not found, else the number of occurences
+        """
+        return self.database.call_script(
+            # be sure to use the script dict at the class level
+            # to avoid registering it many times
+            script_dict=self.__class__.scripts[command],
+            keys=[self.key],
+            args=[value]
+        )
 
     def _pushx(self, command, *args, **kwargs):
         """
@@ -1026,22 +1143,24 @@ class HashField(MultiValuesField):
     proxy_getter = "hgetall"
     proxy_setter = "hmset"
 
-    available_getters = ('hget', 'hgetall', 'hmget', 'hkeys', 'hvals',
-                         'hlen', 'hscan', )
-    available_modifiers = ('delete', 'hdel', 'hmset', 'hsetnx', 'hset',
-                           'hincrby', 'hincrbyfloat', )
+    available_getters = MultiValuesField.available_getters | {
+        'hget', 'hgetall', 'hmget', 'hkeys', 'hvals',
+        'hlen', 'hscan', 'hscan_iter', 'hstrlen',
+    }
+    available_modifiers = MultiValuesField.available_modifiers | {
+        'delete', 'hdel', 'hmset', 'hsetnx', 'hset',
+        'hincrby', 'hincrbyfloat',
+    }
 
     scannable = True
     _call_hscan = MultiValuesField._scan
-    if redispy_version >= (2, 10, 0):
-        _call_hscan_iter = MultiValuesField._scan
-        available_getters = available_getters + ('hscan_iter', )
+    _call_hscan_iter = MultiValuesField._scan
 
     def _call_hmset(self, command, *args, **kwargs):
         if self.indexable:
-            current = self.proxy_get()
-            _to_deindex = dict((k, current[k]) for k in iterkeys(kwargs) if k in current)
-            self.deindex(_to_deindex)
+            keys = list(kwargs.keys())
+            current = self.hmget(*keys)
+            self.deindex({key: value for key, value in zip(keys, current) if value is not None})
             self.index(kwargs)
         return self._traverse_command(command, kwargs)
 
@@ -1068,8 +1187,8 @@ class HashField(MultiValuesField):
 
     def _call_hdel(self, command, *args):
         if self.indexable:
-            current = self.proxy_get()
-            self.deindex(dict((k, current[k]) for k in args if k in current))
+            current = self.hmget(*args)
+            self.deindex({key: value for key, value in zip(args, current) if value is not None})
         return self._traverse_command(command, *args)
 
     def _call_hsetnx(self, command, key, value):
@@ -1082,6 +1201,12 @@ class HashField(MultiValuesField):
     def _call_hmget(self, command, *args):
         # redispy needs a list, not args
         return self._traverse_command(command, args)
+
+    def _call_hstrlen(self, command, key):
+        if self.database.redis_version < (3, 2):
+            raise ImplementationError("HSTRLEN is not a valid command for redis-server version < 3.2")
+        return self._traverse_command(command, key)
+
 
     def index(self, values=None, only_index=None):
         """
@@ -1152,9 +1277,8 @@ class InstanceHashField(SingleValueField):
     proxy_getter = "hget"
     proxy_setter = "hset"
 
-    available_getters = ('hget', )
-    available_modifiers = ('hdel', 'hset', 'hsetnx', 'hincrby',
-                           'hincrbyfloat', )
+    available_getters = {'hget', }
+    available_modifiers = {'hdel', 'hset', 'hsetnx', 'hincrby', 'hincrbyfloat', }
 
     _call_hset = SingleValueField._call_set
     _call_hdel = RedisField._del
@@ -1211,8 +1335,8 @@ class PKField(SingleValueField):
     proxy_getter = "get"
     proxy_setter = "set"
 
-    available_getters = ('get',)
-    available_modifiers = ('set',)
+    available_getters = {'get', }
+    available_modifiers = {'set', }
 
     name = 'pk'  # Default name ok the pk, can be changed by declaring a new PKField
     indexable = False  # Not an `indexable` field...
@@ -1356,7 +1480,8 @@ class FieldLock(Lock):
     release.
     """
 
-    def __init__(self, field, timeout=5, sleep=0.1):
+    def __init__(self, field, timeout=5, sleep=0.1,
+                 blocking=True, blocking_timeout=None, thread_local=True):
         """
         Save the field and create a real lock,, using the correct connection
         and a computed lock key based on the names of the field and its model.
@@ -1368,6 +1493,9 @@ class FieldLock(Lock):
             name=make_key(field._model._name, 'lock-for-update', field.name),
             timeout=timeout,
             sleep=sleep,
+            blocking=blocking,
+            blocking_timeout=blocking_timeout,
+            thread_local=thread_local
         )
 
     def _get_already_locked_by_model(self):
@@ -1391,12 +1519,12 @@ class FieldLock(Lock):
         sub-lock status.
         """
         if not self.field.lockable:
-            return
+            return True
         if self.already_locked_by_model:
             self.sub_lock_mode = True
-            return
+            return True
         self.already_locked_by_model = True
-        super(FieldLock, self).acquire(*args, **kwargs)
+        return super(FieldLock, self).acquire(*args, **kwargs)
 
     def release(self, *args, **kwargs):
         """

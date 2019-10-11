@@ -18,7 +18,7 @@ class CollectionBaseTest(LimpydBaseTest):
 
     def setUp(self):
         super(CollectionBaseTest, self).setUp()
-        self.assertEqual(set(Boat.collection()), set())
+        self.assertSetEqual(set(Boat.collection()), set())
         self.boat1 = Boat(name="Pen Duick I", length=15.1, launched=1898)
         self.boat2 = Boat(name="Pen Duick II", length=13.6, launched=1964)
         self.boat3 = Boat(name="Pen Duick III", length=17.45, launched=1966)
@@ -31,17 +31,24 @@ class CollectionTest(CollectionBaseTest):
     """
 
     def test_new_instance_should_be_added_in_collection(self):
-        self.assertEqual(set(Bike.collection()), set())
+        self.assertSetEqual(set(Bike.collection()), set())
+        self.assertEqual(len(Bike.collection()), 0)
         Bike()
-        self.assertEqual(set(Bike.collection()), set())
+        self.assertSetEqual(set(Bike.collection()), set())
+        self.assertEqual(len(Bike.collection()), 0)
         bike1 = Bike(name="trotinette")
-        self.assertEqual(set(Bike.collection()), {bike1._pk})
+        self.assertSetEqual(set(Bike.collection()), {bike1._pk})
+        self.assertEqual(len(Bike.collection()), 1)
         bike2 = Bike(name="tommasini")
-        self.assertEqual(set(Bike.collection()), {bike1._pk, bike2._pk})
+        self.assertSetEqual(set(Bike.collection()), {bike1._pk, bike2._pk})
+        self.assertEqual(len(Bike.collection()), 2)
 
     def test_filter_from_kwargs(self):
+        self.assertSetEqual(set(Boat.collection()), {self.boat1._pk, self.boat2._pk, self.boat3._pk, self.boat4._pk})
         self.assertEqual(len(list(Boat.collection())), 4)
+        self.assertSetEqual(set(Boat.collection(power="sail")), {self.boat1._pk, self.boat2._pk, self.boat3._pk})
         self.assertEqual(len(list(Boat.collection(power="sail"))), 3)
+        self.assertSetEqual(set(Boat.collection(power="sail", launched=1966)), {self.boat3._pk})
         self.assertEqual(len(list(Boat.collection(power="sail", launched=1966))), 1)
 
     def test_should_raise_if_filter_is_not_indexable_field(self):
@@ -55,12 +62,15 @@ class CollectionTest(CollectionBaseTest):
         # Instances
         with self.assertNumCommands(0):
             Boat.instances()
+        # Collection instances
+        with self.assertNumCommands(0):
+            Boat.collection().instances()
         # Filtered
         with self.assertNumCommands(0):
             Boat.collection(power="sail")
         # Slice it, it will be evaluated
         with self.assertNumCommands(min_num=1):
-            Boat.collection()[:2]
+            self.assertSetEqual(set(Boat.collection()[:2]), {self.boat1._pk, self.boat2._pk})
 
     def test_collection_should_work_with_eq_suffix(self):
         without_suffix = set(Boat.collection(power="sail"))
@@ -191,12 +201,12 @@ class SliceTest(CollectionBaseTest):
     def test_slicing_is_reset_on_next_call(self):
         # test whole content
         collection = Boat.collection()
-        self.assertEqual(set(collection[1:]), {'2', '3', '4'})
-        self.assertEqual(set(collection), {'1', '2', '3', '4'})
+        self.assertSetEqual(set(collection[1:]), {'2', '3', '4'})
+        self.assertSetEqual(set(collection), {'1', '2', '3', '4'})
 
         # test __iter__
         collection = Boat.collection()
-        self.assertEqual(set(collection[1:]), {'2', '3', '4'})
+        self.assertSetEqual(set(collection[1:]), {'2', '3', '4'})
         all_pks = set([pk for pk in collection])
         self.assertEqual(all_pks, {'1', '2', '3', '4'})
 
@@ -245,24 +255,20 @@ class SortTest(CollectionBaseTest):
         assert sorted(collection) == test_list, 'Wrong dataset for this test'
 
         limit = 5
-        total, optimized = 0, 0
+        total = 0
         for index in range(-limit, limit+1):
             with self.subTest(index=index):
                 total += 1
                 try:
                     expected = test_list[index]
                 except IndexError:
-                    with self.assertRaises(IndexError):
+                    with self.assertRaises(StopIteration):
                         collection[index]
                 else:
                     self.assertEqual(
                         collection[index],
                         expected
                     )
-                if collection._optimized_slicing:
-                    optimized += 1
-
-        self.assertEqual(optimized, total, "All collection indexing should be optimized")
 
     def test_sort_by_stringfield(self):
         self.assertEqual(
@@ -435,7 +441,7 @@ class InstancesTest(CollectionBaseTest):
             radiohead._pk
         )
 
-    def test_skip_exist_test_should_not_test_pk_existence(self):
+    def test_lazy_should_not_test_pk_existence(self):
         # allow a scard (call to __len__) to be included in the commands
 
         with self.assertNumCommands(min_num=5, max_num=6):
@@ -443,7 +449,15 @@ class InstancesTest(CollectionBaseTest):
             list(Boat.collection().instances())
         with self.assertNumCommands(min_num=1, max_num=2):
             # 1 command for the collection, none to test PKs
-            list(Boat.collection().instances(skip_exist_test=True))
+            list(Boat.collection().instances(lazy=True))
+
+        # add a fake id in an index to test the lazyness
+        index_key = Boat.get_field('name')._indexes[0].get_storage_key('Pen Duick I')
+        self.connection.sadd(index_key, 9999)
+        # only existing entries without lazy
+        self.assertEqual(len(list(Boat.collection(name='Pen Duick I').instances())), 1)
+        # all entries with lazy
+        self.assertEqual(len(list(Boat.collection(name='Pen Duick I').instances(lazy=True))), 2)
 
     def test_instances_should_work_if_filtering_on_only_a_pk(self):
         boats = list(Boat.collection(pk=1).instances())
@@ -472,7 +486,7 @@ class LenTest(CollectionBaseTest):
         collection = Boat.collection(power="sail")
 
         # sorting will fail because alpha is not set to True
-        collection.sort(by='name')
+        collection = collection.sort(by='name')
 
         # len won't fail on sort, not called
         self.assertEqual(len(collection), 3)
@@ -484,7 +498,7 @@ class LenTest(CollectionBaseTest):
     def test_len_call_could_be_followed_by_a_iter(self):
         collection = Boat.collection(power="sail")
         self.assertEqual(len(collection), 3)
-        self.assertEqual(set(collection), {'1', '2', '3'})
+        self.assertSetEqual(set(collection), {'1', '2', '3'})
 
     def test_len_should_work_with_slices(self):
         collection = Boat.collection(power="sail")[1:3]

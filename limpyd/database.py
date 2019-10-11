@@ -46,6 +46,15 @@ class RedisDatabase(object):
             return cls.default_indexes
         return []
 
+    def ensure_redis_versions(self):
+        """
+        Ensure that redis-py and redis-server are at the correct versions. Raise if not.
+        """
+        if redis.VERSION < (3, ):
+            raise LimpydException('Limpyd needs redis-py >= 3 to operate')
+        if self.redis_version < (3, ):
+            raise LimpydException('Limpyd needs redis-server >= 3 to operate')
+
     def connect(self, **settings):
         """
         Connect to redis and cache the new connection
@@ -59,6 +68,7 @@ class RedisDatabase(object):
         if connection_key not in self._connections:
             self._connections[connection_key] = redis.StrictRedis(
                                             decode_responses=True, **settings)
+            self.ensure_redis_versions()
         return self._connections[connection_key]
 
     def reset(self, **connection_settings):
@@ -140,34 +150,6 @@ class RedisDatabase(object):
             )
         return self._redis_version
 
-    def support_scripting(self):
-        """
-        Returns True if scripting is available. Checks are done in the client
-        library (redis-py) AND the redis server. Result is cached, so done only
-        one time.
-        """
-        if not hasattr(self, '_support_scripting'):
-            try:
-                self._support_scripting = self.redis_version >= (2, 5) \
-                    and hasattr(self.connection, 'register_script')
-            except:
-                self._support_scripting = False
-        return self._support_scripting
-
-    def support_zrangebylex(self):
-        """
-        Returns True if zrangebylex is available. Checks are done in the client
-        library (redis-py) AND the redis server. Result is cached, so done only
-        one time.
-        """
-        if not hasattr(self, '_support_zrangebylex'):
-            try:
-                self._support_zrangebylex = self.redis_version >= (2, 8, 9) \
-                    and hasattr(self.connection, 'zrangebylex')
-            except:
-                self._support_zrangebylex = False
-        return self._support_zrangebylex
-
     def call_script(self, script_dict, keys=None, args=None):
         """Call a redis script with keys and args
 
@@ -221,24 +203,8 @@ class RedisDatabase(object):
             cursor, keys = self.connection.scan(cursor, match=match, count=count)
             for key in keys:
                 yield key
-            if not cursor or cursor == '0':  # string for redis.py < 2.10
+            if not cursor:
                 break
 
 
-class Lock(redis.client.Lock):
-    """
-    Override the default Lock class to manage the fact that we use ``decode_responses=True``
-    but it is not taken into account in python 3 with redis 2.10, as the lock token in
-    ``threading.local`` is saved as ``bytes`` but the value retrieved from redis is decoded.
-    So the equal check doesn't work.
-    So we decode the value in ``threading.local`` to make this check work.
-    See https://github.com/andymccurdy/redis-py/issues/694
-    """
-
-    def do_release(self, expected_token):
-
-        if isinstance(expected_token, bytes) and \
-                self.redis.connection_pool.connection_kwargs.get('decode_responses', False):
-            expected_token = expected_token.decode()
-
-        super(Lock, self).do_release(expected_token)
+Lock = redis.client.Lock

@@ -439,7 +439,7 @@ class BaseIndex(object):
         else:
             start = 0
             while True:
-                instances = self.model.collection().sort().instances(skip_exist_test=True)[start:start + chunk_size]
+                instances = self.model.collection().sort().instances(lazy=True)[start:start + chunk_size]
                 for instance in instances:
                     field = instance.get_instance_field(self.field.name)
                     value = field.proxy_get()
@@ -476,7 +476,7 @@ class BaseIndex(object):
 
         start = 0
         while True:
-            instances = self.model.collection().sort().instances(skip_exist_test=True)[start:start + chunk_size]
+            instances = self.model.collection().sort().instances(lazy=True)[start:start + chunk_size]
             for instance in instances:
                 field = instance.get_instance_field(self.field.name)
                 value = field.proxy_get()
@@ -909,23 +909,19 @@ class BaseRangeIndex(BaseIndex):
             # to avoid registering it many times
             script_dict=self.__class__.lua_filter_script,
             keys=[key, tmp_key],
-            args=[key_type, start, end, exclude] + list(args)
+            args=[key_type, start, end, exclude or ""] + list(args)  # None is refused by redis-py so we pass ""
         )
 
     def get_filtered_keys(self, suffix, *args, **kwargs):
         """Returns the index key for the given args "value" (`args`)
 
-        Parameters
-        ----------
-        kwargs: dict
-            use_lua: bool
-                Default to ``True``, if scripting is supported.
-                If ``True``, the process of reading from the sorted-set, extracting
-                the primary keys, excluding some values if needed, and putting the
-                primary keys in a set or zset, is done in lua at the redis level.
-                Else, data is fetched, manipulated here, then returned to redis.
+        For the parameters, see ``BaseIndex.get_filtered_keys``
 
-        For the other parameters, see ``BaseIndex.get_filtered_keys``
+        Notes
+        -----
+        The process of reading from the sorted-set, extracting the primary keys, excluding some
+        values if needed, and putting the primary keys in a set or zset, is done in lua at the
+        redis level.
 
         """
 
@@ -965,31 +961,20 @@ class BaseRangeIndex(BaseIndex):
 
             return [(tmp_key, key_type, True)]
 
-        use_lua = self.model.database.support_scripting() and kwargs.get('use_lua', True)
-
         key = self.get_storage_key(*args)
         value = self.normalize_value(args[-1], transform=False)
 
         real_suffix = self.remove_prefix(suffix)
 
-        if use_lua:
-            start, end, exclude = self.get_boundaries(real_suffix, value)
-            self.call_script(key, tmp_key, key_type, start, end, exclude)
-        else:
-            pks = self.get_pks_for_filter(key, real_suffix, value)
-            if pks:
-                if key_type == 'set':
-                    self.connection.sadd(tmp_key, *pks)
-                else:
-                    self.connection.zadd(tmp_key, **{pk: idx for idx, pk in enumerate(pks)})
+        start, end, exclude = self.get_boundaries(real_suffix, value)
+        self.call_script(key, tmp_key, key_type, start, end, exclude)
 
         return [(tmp_key, key_type, True)]
 
     def get_pks_for_filter(self, key, filter_type, value):
         """Extract the pks from the zset key for the given type and value
 
-        This is used for the uniqueness check and for the filtering if scripting
-        is not used
+        This is used for the uniqueness check
 
         Parameters
         ----------
@@ -1081,24 +1066,6 @@ class TextRangeIndex(BaseRangeIndex):
         """
     }
 
-    def __init__(self, field):
-        """Check that the database supports the zrangebylex redis command"""
-        super(TextRangeIndex, self).__init__(field)
-
-        try:
-            model = self.model
-        except AttributeError:
-            # index not yet tied to an field tied to a model
-            pass
-        else:
-            if not self.model.database.support_zrangebylex():
-                raise LimpydException(
-                    'Your redis version %s does not seems to support ZRANGEBYLEX '
-                    'so range indexes are not usable' % (
-                        '.'.join(str(part) for part in self.model.database.redis_version)
-                    )
-                )
-
     def prepare_value_for_storage(self, value, pk):
         """Prepare the value to be stored in the zset
 
@@ -1138,7 +1105,7 @@ class TextRangeIndex(BaseRangeIndex):
 
         """
 
-        self.connection.zadd(key, 0, value)
+        self.connection.zadd(key, {value: 0})
 
     def unstore(self, key, pk, value):
         """Remove the value/pk from the sorted set index
@@ -1319,7 +1286,7 @@ class NumberRangeIndex(BaseRangeIndex):
         We simple store the pk as a member of the sorted set with the value being the score
         """
 
-        self.connection.zadd(key, value, pk)
+        self.connection.zadd(key, {pk: value})
 
     def unstore(self, key, pk, value):
         """Remove the value/pk from the sorted set index

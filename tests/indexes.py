@@ -9,7 +9,7 @@ from limpyd.database import RedisDatabase
 from limpyd.exceptions import ImplementationError, UniquenessError
 from limpyd.indexes import EqualIndex, TextRangeIndex, NumberRangeIndex
 
-from .base import LimpydBaseTest, TEST_CONNECTION_SETTINGS, skip_if_no_zrangebylex
+from .base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
 from .model import Bike, Email, TestRedisModel, Boat
 
 
@@ -159,13 +159,13 @@ class PassIndexesToFieldTestCase(LimpydBaseTest):
         self.assertIs(name1._indexes[0].__class__, EqualIndex)
         self.assertIs(name1._indexes[1].__class__, ReverseEqualIndex)
 
-        self.assertEqual(set(TestPassIndexesModel3.collection(name='foo')), {pk1})
-        self.assertEqual(set(TestPassIndexesModel3.collection(name__eq='foo')), {pk1})
-        self.assertEqual(set(TestPassIndexesModel3.collection(name__eq='oof')), set(pk2))
-        self.assertEqual(set(TestPassIndexesModel3.collection(name__reverse_eq='oof')), {pk1})
-        self.assertEqual(set(TestPassIndexesModel3.collection(name__reverse_eq='foo')), {pk2})
-        self.assertEqual(set(TestPassIndexesModel3.collection(name='foo', name__reverse_eq='oof')), {pk1})
-        self.assertEqual(set(TestPassIndexesModel3.collection(name='foo', name__reverse_eq='foo')), set())
+        self.assertSetEqual(set(TestPassIndexesModel3.collection(name='foo')), {pk1})
+        self.assertSetEqual(set(TestPassIndexesModel3.collection(name__eq='foo')), {pk1})
+        self.assertSetEqual(set(TestPassIndexesModel3.collection(name__eq='oof')), set(pk2))
+        self.assertSetEqual(set(TestPassIndexesModel3.collection(name__reverse_eq='oof')), {pk1})
+        self.assertSetEqual(set(TestPassIndexesModel3.collection(name__reverse_eq='foo')), {pk2})
+        self.assertSetEqual(set(TestPassIndexesModel3.collection(name='foo', name__reverse_eq='oof')), {pk1})
+        self.assertSetEqual(set(TestPassIndexesModel3.collection(name='foo', name__reverse_eq='foo')), set())
 
 
 class ConfigureClassMethodTestCase(LimpydBaseTest):
@@ -196,14 +196,14 @@ class ConfigureClassMethodTestCase(LimpydBaseTest):
         obj2 = TestIndexConfigureModel(name='bar', lastname='barbar')
         pk2 = obj2.pk.get()
 
-        self.assertEqual(set(TestIndexConfigureModel.collection(name='foo')), {pk1})
-        self.assertEqual(set(TestIndexConfigureModel.collection(name__eq='foo')), {pk1})
-        self.assertEqual(set(TestIndexConfigureModel.collection(name='oof')), set())
-        self.assertEqual(set(TestIndexConfigureModel.collection(name__reverse='rab')), {pk2})
-        self.assertEqual(set(TestIndexConfigureModel.collection(name__reverse__eq='rab')), {pk2})
-        self.assertEqual(set(TestIndexConfigureModel.collection(name__reverse='bar')), set())
+        self.assertSetEqual(set(TestIndexConfigureModel.collection(name='foo')), {pk1})
+        self.assertSetEqual(set(TestIndexConfigureModel.collection(name__eq='foo')), {pk1})
+        self.assertSetEqual(set(TestIndexConfigureModel.collection(name='oof')), set())
+        self.assertSetEqual(set(TestIndexConfigureModel.collection(name__reverse='rab')), {pk2})
+        self.assertSetEqual(set(TestIndexConfigureModel.collection(name__reverse__eq='rab')), {pk2})
+        self.assertSetEqual(set(TestIndexConfigureModel.collection(name__reverse='bar')), set())
 
-        self.assertEqual(set(TestIndexConfigureModel.collection(lastname__strange='egnartsbarbar')), {pk2})
+        self.assertSetEqual(set(TestIndexConfigureModel.collection(lastname__strange='egnartsbarbar')), {pk2})
 
 
 class RangeIndexTestModel(TestRedisModel):
@@ -212,7 +212,6 @@ class RangeIndexTestModel(TestRedisModel):
     value = fields.StringField(indexable=True, indexes=[NumberRangeIndex])
 
 
-@unittest.skipIf(*skip_if_no_zrangebylex)
 class TextRangeIndexTestCase(LimpydBaseTest):
 
     def setUp(self):
@@ -449,7 +448,6 @@ class TextRangeIndexTestCase(LimpydBaseTest):
         })
 
 
-@unittest.skipIf(*skip_if_no_zrangebylex)
 class NumberRangeIndexTestCase(LimpydBaseTest):
 
     def setUp(self):
@@ -881,7 +879,6 @@ class CleanTestCase(LimpydBaseTest):
         with self.assertRaises(AssertionError):
             CleanModel1().get_field('field')._indexes[0].rebuild()
 
-    @unittest.skipIf(*skip_if_no_zrangebylex)
     def test_range_index(self):
 
         class CleanModel2(TestRedisModel):
@@ -1144,7 +1141,6 @@ class InSuffixTestCase(LimpydBaseTest):
             {pk4}
         )
 
-    @unittest.skipIf(*skip_if_no_zrangebylex)
     def test_range_index(self):
 
         pk1 = RangeIndexTestModel(name="Pen Duick I", value=1898).pk.get()

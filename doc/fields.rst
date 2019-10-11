@@ -106,6 +106,17 @@ If not specified, it's default to ``True``, except if the ``lockable`` attribute
 Field types
 ===========
 
+All field types, except if mentioned otherwise, have these commands related to expiring: [2]_
+
+- ``expire``
+- ``pexpire``
+- ``expireat``
+- ``pexpireat``
+- ``ttl``
+- ``pttl``
+- ``persist``
+
+
 .. _StringField:
 
 StringField
@@ -143,6 +154,7 @@ Getters
 """""""
 
 - ``bitcount``
+- ``bitpos``
 - ``get``
 - ``getbit``
 - ``getrange``
@@ -154,12 +166,16 @@ Modifiers
 
 - ``append``
 - ``decr``
+- ``decrby``
 - ``getset``
 - ``incr``
+- ``incrby``
 - ``incrbyfloat`` [1]_
-- ``set``
+- ``psetex`` [2]_
+- ``set`` (Flags ``ex`` and ``px`` are supported for non-indexable fields. Flags ``nx`` and ``xx`` are not supported)
 - ``setbit``
 - ``setnx``
+- ``setex`` [2]_
 - ``setrange``
 
 
@@ -197,6 +213,7 @@ Getters
 - ``hexists``
 - ``hlen``
 - ``hscan`` (returns a generator with all/matching key/value pairs, you don't have to manage the cursor)
+- ``hstrlen`` (only works if redis-server version >= 3.2)
 
 Modifiers
 """""""""
@@ -232,7 +249,7 @@ Example with simple commands:
     >>> example.foo.hget()
     'FOO'
 
-The InstanceHashField_ type support these `Redis hash commands`_:
+The InstanceHashField_ type does not support the expiring related commands. It support these `Redis hash commands`_:
 
 Getters
 """""""
@@ -476,7 +493,7 @@ Modifiers
 """""""""
 
 - ``sadd``
-- ``spop``
+- ``spop``  (with ``count`` argument supported if redis-server version >= 3.2)
 - ``srem``
 
 
@@ -521,9 +538,12 @@ The ListField_ type support these `Redis list commands <http://redis.io/commands
 Getters
 """""""
 
+- ``lcontains`` [3]_ (Checks if the list contains a value: accepts a value, returns a boolean)
+- ``lcount`` [3]_ (Count how many times a value is in the list: accepts a value, returns an integer)
 - ``lindex``
 - ``llen``
 - ``lrange``
+- ``lrank`` [3]_ (Get the position of a value in the list: accepts a value, returns None if not in the list, or an integer)
 - ``sort`` (with arguments like in redis-py_, see redis-py-sort_)
 
 Modifiers
@@ -564,7 +584,7 @@ You can use this model like this:
 .. code:: python
 
     >>> example = Example()
-    >>> example.stuff.zadd(foo=2.5, bar=1.1)
+    >>> example.stuff.zadd(foo=2.5, bar=1.1)  # or example.stuff.zadd({'foo': 2.5, 'bar': 1.1})
     2  # number of values added to the sorted set
     >>> example.stuff.zrange(0, -1)
     ['bar', 'foo']
@@ -584,10 +604,13 @@ Getters
 
 - ``zcard``
 - ``zcount``
+- ``zlexcount``
 - ``zrange``
+- ``zrangebylex``
 - ``zrangebyscore``
 - ``zrank``
 - ``zrevrange``
+- ``zrevrangebylex``
 - ``zrevrangebyscore``
 - ``zrevrank``
 - ``zscore``
@@ -597,12 +620,14 @@ Getters
 Modifiers
 """""""""
 
-- ``zadd``
+- ``zadd`` (Flag ``ch`` is supported. Flags ``nx``, ``xx`` and ``incr`` are not)
 - ``zincrby``
+- ``zpopmax`` (only works if redis-server version >= 5)
+- ``zpopmin`` (only works if redis-server version >= 5)
 - ``zrem``
+- ``zremrangebylex``
 - ``zremrangebyrank``
 - ``zremrangebyscore``
-
 
 .. _PKField:
 
@@ -656,6 +681,7 @@ Note that whatever name you use for the PKField_ (or AutoPKField_), you can alwa
     >>> example.id.get()
     1
 
+As a special field, and for obvious reasons, PKField_ does not support the expiring related commands.
 
 AutoPKField
 -----------
@@ -674,3 +700,7 @@ See PKField_ for more details.
 .. _`Redis hash commands`: http://redis.io/commands#hash
 
 .. [1] When working with floats, pass them as strings to avoid precision problems.
+
+.. [2] Commands that expire values cannot be called on indexable fields.
+
+.. [3] Commands not in redis nor in redis-py, but implemented in limpyd and executed on the redis server side via lua scripting

@@ -48,19 +48,54 @@ class IndexableSetFieldTest(BaseModelTest):
 
         obj = self.model()
 
-        values = ['foo', 'bar']
+        values = {'foo', 'bar'}
 
         obj.field.sadd(*values)
 
         with self.assertNumCommands(2 + self.COUNT_LOCK_COMMANDS):
             # check that we had only 2 commands: one for spop, one for deindexing the value
-            # + n for the lock (set at the biginning, check/unset at the end))
+            # + n for the lock (set at the beginning, check/unset at the end))
             poped_value = obj.field.spop()
 
-        values.remove(poped_value)
-        self.assertEqual(obj.field.proxy_get(), set(values))
-        self.assertCollection([obj._pk], field=values[0])
+        self.assertIn(poped_value, values)
+        values -= {poped_value}
+        self.assertSetEqual(obj.field.proxy_get(), values)
+        self.assertCollection([obj._pk], field=list(values)[0])
         self.assertCollection([], field=poped_value)
+
+    def test_spop_command_should_correctly_deindex_many_values(self):
+        # spop with count remove and return some random values from the set, we don't know which ones
+
+        obj = self.model()
+
+        values = {'foo', 'bar', 'baz', 'qux'}
+
+        obj.field.sadd(*values)
+
+        with self.assertNumCommands(3 + self.COUNT_LOCK_COMMANDS):
+            # check that we had only 3 commands: one for spop, two for deindexing the two values
+            # + n for the lock (set at the biginning, check/unset at the end))
+            poped_values = set(obj.field.spop(2))
+
+        self.assertEqual(len(poped_values), 2)
+        self.assertTrue(poped_values.issubset(values))
+        values -= poped_values
+        self.assertEqual(obj.field.proxy_get(), values)
+        # we should have the two left values indexed
+        for value in values:
+            self.assertCollection([obj._pk], field=value)
+        # but both poped ones should not
+        for value in poped_values:
+            self.assertCollection([], field=value)
+
+        # we can pop more that it exists, it should pop all
+        poped_values = set(obj.field.spop(20))
+        self.assertEqual(len(poped_values), 2)
+        self.assertSetEqual(poped_values, values)
+        self.assertEqual(obj.field.proxy_get(), set())
+        # removed values should not be indexed anymore
+        for value in values:
+            self.assertCollection([], field=value)
 
     def test_delete_set(self):
         obj = self.model()

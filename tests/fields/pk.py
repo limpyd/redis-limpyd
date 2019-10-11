@@ -91,19 +91,19 @@ class PKFieldTest(LimpydBaseTest):
         # default auto pk
         self.AutoPkModel(name="foo")
         self.AutoPkModel(name="foo")
-        self.assertEqual(set(self.AutoPkModel.collection(name="foo")), {'1', '2'})
-        self.assertEqual(set(self.AutoPkModel.collection(pk=1)), {'1'})
-        self.assertEqual(set(self.AutoPkModel.collection(name="foo", pk=1)), {'1'})
-        self.assertEqual(set(self.AutoPkModel.collection(name="foo", pk=3)), set())
-        self.assertEqual(set(self.AutoPkModel.collection(name="bar", pk=1)), set())
+        self.assertSetEqual(set(self.AutoPkModel.collection(name="foo")), {'1', '2'})
+        self.assertSetEqual(set(self.AutoPkModel.collection(pk=1)), {'1'})
+        self.assertSetEqual(set(self.AutoPkModel.collection(name="foo", pk=1)), {'1'})
+        self.assertSetEqual(set(self.AutoPkModel.collection(name="foo", pk=3)), set())
+        self.assertSetEqual(set(self.AutoPkModel.collection(name="bar", pk=1)), set())
         # specific pk
         self.NotAutoPkModel(name="foo", pk="100")
         self.NotAutoPkModel(name="foo", pk="200")
-        self.assertEqual(set(self.NotAutoPkModel.collection(name="foo")), {'100', '200'})
-        self.assertEqual(set(self.NotAutoPkModel.collection(pk=100)), {'100'})
-        self.assertEqual(set(self.NotAutoPkModel.collection(name="foo", pk=100)), {'100'})
-        self.assertEqual(set(self.NotAutoPkModel.collection(name="foo", pk=300)), set())
-        self.assertEqual(set(self.NotAutoPkModel.collection(name="bar", pk=100)), set())
+        self.assertSetEqual(set(self.NotAutoPkModel.collection(name="foo")), {'100', '200'})
+        self.assertSetEqual(set(self.NotAutoPkModel.collection(pk=100)), {'100'})
+        self.assertSetEqual(set(self.NotAutoPkModel.collection(name="foo", pk=100)), {'100'})
+        self.assertSetEqual(set(self.NotAutoPkModel.collection(name="foo", pk=300)), set())
+        self.assertSetEqual(set(self.NotAutoPkModel.collection(name="bar", pk=100)), set())
 
     def test_pk_cannot_be_updated(self):
         obj = self.AutoPkModel(name="foo")
@@ -134,8 +134,8 @@ class PKFieldTest(LimpydBaseTest):
         self.assertEqual(same_obj._pk, same_obj2._pk)
         self.assertEqual(same_obj.id.get(), same_obj2.id.get())
         # collection via pk or id
-        self.assertEqual(set(self.RedefinedNotAutoPkField.collection(pk=1)), {'1'})
-        self.assertEqual(set(self.RedefinedNotAutoPkField.collection(id=2)), {'2'})
+        self.assertSetEqual(set(self.RedefinedNotAutoPkField.collection(pk=1)), {'1'})
+        self.assertSetEqual(set(self.RedefinedNotAutoPkField.collection(id=2)), {'2'})
 
     def test_cannot_set_pk_with_two_names(self):
         with self.assertRaises(ValueError):

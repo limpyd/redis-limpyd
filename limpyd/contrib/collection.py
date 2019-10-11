@@ -6,7 +6,7 @@ from future.builtins import object
 
 from itertools import islice, chain
 from collections import namedtuple
-from copy import deepcopy
+from copy import copy, deepcopy
 
 from limpyd.model import RedisModel
 from limpyd.collection import CollectionManager, ParsedFilter
@@ -53,25 +53,30 @@ class ExtendedCollectionManager(CollectionManager):
 
         self._values = None  # Will store parameters used to retrieve values
 
+    def clone(self):
+        new = super(ExtendedCollectionManager, self).clone()
+        new._has_sortedsets = self._has_sortedsets
+        new._sort_by_sortedset = self._sort_by_sortedset.copy() if self._sort_by_sortedset is not None else None
+        new._store = self._store
+        new.stored_key = self.stored_key
+        new._stored_len = self._stored_len
+        new._values = {key: copy(value) for key, value in self._values.items()} if self._values is not None else None
+        return new
+
     def _list_to_set(self, list_key, set_key):
         """
         Store all content of the given ListField in a redis set.
-        Use scripting if available to avoid retrieving all values locally from
-        the list before sending them back to the set
+        Use lua scripting to avoid retrieving all values locally from the list before sending them
+        back to the set
         """
-        if self.cls.database.support_scripting():
-            self.cls.database.call_script(
-                # be sure to use the script dict at the class level
-                # to avoid registering it many times
-                script_dict=self.__class__.scripts['list_to_set'],
-                keys=[list_key, set_key]
-            )
-        else:
-            conn = self.cls.get_connection()
-            conn.sadd(set_key, *conn.lrange(list_key, 0, -1))
+        self.cls.database.call_script(
+            # be sure to use the script dict at the class level
+            # to avoid registering it many times
+            script_dict=self.__class__.scripts['list_to_set'],
+            keys=[list_key, set_key]
+        )
 
-    @property
-    def _collection(self):
+    def _get_collection(self, slice=None):
         """
         Effectively retrieve data according to lazy_collection.
         If we have a stored collection, without any result, return an empty list
@@ -85,14 +90,14 @@ class ExtendedCollectionManager(CollectionManager):
                     self._len = 0
                     self._len_mode = False
                 self._sort_limits = {}
-                return []
+                return iter(())
 
             # Manage sort desc added by original `__getitem__` when we sort by score
             if self._sort_by_sortedset and self._sort and self._sort.get('desc'):
                 self._sort = None
                 self._sort_by_sortedset['desc'] = not self._sort_by_sortedset.get('desc', False)
 
-            return super(ExtendedCollectionManager, self)._collection
+            return super(ExtendedCollectionManager, self)._get_collection(slice=slice)
         finally:
             self._sort_limits, self._len_mode = old_sort_limits_and_len_mode
             self._sort, self._sort_by_sortedset = old_sorts
@@ -199,9 +204,9 @@ class ExtendedCollectionManager(CollectionManager):
         """
         Add more filters to the collection
         """
-        return self._add_filters(**filters)
+        return self.clone()._add_filters(**filters)
 
-    def intersect(self, *sets):
+    def _apply_intersect(self, *sets):
         """
         Add a list of sets to the existing list of sets to check. Returns self
         for chaining.
@@ -236,6 +241,9 @@ class ExtendedCollectionManager(CollectionManager):
 
         self._lazy_collection['intersects'].update(sets_)
         return self
+
+    def intersect(self, *sets):
+        return self.clone()._apply_intersect(*sets)
 
     def _combine_sets(self, sets, final_set):
         """
@@ -296,7 +304,7 @@ class ExtendedCollectionManager(CollectionManager):
         # normal call
         return super(ExtendedCollectionManager, self)._collection_length(final_set)
 
-    def sort(self, **parameters):
+    def _apply_sort(self, **parameters):
         """
         Enhance the default sort method to accept a new parameter "by_score", to
         use instead of "by" if you want to sort by the score of a sorted set.
@@ -330,7 +338,7 @@ class ExtendedCollectionManager(CollectionManager):
             if by and isinstance(by, RedisField):
                 parameters['by'] = by.name
 
-        super(ExtendedCollectionManager, self).sort(**parameters)
+        super(ExtendedCollectionManager, self)._apply_sort(**parameters)
 
         if is_sortedset:
             self._sort_by_sortedset = self._sort
@@ -423,7 +431,7 @@ class ExtendedCollectionManager(CollectionManager):
 
         return base_tmp_key, tmp_keys
 
-    def _prepare_results(self, results):
+    def _prepare_results(self, results, slice=None):
         """
         Sort results by score if not done before (faster, if we have no values to
         retrieve, or slice)
@@ -449,12 +457,17 @@ class ExtendedCollectionManager(CollectionManager):
 
         if self._store:
             # if store, redis doesn't return result, so don't return anything here
-            return
+            _len_hint = 0
+            results = []
 
-        if self._values and self._values['mode'] != 'flat':
-            results = self._to_values(results)
+        else:
+            if slice is not None:
+                results = list(results)[slice]
+            _len_hint = len(results)
+            if self._values and self._values['mode'] != 'flat':
+                results = self._to_values(results)
 
-        return super(ExtendedCollectionManager, self)._prepare_results(results)
+        return super(ExtendedCollectionManager, self)._prepare_results(results, _len_hint)
 
     def _to_values(self, collection):
         """
@@ -676,76 +689,73 @@ class ExtendedCollectionManager(CollectionManager):
         DEFAULT_STORE_TTL, which is 60 secondes. You can pass None if you don't
         want expiration.
         """
-        old_sort_limits_and_len_mode = None if self._sort_limits is None else self._sort_limits.copy(), self._len_mode
+        clone = self.clone()
+        old_sort_limits_and_len_mode = None if clone._sort_limits is None else clone._sort_limits.copy(), clone._len_mode
         try:
-            self._store = True
+            clone._store = True
 
             # save sort and values options
             sort_options = None
-            if self._sort is not None:
-                sort_options = self._sort.copy()
+            if clone._sort is not None:
+                sort_options = clone._sort.copy()
             values = None
-            if self._values is not None:
-                values = self._values
-                self._values = None
+            if clone._values is not None:
+                values = clone._values
+                clone._values = None
 
             # create a key for storage
-            store_key = key or self._unique_key()
-            if self._sort is None:
-                self._sort = {}
-            self._sort['store'] = store_key
+            store_key = key or clone._unique_key()
+            if clone._sort is None:
+                clone._sort = {}
+            clone._sort['store'] = store_key
 
             # if filter by pk, but without need to get "values", no redis call is done
             # so force values to get a call to sort (to store result)
-            if self._lazy_collection['pks'] and not self._values:
-                self.values('pk')
+            if clone._lazy_collection['pks'] and not clone._values:
+               clone._apply_values('pk')
 
             # call the collection
-            self._len_mode = False
-            self._collection
-
-            # restore sort and values options
-            self._store = False
-            self._sort = sort_options
-            self._values = values
+            clone._len_mode = False
+            clone._get_collection()
 
             # create the new collection
-            stored_collection = self.__class__(self.cls)
-            stored_collection.from_stored(store_key)
+            stored_collection = clone.__class__(clone.cls).from_stored(store_key)
 
             # apply ttl if needed
             if ttl is not None:
-                self.cls.get_connection().expire(store_key, ttl)
+                clone.cls.get_connection().expire(store_key, ttl)
 
             # set choices about instances/values from the current to the new collection
-            for attr in ('_instances', '_instances_skip_exist_test', '_values'):
-                setattr(stored_collection, attr, deepcopy(getattr(self, attr)))
+            for attr in ('_instances', '_lazy_instances', '_values'):
+                setattr(stored_collection, attr, deepcopy(getattr(clone, attr)))
 
             # finally return the new collection
             return stored_collection
 
         finally:
-            self._sort_limits, self._len_mode = old_sort_limits_and_len_mode
+            clone._sort_limits, clone._len_mode = old_sort_limits_and_len_mode
 
     def from_stored(self, key):
         """
         Set the current collection as based on a stored one. The key argument
         is the key off the stored collection.
         """
+        clone = self.clone()
+
         # only one stored key allowed
-        if self.stored_key:
+        if clone.stored_key:
             raise ValueError('This collection is already based on a stored one')
 
         # prepare the collection
-        self.stored_key = key
-        self.intersect(_StoredCollection(self.cls.get_connection(), key))
-        self.sort(by='nosort')  # keep stored order
+        clone.stored_key = key
+        clone._apply_intersect(_StoredCollection(clone.cls.get_connection(), key))
+        clone._apply_sort(by='nosort')  # keep stored order
 
         # count the number of results to manage empty result (to not behave like
         # expired key)
-        self._stored_len = self.cls.get_connection().llen(key)
+        clone._stored_len = clone.cls.get_connection().llen(key)
 
-        return self
+        return clone
 
     def stored_key_exists(self):
         """
@@ -754,15 +764,15 @@ class ExtendedCollectionManager(CollectionManager):
         """
         return self.cls.get_connection().exists(self.stored_key)
 
-    def reset_result_type(self):
+    def _reset_result_type(self):
         """
         Reset the type of values attened for the collection (ie cancel a
         previous "instances" or "values" call)
         """
         self._values = None
-        return super(ExtendedCollectionManager, self).reset_result_type()
+        return super(ExtendedCollectionManager, self)._reset_result_type()
 
-    def values(self, *fields):
+    def _apply_values(self, *fields):
         """
         Ask the collection to return a list of dict of given fields for each
         instance found in the collection.
@@ -777,7 +787,10 @@ class ExtendedCollectionManager(CollectionManager):
         self._values = {'fields': fields, 'mode': 'dicts'}
         return self
 
-    def values_list(self, *fields, **kwargs):
+    def values(self, *fields):
+        return self.clone()._apply_values(*fields)
+
+    def _apply_values_list(self, *fields, **kwargs):
         """
         Ask the collection to return a list of tuples of given fields (in the
         given order) for each instance found in the collection.
@@ -802,21 +815,16 @@ class ExtendedCollectionManager(CollectionManager):
         self._values = {'fields': fields, 'mode': 'flat' if flat else 'tuples'}
         return self
 
+    def values_list(self, *fields, **kwargs):
+        return self.clone()._apply_values_list(*fields, **kwargs)
+
 
 class _StoredCollection(object):
     """
     Simple object to store the key of a stored collection, to be used in
     ExtendedCollectionManager based on a stored collection.
-    The stored key is a list, so it's managed as a ListField (but we only need
-    its key, and lmembers if no scripting)
+    The stored key is a list, so it's managed as a ListField (but we only need its key)
     """
     def __init__(self, connection, key):
         self.connection = connection
         self.key = key
-
-    def lmembers(self):
-        """
-        Return the list of all members of the list, used by _list_to_set if
-        no scripting
-        """
-        return self.connection.lrange(self.key, 0, -1)
