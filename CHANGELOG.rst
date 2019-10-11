@@ -1,6 +1,10 @@
 Changelog
 =========
 
+Release *v2.0.1* - ``2019-10-11``
+---------------------------------
+* Fix versions support in documentation
+
 Release *v2* - ``2019-10-11``
 -----------------------------
 * Support for redis-py >= 3 only

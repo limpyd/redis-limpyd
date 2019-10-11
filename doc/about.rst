@@ -14,13 +14,15 @@ The project is hosted on Github at https://github.com/limpyd/redis-limpyd
 Install
 =======
 
-Python versions ``2.7`` and ``3.5`` to ``3.8`` are supported (CPython and PyPy)
+Python versions ``2.7`` and ``3.5`` to ``3.8`` are supported (CPython and PyPy).
 
-Redis-py_ versions ``>= 2.9.1`` and ``< 2.11`` are supported.
+Redis-py_ versions ``>= 3`` are supported, with redis-server versions ``>= 3``.
 
 .. code:: bash
 
     pip install redis-limpyd
+
+For Redis-py_ versions < 3, please use limpyd version ``1.3.1`` (or later in ``1.x`` versions)
 
 
 Participation
