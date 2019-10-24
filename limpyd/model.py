@@ -108,6 +108,9 @@ class MetaRedisModel(MetaRedisProxy):
             # save InstanceHashFields in a special list
             if isinstance(field, InstanceHashField):
                 _instancehash_fields.append(field.name)
+            # use default indexes if indexable with no index defined
+            if field.indexable and not field.index_classes:
+                field.index_classes = field.get_default_indexes()[::1]
 
         # keep the pk as first field
         _fields.remove(pk_field.name)

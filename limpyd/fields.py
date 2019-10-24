@@ -200,7 +200,7 @@ class RedisField(RedisProxyCommand):
                 raise ImplementationError('Cannot set "default" and "unique" together!')
             self.indexable = True
 
-        self.index_classes = kwargs.get('indexes', [])
+        self.index_classes = kwargs.get('indexes') or []
         if self.index_classes:
             if not self.indexable:
                 raise ImplementationError('Cannot pass indexes if not indexable')
@@ -380,8 +380,6 @@ class RedisField(RedisProxyCommand):
         """
         if not self.indexable:
             return []
-        if not self.index_classes:
-            self.index_classes = self.get_default_indexes()[::1]
         if not self.index_classes:
             raise ImplementationError('%s field is indexable but has no indexes attached' %
                                       self.__class__.__name__)
