@@ -122,6 +122,12 @@ class MetaRedisModel(MetaRedisProxy):
         if pk_field.name != 'pk':
             it._redis_attr_pk = getattr(it, "_redis_attr_%s" % pk_field.name)
 
+        # Tell index classes that fields are now ready
+        for field_name in it._fields:
+            field = it.get_field(field_name)
+            for index_class in field.index_classes:
+                index_class._field_model_ready(it, field)
+
         return it
 
 
@@ -618,3 +624,19 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
         )
 
         return cls.database.scan_keys(pattern, count)
+
+    def __hash_key(self):
+        """Elements used in __hash__ and __eq__ of an instance"""
+        return self.__class__, self.pk.get()
+
+    def __hash__(self):
+        return hash(self.__hash_key())
+
+    def __eq__(self, other):
+        try:
+            return self.__hash_key() == other.__hash_key()
+        except AttributeError:
+            return NotImplemented
+
+    def __repr__(self):
+        return u'%s (pk=%s)>' % (super(RedisModel, self).__repr__()[:-2], self.pk.get())
