@@ -1,11 +1,13 @@
-]*******
-Contrib
-*******
+********
+Advanced
+********
 
-To keep the core of ``limpyd``, say, "limpid", we limited what it contains. But we added some extra stuff in the ``contrib`` module:
+To keep the core of ``limpyd``, say, "limpid", we limited what it contains. But we added some extra stuff in the ``limpyd.contrib`` module:
 
 - `Related fields`_
 - Pipelines_
+- `Extended collection`_
+- `Multi-indexes`_
 
 
 Related fields
