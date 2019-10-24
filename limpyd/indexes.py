@@ -510,7 +510,7 @@ class BaseIndex(object):
         Examples
         --------
 
-        >>> MyModel.get_field('myfield')._indexes[0].clear()
+        >>> MyModel.get_field('myfield').get_index().clear()
 
         """
         assert self.attached_to_model, \
@@ -553,7 +553,7 @@ class BaseIndex(object):
         Examples
         --------
 
-        >>> MyModel.get_field('myfield')._indexes[0].rebuild()
+        >>> MyModel.get_field('myfield').get_index().rebuild()
 
         """
         assert self.attached_to_model, \

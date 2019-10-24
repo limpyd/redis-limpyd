@@ -186,7 +186,7 @@ class MultiIndexesTestCase(LimpydBaseTest):
         pk1 = MultiIndexTestModel2(name="foo").pk.get()
         pk2 = MultiIndexTestModel2(name="bar").pk.get()
 
-        index = MultiIndexTestModel2.get_field('name')._indexes[0]
+        index = MultiIndexTestModel2.get_field('name').get_index()
 
         # check the keys, we should have the ones from both included index
         keys = index.get_all_storage_keys()

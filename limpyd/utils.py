@@ -53,3 +53,6 @@ class cached_property(object):
             return self
         res = instance.__dict__[self.name] = self.func(instance)
         return res
+
+
+class NotProvided: pass

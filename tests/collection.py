@@ -452,7 +452,7 @@ class InstancesTest(CollectionBaseTest):
             list(Boat.collection().instances(lazy=True))
 
         # add a fake id in an index to test the lazyness
-        index_key = Boat.get_field('name')._indexes[0].get_storage_key('Pen Duick I')
+        index_key = Boat.get_field('name').get_index().get_storage_key('Pen Duick I')
         self.connection.sadd(index_key, 9999)
         # only existing entries without lazy
         self.assertEqual(len(list(Boat.collection(name='Pen Duick I').instances())), 1)

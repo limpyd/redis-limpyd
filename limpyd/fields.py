@@ -12,7 +12,7 @@ from copy import copy
 from redis.exceptions import RedisError
 
 from limpyd.database import Lock
-from limpyd.utils import cached_property, make_key, normalize
+from limpyd.utils import cached_property, make_key, normalize, NotProvided
 from limpyd.exceptions import *
 
 log = getLogger(__name__)
@@ -386,26 +386,42 @@ class RedisField(RedisProxyCommand):
 
         return [index_class(field=self) for index_class in self.index_classes]
 
-    def has_index(self, index):
-        """Tells if the field have an index matching the current one
+    def get_index(self, index_class=NotProvided, key=NotProvided, prefix=NotProvided):
+        """Get an index matching the given filters.
 
         Parameters
-        -----------
-        index: type or BaseIndex
-            It could be an index instance, or an index class
+        ----------
+        index_class : Optional[Type[BaseIndex]]
+            The index class to filter on
+        key : Optional[str]
+            The key of the index to filter on.
+        prefix : Optional[str]
+            The prefix of the index to filter on
+
+        Raises
+        ------
+        ValueError
+            - If no indexes match the filters
+            - If more than one index match the filters
 
         Returns
         -------
-        bool
-            Will be ``True`` if the current field has an index that is an instance
-            of the given index or of the class of the given index
+        BaseIndex
+            The only index matching all the filter
 
         """
-        klass = index if isclass(index) else index.__class__
-        for one_index in self._indexes:
-            if isinstance(one_index, klass):
-                return True
-        return False
+        indexes = self._indexes
+        if indexes and index_class is not NotProvided:
+            indexes = [index for index in indexes if isinstance(index, index_class)]
+        if indexes and key is not NotProvided:
+            indexes = [index for index in indexes if index.key == key]
+        if indexes and prefix is not NotProvided:
+            indexes = [index for index in indexes if index.prefix == prefix]
+        if len(indexes) > 1:
+            raise ValueError('More than one index matching filters')
+        if not indexes:
+            raise ValueError('No indexes matching filters')
+        return indexes[0]
 
     def _attach_to_model(self, model):
         """
@@ -479,9 +495,12 @@ class RedisField(RedisProxyCommand):
         Handle field index process.
         """
         assert self.indexable, "Field not indexable"
-        assert not only_index or self.has_index(only_index), "Invalid index"
         if only_index:
-            only_index = only_index if isclass(only_index) else only_index.__class__
+            indexes = [self.get_index(
+                index_class=only_index.__class__, key=only_index.key, prefix=only_index.prefix
+            )]
+        else:
+            indexes = self._indexes
 
         values = self._prepare_index_data(values)
 
@@ -490,10 +509,7 @@ class RedisField(RedisProxyCommand):
             if value is not None:
                 needs_to_check_uniqueness = bool(self.unique)
 
-                for index in self._indexes:
-                    if only_index and not isinstance(index, only_index):
-                        continue
-
+                for index in indexes:
                     index.add(
                         *parts,
                         check_uniqueness=needs_to_check_uniqueness and index.handle_uniqueness
@@ -508,21 +524,22 @@ class RedisField(RedisProxyCommand):
         Run process of deindexing field value(s).
         """
         assert self.indexable, "Field not indexable"
-        assert not only_index or self.has_index(only_index), "Invalid index"
         if only_index:
-            only_index = only_index if isclass(only_index) else only_index.__class__
+            indexes = [self.get_index(
+                index_class=only_index.__class__, key=only_index.key, prefix=only_index.prefix
+            )]
+        else:
+            indexes = self._indexes
 
         values = self._prepare_index_data(values)
 
         for parts in values:
             value = parts[-1]
             if value is not None:
-                for index in self._indexes:
-                    if only_index and not isinstance(index, only_index):
-                        continue
+                for index in indexes:
                     index.remove(*parts)
 
-    def clear_indexes(self, chunk_size=1000, aggressive=False, index_class=None):
+    def clear_indexes(self, chunk_size=1000, aggressive=False):
         """Clear all indexes tied to this field
 
         Parameters
@@ -536,8 +553,6 @@ class RedisField(RedisProxyCommand):
             pattern of the keys used by the indexes. This is a lot faster and may find forgotten keys.
             But may also find keys not related to the index.
             Should be set to ``True`` if you are not sure about the already indexed values.
-        index_class: type
-            Allow to clear only index(es) for this index class instead of all indexes.
 
         Raises
         ------
@@ -549,7 +564,6 @@ class RedisField(RedisProxyCommand):
         --------
 
         >>> MyModel.get_field('myfield').clear_indexes()
-        >>> MyModel.get_field('myfield').clear_indexes(index_class=MyIndex)
 
         """
         assert self.indexable, "Field not indexable"
@@ -557,11 +571,9 @@ class RedisField(RedisProxyCommand):
             '`rebuild_indexes` can only be called on a field attached to the model'
 
         for index in self._indexes:
-            if index_class and not isinstance(index, index_class):
-                continue
             index.clear(chunk_size=chunk_size, aggressive=aggressive)
 
-    def rebuild_indexes(self, chunk_size=1000, aggressive_clear=False, index_class=None):
+    def rebuild_indexes(self, chunk_size=1000, aggressive_clear=False):
         """Rebuild all indexes tied to this field
 
         Parameters
@@ -572,8 +584,6 @@ class RedisField(RedisProxyCommand):
             Will be passed to the `aggressive` argument of the `clear_indexes` method.
             If `False`, all values will be normally deindexed. If `True`, the work
             will be done at low level, scanning for keys that may match the ones used by the indexes
-        index_class: type
-            Allow to build only index(es) for this index class instead of all indexes.
 
         Raises
         ------
@@ -585,7 +595,6 @@ class RedisField(RedisProxyCommand):
         --------
 
         >>> MyModel.get_field('myfield').rebuild_indexes()
-        >>> MyModel.get_field('myfield').clear_indexes(index_class=MyIndex)
 
 
         """
@@ -594,8 +603,6 @@ class RedisField(RedisProxyCommand):
             '`rebuild_indexes` can only be called on a field attached to the model'
 
         for index in self._indexes:
-            if index_class and not isinstance(index, index_class):
-                continue
             index.rebuild(chunk_size=chunk_size, aggressive_clear=aggressive_clear)
 
     def get_unique_index(self):
