@@ -184,7 +184,7 @@ class MultiIndexes(BaseIndex):
             if check_uniqueness and index.handle_uniqueness:
                 check_uniqueness = False
 
-    def remove(self, *args):
+    def remove(self, *args, **kwargs):
         """Remove the instance tied to the field from all the indexes
 
         For the parameters, seen BaseIndex.remove
@@ -194,7 +194,7 @@ class MultiIndexes(BaseIndex):
         args = self.prepare_args(args)
 
         for index in self._indexes:
-            index.remove(*args)
+            index.remove(*args, **kwargs)
 
     def get_filtered_keys(self, suffix, *args, **kwargs):
         """Returns the index keys to be used by the collection for the given args
