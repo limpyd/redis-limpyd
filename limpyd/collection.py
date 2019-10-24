@@ -324,17 +324,12 @@ class CollectionManager(object):
 
     def _to_instances(self, pks):
         """
-        Returns a list of instances for each given pk, respecting the condition
+        Returns a generator of instances, one for each given pk, respecting the condition
         about checking or not if a pk exists.
         """
         # we want instances, so create an object for each pk, without
         # checking for pk existence if asked
-        meth = self.cls.lazy_connect if self._lazy_instances else self.cls
-        for pk in pks:
-            try:
-                yield meth(pk)
-            except DoesNotExist:
-                continue
+        return self.cls.from_pks(pks, lazy=self._lazy_instances)
 
     def _prepare_results(self, results, _len_hint=None, slice=None):
         """

@@ -344,6 +344,16 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
         return cls.collection(**filters).instances(lazy=lazy)
 
     @classmethod
+    def from_pks(cls, pks, lazy=False):
+        """Returns a generator with one instance for each pk that exist"""
+        meth = cls.lazy_connect if lazy else cls
+        for pk in pks:
+            try:
+                yield meth(pk)
+            except DoesNotExist:
+                continue
+
+    @classmethod
     def _field_is_pk(cls, name):
         """
         Check if the given field is the one from the primary key.
