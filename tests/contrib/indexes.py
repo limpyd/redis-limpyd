@@ -5,9 +5,12 @@ from __future__ import unicode_literals
 import unittest
 
 from limpyd import fields
-from limpyd.contrib.indexes import MultiIndexes, DateIndex, DateTimeIndex, SimpleDateTimeIndex, TimeIndex
+from limpyd.contrib.collection import ExtendedCollectionManager
+from limpyd.contrib.indexes import MultiIndexes, DateIndex, DateTimeIndex, SimpleDateTimeIndex, TimeIndex, ScoredEqualIndex, _ScoredEqualIndex_RelatedIndex
+from limpyd.contrib.related import RelatedModel, FKInstanceHashField
 from limpyd.exceptions import ImplementationError, UniquenessError
 from limpyd.indexes import BaseIndex, NumberRangeIndex, TextRangeIndex, EqualIndex
+from limpyd.utils import unique_key
 
 from ..base import LimpydBaseTest
 from ..indexes import ReverseEqualIndex
@@ -498,3 +501,231 @@ class DateTimeIndexesTestCase(LimpydBaseTest):
         # but cannot add the same full datetime
         with self.assertRaises(UniquenessError):
             DateTimeModelTest(unique_simple_datetime='2007-07-07 07:07:07')
+
+
+class ScoredEqualIndexModel(TestRedisModel):
+    collection_manager = ExtendedCollectionManager
+    priority = fields.InstanceHashField()
+    queue_name = fields.InstanceHashField(
+        indexable=True,
+        indexes=[ScoredEqualIndex.configure(score_field='priority')]
+    )
+
+
+class ScoredEqualIndexTestCase(LimpydBaseTest):
+
+    def test_non_existing_field(self):
+        with self.assertRaises(ImplementationError):
+            class ScoredEqualIndexModelWithNonExistingScoreField(TestRedisModel):
+                collection_manager = ExtendedCollectionManager
+                queue_name = fields.InstanceHashField(
+                    indexable=True,
+                    indexes=[ScoredEqualIndex.configure(score_field='priority')]
+                )
+
+    def test_self_referencing_field(self):
+        with self.assertRaises(ImplementationError):
+            class ScoredEqualIndexModelWithSelfReferencingField(TestRedisModel):
+                collection_manager = ExtendedCollectionManager
+                queue_name = fields.InstanceHashField(
+                    indexable=True,
+                    indexes=[ScoredEqualIndex.configure(score_field='queue_name')]
+                )
+
+    def test_multi_values_field(self):
+        with self.assertRaises(ImplementationError):
+            class ScoredEqualIndexModelWithMultiValuesScoreField(TestRedisModel):
+                collection_manager = ExtendedCollectionManager
+                data = fields.ListField()
+                queue_name = fields.InstanceHashField(
+                    indexable=True,
+                    indexes=[ScoredEqualIndex.configure(score_field='data')]
+                )
+
+    def test_invalid_collection_manager(self):
+        with self.assertRaises(ImplementationError):
+            class ScoredEqualIndexModelWithInvalidCollectionManager(TestRedisModel):
+                priority = fields.InstanceHashField()
+                queue_name = fields.InstanceHashField(
+                    indexable=True,
+                    indexes=[ScoredEqualIndex.configure(score_field='priority')]
+                )
+
+    def test_index_is_well_created_on_score_field_if_no_index(self):
+        score_field = ScoredEqualIndexModel.get_field('priority')
+        self.assertTrue(score_field.indexable)
+        self.assertEqual(len(score_field.index_classes), 1)
+        self.assertTrue(issubclass(score_field.index_classes[0], _ScoredEqualIndex_RelatedIndex))
+
+    def test_index_is_well_created_on_score_field_if_existing_index(self):
+        class ScoredEqualIndexModelWithIndexedScoreField(TestRedisModel):
+            collection_manager = ExtendedCollectionManager
+            priority = fields.InstanceHashField(indexable=True)
+            queue_name = fields.InstanceHashField(
+                indexable=True,
+                indexes=[ScoredEqualIndex.configure(score_field='priority')]
+            )
+        score_field = ScoredEqualIndexModelWithIndexedScoreField.get_field('priority')
+        self.assertTrue(score_field.indexable)
+        self.assertEqual(len(score_field.index_classes), 2)
+        self.assertTrue(issubclass(score_field.index_classes[0], EqualIndex))
+        self.assertTrue(issubclass(score_field.index_classes[1], _ScoredEqualIndex_RelatedIndex))
+
+    def test_indexing(self):
+
+        zrange = lambda value: self.connection.zrange(ScoredEqualIndexModel.get_field('queue_name').get_index().get_storage_key(value), 0, -1, withscores=True)
+        get_all_keys = lambda: ScoredEqualIndexModel.get_field('queue_name').get_index().get_all_storage_keys()
+
+        # with only base field: indexed
+        obj1 = ScoredEqualIndexModel(queue_name='foo')
+        self.assertEqual(len(ScoredEqualIndexModel.collection(queue_name='foo')), 0)
+        self.assertListEqual(zrange('foo'), [])
+        # with score field: indexed
+        obj1.priority.hset(1)
+        self.assertEqual(len(ScoredEqualIndexModel.collection(queue_name='foo')), 1)
+        self.assertListEqual(zrange('foo'), [(obj1.pk.get(), 1.0)])
+        # we can change the score
+        obj1.priority.hset(2)
+        self.assertEqual(len(ScoredEqualIndexModel.collection(queue_name='foo')), 1)
+        self.assertEqual(len(ScoredEqualIndexModel.collection(queue_name__in=['foo', 'bar'])), 1)
+        self.assertListEqual(zrange('foo'), [(obj1.pk.get(), 2.0)])
+        # removing it will remove from the index
+        obj1.priority.hdel()
+        self.assertEqual(len(ScoredEqualIndexModel.collection(queue_name='foo')), 0)
+        self.assertEqual(len(ScoredEqualIndexModel.collection(queue_name__in=['foo', 'bar'])), 0)
+        self.assertListEqual(zrange('foo'), [])
+        # keeping the score...
+        obj1.priority.hset(1)
+        # ... but removing the value will remove from the index
+        obj1.queue_name.delete()
+        self.assertEqual(len(ScoredEqualIndexModel.collection(queue_name='foo')), 0)
+        self.assertEqual(len(ScoredEqualIndexModel.collection(queue_name__in=['foo', 'bar'])), 0)
+        self.assertListEqual(zrange('foo'), [])
+        # add another one with same name
+        obj1.queue_name.hset('foo')
+        obj2 = ScoredEqualIndexModel(priority=-2, queue_name='foo')
+        self.assertEqual(len(ScoredEqualIndexModel.collection(queue_name='foo')), 2)
+        self.assertEqual(len(ScoredEqualIndexModel.collection(queue_name__in=['foo', 'bar'])), 2)
+        self.assertListEqual(zrange('foo'), [(obj2.pk.get(), -2.0), (obj1.pk.get(), 1.0)])
+        # collection result is sorted by score field
+        self.assertEqual(list(ScoredEqualIndexModel.collection(queue_name='foo')), [obj2.pk.get(), obj1.pk.get()])
+        # add another with another name
+        obj3 = ScoredEqualIndexModel(priority=-1, queue_name='bar')
+        self.assertEqual(len(ScoredEqualIndexModel.collection(queue_name='foo')), 2)
+        self.assertListEqual(zrange('foo'), [(obj2.pk.get(), -2.0), (obj1.pk.get(), 1.0)])
+        self.assertEqual(len(ScoredEqualIndexModel.collection(queue_name='bar')), 1)
+        self.assertListEqual(zrange('bar'), [(obj3.pk.get(), -1.0)])
+        self.assertEqual(len(ScoredEqualIndexModel.collection(queue_name__in=['foo', 'bar'])), 3)
+
+        # we can get all keys
+        all_keys = get_all_keys()
+        self.assertSetEqual(all_keys, {
+            'tests:scoredequalindexmodel:queue_name:equal-scored:foo',
+            'tests:scoredequalindexmodel:queue_name:equal-scored:bar',
+        })
+        # and all content via zunionstore, sorted by score field
+        tmp_key = unique_key(self.connection)
+        self.connection.zunionstore(tmp_key, keys=all_keys)
+        self.assertListEqual(self.connection.zrange(tmp_key, 0, -1, withscores=True), [
+            (obj2.pk.get(), -2.0),
+            (obj3.pk.get(), -1.0),
+            (obj1.pk.get(), 1.0),
+        ])
+        self.connection.delete(tmp_key)
+
+    def test_indexing_listfield(self):
+        class ScoredEqualIndexModel2(TestRedisModel):
+            collection_manager = ExtendedCollectionManager
+            score = fields.InstanceHashField()
+            main_field = fields.ListField(
+                indexable=True,
+                indexes=[ScoredEqualIndex.configure(score_field='score')]
+            )
+
+        obj1 = ScoredEqualIndexModel2(score=1, main_field=['foo', 'bar'])
+        self.assertEqual(len(ScoredEqualIndexModel2.collection(main_field='foo')), 1)
+        self.assertEqual(len(ScoredEqualIndexModel2.collection(main_field='bar')), 1)
+        obj1.score.delete()
+        self.assertEqual(len(ScoredEqualIndexModel2.collection(main_field='foo')), 0)
+        self.assertEqual(len(ScoredEqualIndexModel2.collection(main_field='bar')), 0)
+        obj1.score.hset(2)
+        self.assertEqual(len(ScoredEqualIndexModel2.collection(main_field='foo')), 1)
+        self.assertEqual(len(ScoredEqualIndexModel2.collection(main_field='bar')), 1)
+
+        obj2 = ScoredEqualIndexModel2(score=1, main_field=['bar', 'baz'])
+        self.assertEqual(len(ScoredEqualIndexModel2.collection(main_field='foo')), 1)
+        self.assertEqual(len(ScoredEqualIndexModel2.collection(main_field='bar')), 2)
+        self.assertEqual(len(ScoredEqualIndexModel2.collection(main_field='baz')), 1)
+
+        # ordered by score: obj2 (1) then obj1 (2)
+        self.assertEqual(list(ScoredEqualIndexModel2.collection(main_field='bar')), [obj2.pk.get(), obj1.pk.get()])
+        obj2.score.hset(3)
+        self.assertEqual(list(ScoredEqualIndexModel2.collection(main_field='bar')), [obj1.pk.get(), obj2.pk.get()])
+
+    def test_indexing_hashfield(self):
+        class ScoredEqualIndexModel3(TestRedisModel):
+            collection_manager = ExtendedCollectionManager
+            score = fields.InstanceHashField()
+            main_field = fields.HashField(
+                indexable=True,
+                indexes=[ScoredEqualIndex.configure(score_field='score')]
+            )
+
+        obj1 = ScoredEqualIndexModel3(score=1, main_field={'foo': 'XFOO', 'bar': 'XBAR'})
+        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__foo='XFOO')), 1)
+        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__bar='XFOO')), 0)
+        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__bar='XBAR')), 1)
+        obj1.score.delete()
+        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__foo='XFOO')), 0)
+        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__bar='XBAR')), 0)
+        obj1.score.hset(2)
+        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__foo='XFOO')), 1)
+        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__bar='XBAR')), 1)
+
+        obj2 = ScoredEqualIndexModel3(score=1, main_field={'foo': 'XFOO2', 'bar': 'XBAR', 'baz': 'XBAZ'})
+        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__foo='XFOO')), 1)
+        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__foo='XFOO2')), 1)
+        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__bar='XBAR')), 2)
+        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__baz='XBAZ')), 1)
+        self.assertEqual(list(ScoredEqualIndexModel3.collection(main_field__bar='XBAR')), [obj2.pk.get(), obj1.pk.get()])
+
+    def test_with_related_model(self):
+        class Queue(RelatedModel):
+            database = LimpydBaseTest.database
+            namespace = 'tests-scored'
+
+            name = fields.InstanceHashField(unique=True)
+
+        class Job(RelatedModel):
+            database = LimpydBaseTest.database
+            namespace = 'tests-scored'
+
+            priority = fields.InstanceHashField()
+            queue = FKInstanceHashField(
+                Queue,
+                related_name='jobs',
+                indexes=[ScoredEqualIndex.configure(score_field='priority')]
+            )
+
+        queue = Queue(name='queue1')
+        job1 = Job(queue=queue, priority=2)
+        job2 = Job(queue=queue, priority=1)
+        self.assertEqual(job1.queue.instance(), queue)
+        self.assertEqual(job2.queue.instance(), queue)
+        # reverse collection get results ordered by score field
+        self.assertEqual(list(queue.jobs().instances()), [job2, job1])
+        job1.priority.hset(-1)
+        self.assertEqual(list(queue.jobs().instances()), [job1, job2])
+
+        # if we remove the priority, we can still access the queue from the job, but not the
+        # reverse because the job is not indexed anymore
+        job2.priority.delete()
+        self.assertEqual(job1.queue.instance(), queue)
+        self.assertEqual(job2.queue.instance(), queue)
+        self.assertEqual(list(queue.jobs().instances()), [job1])
+
+        # we can call `get_storage_key` with the instance
+        self.assertEqual(
+            Job.get_field('queue').get_index().get_storage_key(queue),
+            'tests-scored:job:queue:equal-scored:1'
+        )

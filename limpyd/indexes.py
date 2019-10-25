@@ -575,6 +575,20 @@ class BaseIndex(object):
 
             start += chunk_size
 
+    @classmethod
+    def _field_model_ready(cls, model, field):
+        """Called when a model is ready, for each field..
+
+        May be used by a subclass to handle indexes related but not directly tied to this field
+
+        Parameters
+        ----------
+        field : RedisField
+            The field for which the indexes are ready
+
+        """
+        pass
+
 
 class EqualIndex(BaseIndex):
     """Default simple equal index."""
@@ -594,7 +608,7 @@ class EqualIndex(BaseIndex):
             The keys to union
 
         """
-        self.connection.sunionstore(dest_key, *source_keys)
+        self.connection.sunionstore(dest_key, source_keys)
 
     def get_filtered_keys(self, suffix, *args, **kwargs):
         """Return the set used by the index for the given "value" (`args`)
