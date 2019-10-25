@@ -24,19 +24,10 @@ class ReverseEqualIndex(EqualIndex):
 
 class ShortcutTestCase(LimpydBaseTest):
 
-    def test_shortcuts_for_instance_index(self):
-        bike = Bike(name='rosalie')
-        instance_index = EqualIndex(bike.get_field('name'))
-        self.assertIs(instance_index.connection, bike.database.connection)
-        self.assertIs(instance_index.model, Bike)
-        self.assertIs(instance_index.instance, bike)
-
     def test_shortcuts_for_model_index(self):
         instance_index = EqualIndex(Bike.get_field('name'))
         self.assertIs(instance_index.connection, Bike.database.connection)
         self.assertIs(instance_index.model, Bike)
-        with self.assertRaises(AttributeError):
-            instance_index.instance
 
 
 class EqualIndexKeyTestCase(unittest.TestCase):
@@ -872,12 +863,6 @@ class CleanTestCase(LimpydBaseTest):
 
         # and other index still present
         self.assertSetEqual(set(CleanModel1.collection(two_indexes_field__one='aaaaaaX')), {pk1})
-
-        # both methods cannot be called from instance index
-        with self.assertRaises(AssertionError):
-            CleanModel1().get_field('field').get_index().clear()
-        with self.assertRaises(AssertionError):
-            CleanModel1().get_field('field').get_index().rebuild()
 
     def test_range_index(self):
 

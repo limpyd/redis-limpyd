@@ -378,6 +378,10 @@ class RedisField(RedisProxyCommand):
             If no index classes available for this field
 
         """
+
+        if self.attached_to_instance:
+            return self._model.get_field(self.name)._indexes
+
         if not self.indexable:
             return []
         if not self.index_classes:
@@ -452,6 +456,14 @@ class RedisField(RedisProxyCommand):
             except AttributeError:
                 return True
 
+    @property
+    def attached_to_instance(self):
+        """Tells if the current field is the one attached to the instance"""
+        try:
+            return bool(self._instance)
+        except AttributeError:
+            return False
+
     def _call_command(self, name, *args, **kwargs):
         """
         Add lock management and call parent.
@@ -462,7 +474,8 @@ class RedisField(RedisProxyCommand):
                 try:
                     result = meth(name, *args, **kwargs)
                 except:
-                    self._rollback_indexes()
+                    if self._instance.connected:
+                        self._rollback_indexes()
                     raise
                 else:
                     return result
@@ -476,8 +489,9 @@ class RedisField(RedisProxyCommand):
         Restore the index in its previous status, using deindexed/indexed values
         temporarily stored.
         """
+        pk = self._instance.pk.get()
         for index in self._indexes:
-            index._rollback()
+            index._rollback(pk)
 
     def _reset_indexes_caches(self):
         """
@@ -487,7 +501,10 @@ class RedisField(RedisProxyCommand):
         for index in self._indexes:
             index._reset_cache()
 
-    def _prepare_index_data(self, values=None):
+    def get_for_instance(self, pk):
+        return self._model.lazy_connect(pk).get_field(self.name)
+
+    def _prepare_index_data(self, pk, values=None):
         raise NotImplementedError
 
     def _index(self, values, only_index=None):
@@ -502,7 +519,8 @@ class RedisField(RedisProxyCommand):
         else:
             indexes = self._indexes
 
-        values = self._prepare_index_data(values)
+        pk = self._instance.pk.get()
+        values = self._prepare_index_data(pk, values)
 
         for parts in values:
             value = parts[-1]
@@ -511,6 +529,7 @@ class RedisField(RedisProxyCommand):
 
                 for index in indexes:
                     index.add(
+                        pk,
                         *parts,
                         check_uniqueness=needs_to_check_uniqueness and index.handle_uniqueness
                     )
@@ -531,13 +550,14 @@ class RedisField(RedisProxyCommand):
         else:
             indexes = self._indexes
 
-        values = self._prepare_index_data(values)
+        pk = self._instance.pk.get()
+        values = self._prepare_index_data(pk, values)
 
         for parts in values:
             value = parts[-1]
             if value is not None:
                 for index in indexes:
-                    index.remove(*parts)
+                    index.remove(pk, *parts)
 
     def clear_indexes(self, chunk_size=1000, aggressive=False):
         """Clear all indexes tied to this field
@@ -616,11 +636,18 @@ class RedisField(RedisProxyCommand):
                 (self._model.__name__, self.name)
             )
 
+    @property
+    def _instance_pk(self):
+        try:
+            return self._instance.pk.get()
+        except (ImplementationError, DoesNotExist):
+            return None
+
     def check_uniqueness(self, value):
         if not self.unique:
             return
         if value is not None:
-            self.get_unique_index().check_uniqueness(value)
+            self.get_unique_index().check_uniqueness(self._instance_pk, value)
 
     def from_python(self, value):
         """
@@ -694,9 +721,9 @@ class SingleValueField(RedisField):
                     self.index(value)
         return self._traverse_command(command, value, *args, **kwargs)
 
-    def _prepare_index_data(self, values=None):
+    def _prepare_index_data(self, pk, values=None):
         if values is None:
-            values = [self.proxy_get()]
+            values = [self.get_for_instance(pk).proxy_get()]
         return [(value, ) for value in values]
 
     def index(self, value=None, only_index=None):
@@ -802,9 +829,9 @@ class MultiValuesField(RedisField):
             self.deindex([result])
         return result
 
-    def _prepare_index_data(self, values=None):
+    def _prepare_index_data(self, pk, values=None):
         if values is None:
-            values = self.proxy_get()
+            values = self.get_for_instance(pk).proxy_get()
         return [(value, ) for value in values]
 
     def index(self, values=None, only_index=None):
@@ -822,9 +849,10 @@ class MultiValuesField(RedisField):
     def check_uniqueness(self, values):
         if not self.unique:
             return
+        pk = self._instance_pk
         for value in values:
             if value is not None:
-                self.get_unique_index().check_uniqueness(value)
+                self.get_unique_index().check_uniqueness(pk, value)
 
     def _scan(self, command, match=None, count=None):
         assert self.scannable, 'Field is not scannable'
@@ -1203,9 +1231,9 @@ class HashField(MultiValuesField):
             raise ImplementationError("HSTRLEN is not a valid command for redis-server version < 3.2")
         return self._traverse_command(command, key)
 
-    def _prepare_index_data(self, values=None):
+    def _prepare_index_data(self, pk, values=None):
         if values is None:
-            values = self.proxy_get()
+            values = self.get_for_instance(pk).proxy_get()
         return list(iteritems(values))
 
     def index(self, values=None, only_index=None):

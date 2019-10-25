@@ -511,8 +511,9 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
         except:
             # We revert indexes previously set if we have an exception, then
             # really raise the error
-            for field in indexed:
-                field._rollback_indexes()
+            if self.connected:
+                for field in indexed:
+                    field._rollback_indexes()
             raise
         finally:
             for field in indexed:

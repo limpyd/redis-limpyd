@@ -108,14 +108,14 @@ class MultiIndexes(BaseIndex):
         for index in self._indexes:
             index._reset_cache()
 
-    def _rollback(self):
+    def _rollback(self, pk):
         """Restore the index in its previous state
 
         For the parameters, seen BaseIndex._rollback
 
         """
         for index in self._indexes:
-            index._rollback()
+            index._rollback(pk)
 
     def get_unique_index(self):
         """Returns the first index handling uniqueness
@@ -170,15 +170,15 @@ class MultiIndexes(BaseIndex):
 
         return updated_args
 
-    def check_uniqueness(self, *args):
+    def check_uniqueness(self, pk, *args):
         """For a unique index, check if the given args are not used twice
 
         For the parameters, seen BaseIndex.check_uniqueness
 
         """
-        self.get_unique_index().check_uniqueness(*self.prepare_args(args, transform=False))
+        self.get_unique_index().check_uniqueness(pk, *self.prepare_args(args, transform=False))
 
-    def add(self, *args, **kwargs):
+    def add(self, pk, *args, **kwargs):
         """Add the instance tied to the field to all the indexes
 
         For the parameters, seen BaseIndex.add
@@ -189,11 +189,11 @@ class MultiIndexes(BaseIndex):
         args = self.prepare_args(args)
 
         for index in self._indexes:
-            index.add(*args, check_uniqueness=check_uniqueness and index.handle_uniqueness, **kwargs)
+            index.add(pk, *args, check_uniqueness=check_uniqueness and index.handle_uniqueness, **kwargs)
             if check_uniqueness and index.handle_uniqueness:
                 check_uniqueness = False
 
-    def remove(self, *args, **kwargs):
+    def remove(self, pk, *args, **kwargs):
         """Remove the instance tied to the field from all the indexes
 
         For the parameters, seen BaseIndex.remove
@@ -203,7 +203,7 @@ class MultiIndexes(BaseIndex):
         args = self.prepare_args(args)
 
         for index in self._indexes:
-            index.remove(*args, **kwargs)
+            index.remove(pk, *args, **kwargs)
 
     def get_filtered_keys(self, suffix, *args, **kwargs):
         """Returns the index keys to be used by the collection for the given args
@@ -306,8 +306,7 @@ class _ScoredEqualIndex_RelatedIndex(BaseIndex):
         """Tie ``related_field`` and ``related_index`` from the class to the right instances."""
         super(_ScoredEqualIndex_RelatedIndex, self).__init__(field)
 
-        field_parent = getattr(field, '_model' if field.attached_to_model else '_instance')
-        self.related_field = field_parent.get_field(self.related_field.name)
+        self.related_field = field._model.get_field(self.related_field.name)
 
         related_index_class = self.related_index
         if not isclass(related_index_class):
@@ -341,13 +340,13 @@ class _ScoredEqualIndex_RelatedIndex(BaseIndex):
         attrs['related_index'] = related_index
         return name, attrs, kwargs
 
-    def add(self, *args, **kwargs):
+    def add(self, pk, *args, **kwargs):
         """Do not save anything but ask the related index to update the score of its saved value"""
-        self.related_index.score_updated(float(args[-1]) if args[-1] is not None else None)
+        self.related_index.score_updated(pk, float(args[-1]) if args[-1] is not None else None)
 
-    def remove(self, *args, **kwargs):
+    def remove(self, pk, *args, **kwargs):
         """Do not remove anything but ask the related index to deindex its saved value"""
-        self.related_index.score_updated(None)
+        self.related_index.score_updated(pk, None)
 
 
 class ScoredEqualIndex(EqualIndex):
@@ -442,8 +441,7 @@ class ScoredEqualIndex(EqualIndex):
     def __init__(self, field):
         """Get the instance of the score field on the model"""
         super(ScoredEqualIndex, self).__init__(field)
-        self.score_field = getattr(field, '_model' if field.attached_to_model else '_instance')\
-            .get_field(self.score_field.name)
+        self.score_field = field._model.get_field(self.score_field.name)
 
     @classmethod
     def handle_configurable_attrs(cls, score_field, **kwargs):
@@ -506,7 +504,7 @@ class ScoredEqualIndex(EqualIndex):
             If we asked redis to do something. ``True`` except if the score field has is not set,
             in which case the value is not indexed.
         """
-        score = kwargs.get('score', self.score_field.proxy_get())
+        score = kwargs.get('score') if 'score' in kwargs else self.score_field.get_for_instance(pk).proxy_get()
         if score is None:
             return False
         self.connection.zadd(key, {pk: score})
@@ -520,21 +518,23 @@ class ScoredEqualIndex(EqualIndex):
         self.connection.zrem(key, pk)
         return True
 
-    def score_updated(self, new_score):
+    def score_updated(self, pk, new_score):
         """Called by the related index on the related field to update the redis score when changed
 
         Parameters
         ----------
+        pk : Any
+            The primary key of the instance for which the score was updated
         new_score : Union[float, int, None]
             The new value of the score. If ``None``, it means than the field was unset, so we'll
             deindex the value.'
 
         """
-        for parts in self.field._prepare_index_data():
+        for parts in self.field._prepare_index_data(pk):
             if parts[-1] is None:
                 continue
             if new_score is None:
-                self.remove(*parts, score=new_score)
+                self.remove(pk, *parts, score=new_score)
             else:
-                self.add(*parts, score=new_score)
+                self.add(pk, *parts, score=new_score)
 

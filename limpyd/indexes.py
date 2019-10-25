@@ -266,46 +266,18 @@ class BaseIndex(object):
         """
         return self.field._model
 
-    @property
-    def attached_to_model(self):
-        """Tells if the current index is the one attached to the model field, not instance field
-
-        Returns
-        -------
-        bool
-            ``True`` if the index is attached to a model and not an instance. ``False`` otherwise.
-
-        """
-        try:
-            if not bool(self.model):
-                return False
-        except AttributeError:
-            return False
-        else:
-            try:
-                return not bool(self.instance)
-            except AttributeError:
-                return True
-
-    @property
-    def instance(self):
-        """Shortcut to get the instance tied to the field tied to this index
-
-        Returns
-        -------
-        RedisModel
-            The instance tied to the field tied to this index.
-
-        """
-        return self.field._instance
-
     def _reset_cache(self):
         """Reset attributes used to potentially rollback the indexes"""
         self._indexed_values = set()
         self._deindexed_values = set()
 
-    def _rollback(self):
+    def _rollback(self, pk):
         """Restore the index in its previous state
+
+        Parameters
+        ----------
+        pk : Any
+            The primary key of the instance for which to rollback the index
 
         This uses values that were indexed/deindexed since the last call
         to `_reset_cache`.
@@ -318,9 +290,9 @@ class BaseIndex(object):
         deindexed_values = set(self._deindexed_values)
 
         for args in indexed_values:
-            self.remove(*args)
+            self.remove(pk, *args)
         for args in deindexed_values:
-            self.add(*args, check_uniqueness=False)
+            self.add(pk, *args, check_uniqueness=False)
 
     def _check_key_accepted_key_types(self, accepted_key_types):
         """Check if key types accepted from the collection match the ones supported by the index.
@@ -385,7 +357,7 @@ class BaseIndex(object):
         """
         raise NotImplementedError
 
-    def check_uniqueness(self, *args):
+    def check_uniqueness(self, pk, *args):
         """For a unique index, check if the given args are not used twice
 
         To implement this method in subclasses, get pks for the value (via `args`)
@@ -393,6 +365,8 @@ class BaseIndex(object):
 
         Parameters
         ----------
+        pk: Any
+            The pk of the instance for which its ok to have the value.
         args: tuple
             All the values to take into account to check the indexed entries
 
@@ -437,18 +411,19 @@ class BaseIndex(object):
                 )
             )
         elif len(pks) == 1 and (not exclude or pks[0] != exclude):
-            self.connection.delete(self.field.key)
             raise UniquenessError(
                 'Value "%s" already indexed for unique field %s.%s (for instance %s)' % (
                     self.normalize_value(value), self.model.__name__, self.field.name, pks[0]
                 )
             )
 
-    def add(self, *args, **kwargs):
+    def add(self, pk, *args, **kwargs):
         """Add the instance tied to the field for the given "value" (via `args`) to the index
 
         Parameters
         ----------
+        pk : Any
+            The primary key of the instance we want to add to the index
         args: tuple
             All the values to take into account to define the index entry
         kwargs: dict
@@ -465,11 +440,13 @@ class BaseIndex(object):
         """
         raise NotImplementedError
 
-    def remove(self, *args, **kwargs):
+    def remove(self, pk, *args, **kwargs):
         """Remove the instance tied to the field for the given "value" (via `args`) from the index
 
         Parameters
         ----------
+        pk : Any
+            The primary key of the instance we want to remove from the index
         args: tuple
             All the values to take into account to define the index entry
 
@@ -502,20 +479,12 @@ class BaseIndex(object):
             But may also find keys not related to the index.
             Should be set to ``True`` if you are not sure about the already indexed values.
 
-        Raises
-        ------
-        AssertionError
-            If called from an index tied to an instance field. It must be called from the model field
-
         Examples
         --------
 
         >>> MyModel.get_field('myfield').get_index().clear()
 
         """
-        assert self.attached_to_model, \
-            '`clear` can only be called on an index attached to the model field'
-
         if aggressive:
             keys = self.get_all_storage_keys()
             with self.model.database.pipeline(transaction=False) as pipe:
@@ -556,9 +525,6 @@ class BaseIndex(object):
         >>> MyModel.get_field('myfield').get_index().rebuild()
 
         """
-        assert self.attached_to_model, \
-            '`rebuild` can only be called on an index attached to the model field'
-
         self.clear(chunk_size=chunk_size, aggressive=aggressive_clear)
 
         start = 0
@@ -734,7 +700,7 @@ class EqualIndex(BaseIndex):
         """
         return list(self.connection.smembers(key))
 
-    def check_uniqueness(self, *args, **kwargs):
+    def check_uniqueness(self, pk, *args, **kwargs):
         """Check if the given "value" (via `args`) is unique or not.
 
         Parameters
@@ -757,7 +723,6 @@ class EqualIndex(BaseIndex):
             key = self.get_storage_key(*args)
 
         # Lets check if the index key already exist for another instance
-        pk = self.instance.pk.get()
         pks = self.get_members(key)
 
         self.assert_pks_uniqueness(pks, pk, list(args)[-1])
@@ -806,7 +771,7 @@ class EqualIndex(BaseIndex):
         self.connection.srem(key, pk)
         return True
 
-    def add(self, *args, **kwargs):
+    def add(self, pk, *args, **kwargs):
         """Add the instance tied to the field for the given "value" (via `args`) to the index
 
         For the parameters, see ``BaseIndex.add``
@@ -817,16 +782,15 @@ class EqualIndex(BaseIndex):
 
         key = self.get_storage_key(*args)
         if self.field.unique and check_uniqueness:
-            self.check_uniqueness(key=key, *args)
+            self.check_uniqueness(pk, key=key, *args)
 
         # Do index => create a key to be able to retrieve parent pk with
         # current field value]
-        pk = self.instance.pk.get()
         logger.debug("adding %s to index %s" % (pk, key))
         if self.store(key, pk, **kwargs):
             self._indexed_values.add(tuple(args))
 
-    def remove(self, *args, **kwargs):
+    def remove(self, pk, *args, **kwargs):
         """Remove the instance tied to the field for the given "value" (via `args`) from the index
 
         For the parameters, see ``BaseIndex.remove``
@@ -834,7 +798,6 @@ class EqualIndex(BaseIndex):
         """
 
         key = self.get_storage_key(*args)
-        pk = self.instance.pk.get()
         logger.debug("removing %s from index %s" % (pk, key))
         if self.unstore(key, pk, **kwargs):
             self._deindexed_values.add(tuple(args))
@@ -936,7 +899,7 @@ class BaseRangeIndex(BaseIndex):
         """
         raise NotImplementedError
 
-    def check_uniqueness(self, *args, **kwargs):
+    def check_uniqueness(self, pk, *args, **kwargs):
         """Check if the given "value" (via `args`) is unique or not.
 
         For the parameters, see ``BaseIndex.check_uniqueness``
@@ -945,11 +908,6 @@ class BaseRangeIndex(BaseIndex):
 
         if not self.field.unique:
             return
-
-        try:
-            pk = self.instance.pk.get()
-        except AttributeError:
-            pk = None
 
         key = self.get_storage_key(*args)
         value = list(args)[-1]
@@ -1003,7 +961,7 @@ class BaseRangeIndex(BaseIndex):
         self.connection.zrem(key, member)
         return True
 
-    def add(self, *args, **kwargs):
+    def add(self, pk, *args, **kwargs):
         """Add the instance tied to the field for the given "value" (via `args`) to the index
 
         For the parameters, see ``BaseIndex.add``
@@ -1018,20 +976,19 @@ class BaseRangeIndex(BaseIndex):
         check_uniqueness = kwargs.get('check_uniqueness', True)
 
         if self.field.unique and check_uniqueness:
-            self.check_uniqueness(*args)
+            self.check_uniqueness(pk, *args)
 
         key = self.get_storage_key(*args)
 
         args = list(args)
         value = args[-1]
 
-        pk = self.instance.pk.get()
         logger.debug("adding %s to index %s" % (pk, key))
         member, score = self.prepare_data_to_store(pk, value, **kwargs)
         if self.store(key, member, score):
             self._indexed_values.add(tuple(args))
 
-    def remove(self, *args, **kwargs):
+    def remove(self, pk, *args, **kwargs):
         """Remove the instance tied to the field for the given "value" (via `args`) from the index
 
         For the parameters, see ``BaseIndex.remove``
@@ -1043,7 +1000,6 @@ class BaseRangeIndex(BaseIndex):
         args = list(args)
         value = args[-1]
 
-        pk = self.instance.pk.get()
         logger.debug("removing %s from index %s" % (pk, key))
         member, score = self.prepare_data_to_store(pk, value, **kwargs)
         if self.unstore(key, member, score):
