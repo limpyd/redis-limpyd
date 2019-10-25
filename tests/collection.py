@@ -134,8 +134,8 @@ class CollectionTest(CollectionBaseTest):
 
     def test_connection_class_could_be_changed(self):
         class SailBoats(CollectionManager):
-            def __init__(self, cls):
-                super(SailBoats, self).__init__(cls)
+            def __init__(self, model):
+                super(SailBoats, self).__init__(model)
                 self._add_filters(power='sail')
 
         # all boats, using the default manager, attached to the model
@@ -144,8 +144,8 @@ class CollectionTest(CollectionBaseTest):
         self.assertEqual(len(list(Boat.collection(manager=SailBoats))), 3)
 
         class ActiveGroups(CollectionManager):
-            def __init__(self, cls):
-                super(ActiveGroups, self).__init__(cls)
+            def __init__(self, model):
+                super(ActiveGroups, self).__init__(model)
                 self._add_filters(active=1)
 
         class Group(TestRedisModel):

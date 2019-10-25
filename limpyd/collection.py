@@ -36,8 +36,8 @@ class CollectionManager(object):
 
     _accepted_key_types = {'set'}  # Type of keys indexes are allowed to return
 
-    def __init__(self, cls):
-        self.cls = cls
+    def __init__(self, model):
+        self.model = model
         self._lazy_collection = {  # Store infos to make the requested collection
             'sets': [],  # store sets to use (we'll intersect them)
             'pks': set(),  # store special filter on pk
@@ -58,7 +58,7 @@ class CollectionManager(object):
                                 # case, specifically set to False in other cases
 
     def clone(self):
-        new = self.__class__(self.cls)
+        new = self.__class__(self.model)
         new._lazy_collection = {key: copy(value) for key, value in self._lazy_collection.items()} if self._lazy_collection is not None else None
         new._instances = self._instances
         new._lazy_instances = self._lazy_instances
@@ -243,7 +243,7 @@ class CollectionManager(object):
         old_sort_limits_and_len_mode = None if self._sort_limits is None else self._sort_limits.copy(), self._len_mode
         try:  # try block to always reset the _sort_limits in the "finally" part
 
-            conn = self.cls.get_connection()
+            conn = self.model.get_connection()
             self._len = 0
 
             # The collection fails (empty) if more than one pk or if the only one
@@ -253,7 +253,7 @@ class CollectionManager(object):
             except ValueError:
                 return iter(())
             else:
-                if pk is not None and not self.cls.get_field('pk').exists(pk):
+                if pk is not None and not self.model.get_field('pk').exists(pk):
                     return iter(())
 
             # Prepare options and final set to get/sort
@@ -307,7 +307,7 @@ class CollectionManager(object):
         with some sort options.
         """
 
-        conn = self.cls.get_connection()
+        conn = self.model.get_connection()
         if sort_options is not None:
             # a sort, or values, call the SORT command on the set
             return conn.sort(final_set, **sort_options)
@@ -320,7 +320,7 @@ class CollectionManager(object):
         Return the length of the final collection, directly asking redis for the
         count without calling sort
         """
-        return self.cls.get_connection().scard(final_set)
+        return self.model.get_connection().scard(final_set)
 
     def _to_instances(self, pks):
         """
@@ -329,7 +329,7 @@ class CollectionManager(object):
         """
         # we want instances, so create an object for each pk, without
         # checking for pk existence if asked
-        return self.cls.from_pks(pks, lazy=self._lazy_instances)
+        return self.model.from_pks(pks, lazy=self._lazy_instances)
 
     def _prepare_results(self, results, _len_hint=None, slice=None):
         """
@@ -389,7 +389,7 @@ class CollectionManager(object):
         of the set to use, and a list of keys to delete once the collection is
         really called (in case of a computed set based on multiple ones)
         """
-        conn = self.cls.get_connection()
+        conn = self.model.get_connection()
         all_sets = set()
         tmp_keys = set()
 
@@ -412,7 +412,7 @@ class CollectionManager(object):
 
         else:
             # no sets or pk, use the whole collection instead
-            all_sets.add(self.cls.get_field('pk').collection_key)
+            all_sets.add(self.model.get_field('pk').collection_key)
 
         if not all_sets:
             delete_set_later = False
@@ -444,7 +444,7 @@ class CollectionManager(object):
         Given a list of set, combine them to create the final set that will be
         used to make the final redis call.
         """
-        self.cls.get_connection().sinterstore(final_set, list(sets))
+        self.model.get_connection().sinterstore(final_set, list(sets))
         return final_set
 
     def __call__(self, **filters):
@@ -452,9 +452,9 @@ class CollectionManager(object):
 
     def _field_is_pk(self, field_name):
         """Check if the given name is the pk field, suffixed or not with "__eq" """
-        if self.cls._field_is_pk(field_name):
+        if self.model._field_is_pk(field_name):
             return True
-        if field_name.endswith('__eq') and self.cls._field_is_pk(field_name[:-4]):
+        if field_name.endswith('__eq') and self.model._field_is_pk(field_name[:-4]):
             return True
         return False
 
@@ -466,7 +466,7 @@ class CollectionManager(object):
 
         key_path = key.split('__')
         field_name = key_path.pop(0)
-        field = self.cls.get_field(field_name)
+        field = self.model.get_field(field_name)
 
         if not field.indexable:
             raise ImplementationError(
@@ -505,7 +505,7 @@ class CollectionManager(object):
         """Define self._lazy_collection according to filters."""
         for key, value in filters.items():
             if self._field_is_pk(key):
-                pk = self.cls.get_field('pk').normalize(value)
+                pk = self.model.get_field('pk').normalize(value)
                 self._lazy_collection['pks'].add(pk)
             else:
                 # store the info to call the index later, in ``_prepare_sets``
@@ -551,8 +551,8 @@ class CollectionManager(object):
         the sort command (so, exclude all fields based on MultiValuesField)
         """
         fields = []
-        for field_name in self.cls._fields:
-            field = self.cls.get_field(field_name)
+        for field_name in self.model._fields:
+            field = self.model.get_field(field_name)
             if not isinstance(field, MultiValuesField):
                 fields.append(field_name)
         return fields
@@ -581,12 +581,12 @@ class CollectionManager(object):
             if by.startswith('-'):
                 parameters['desc'] = True
                 by = by[1:]
-            if self.cls._field_is_pk(by):
+            if self.model._field_is_pk(by):
                 # don't use field, the final set, which contains pks, will be sorted directly
                 del parameters['by']
-            elif self.cls.has_field(by):
+            elif self.model.has_field(by):
                 # if we have a field, use its redis wildcard form
-                field = self.cls.get_field(by)
+                field = self.model.get_field(by)
                 parameters['by'] = field.sort_wildcard
         return parameters
 
@@ -608,4 +608,4 @@ class CollectionManager(object):
         """
         Create a unique key.
         """
-        return unique_key(self.cls.get_connection())
+        return unique_key(self.model.get_connection())
