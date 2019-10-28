@@ -551,6 +551,11 @@ class ScoredEqualIndexTestCase(LimpydBaseTest):
                     indexes=[ScoredEqualIndex.configure(score_field='priority')]
                 )
 
+    def test_score_field_is_linked(self):
+        self_field = ScoredEqualIndexModel.get_field('queue_name')
+        score_field = ScoredEqualIndexModel.get_field('priority')
+        self.assertEqual(self_field.index_classes[0].score_field, score_field)
+
     def test_index_is_well_created_on_score_field_if_no_index(self):
         score_field = ScoredEqualIndexModel.get_field('priority')
         self.assertTrue(score_field.indexable)
@@ -633,8 +638,48 @@ class ScoredEqualIndexTestCase(LimpydBaseTest):
         ])
         self.connection.delete(tmp_key)
 
-    def test_indexing_listfield(self):
+    def test_uniqueness(self):
         class ScoredEqualIndexModel2(TestRedisModel):
+            collection_manager = ExtendedCollectionManager
+            priority = fields.InstanceHashField()
+            queue_name = fields.InstanceHashField(
+                indexable=True,
+                unique=True,
+                indexes=[ScoredEqualIndex.configure(score_field='priority')]
+            )
+        zrange = lambda value: self.connection.zrange(ScoredEqualIndexModel2.get_field('queue_name').get_index().get_storage_key(value), 0, -1, withscores=True)
+
+        obj1 = ScoredEqualIndexModel2(queue_name='foo')
+        with self.assertRaises(UniquenessError):
+            ScoredEqualIndexModel2(queue_name='foo')
+        with self.assertRaises(UniquenessError):
+            ScoredEqualIndexModel2(priority=1, queue_name='foo')
+        obj2 = ScoredEqualIndexModel2(queue_name='bar')
+        with self.assertRaises(UniquenessError):
+            obj2.queue_name.hset('foo')
+        self.assertEqual(obj2.queue_name.hget(), 'bar')
+        obj2.priority.hset(1)
+        with self.assertRaises(UniquenessError):
+            obj2.queue_name.hset('foo')
+        self.assertEqual(obj2.queue_name.hget(), 'bar')
+        self.assertIn(obj2.pk.get(), set(ScoredEqualIndexModel2.collection(queue_name='bar')))
+        self.assertNotIn(obj2.pk.get(), set(ScoredEqualIndexModel2.collection(queue_name='foo')))
+        self.assertListEqual(zrange('bar'), [(obj2.pk.get(), 1.0)])
+        with self.assertRaises(UniquenessError):
+            obj2.hmset(priority=2, queue_name='foo')
+        self.assertEqual(obj2.queue_name.hget(), 'bar')
+        self.assertEqual(obj2.priority.hget(), '1')
+        self.assertIn(obj2.pk.get(), set(ScoredEqualIndexModel2.collection(queue_name='bar')))
+        self.assertNotIn(obj2.pk.get(), set(ScoredEqualIndexModel2.collection(queue_name='foo')))
+        self.assertListEqual(zrange('bar'), [(obj2.pk.get(), 1.0)])
+        obj1.priority.hset(1)
+        with self.assertRaises(UniquenessError):
+            ScoredEqualIndexModel2(queue_name='foo')
+        with self.assertRaises(UniquenessError):
+            ScoredEqualIndexModel2(priority=1, queue_name='foo')
+
+    def test_indexing_listfield(self):
+        class ScoredEqualIndexModel3(TestRedisModel):
             collection_manager = ExtendedCollectionManager
             score = fields.InstanceHashField()
             main_field = fields.ListField(
@@ -642,28 +687,59 @@ class ScoredEqualIndexTestCase(LimpydBaseTest):
                 indexes=[ScoredEqualIndex.configure(score_field='score')]
             )
 
-        obj1 = ScoredEqualIndexModel2(score=1, main_field=['foo', 'bar'])
-        self.assertEqual(len(ScoredEqualIndexModel2.collection(main_field='foo')), 1)
-        self.assertEqual(len(ScoredEqualIndexModel2.collection(main_field='bar')), 1)
+        obj1 = ScoredEqualIndexModel3(score=1, main_field=['foo', 'bar'])
+        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field='foo')), 1)
+        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field='bar')), 1)
         obj1.score.delete()
-        self.assertEqual(len(ScoredEqualIndexModel2.collection(main_field='foo')), 0)
-        self.assertEqual(len(ScoredEqualIndexModel2.collection(main_field='bar')), 0)
+        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field='foo')), 0)
+        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field='bar')), 0)
         obj1.score.hset(2)
-        self.assertEqual(len(ScoredEqualIndexModel2.collection(main_field='foo')), 1)
-        self.assertEqual(len(ScoredEqualIndexModel2.collection(main_field='bar')), 1)
+        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field='foo')), 1)
+        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field='bar')), 1)
 
-        obj2 = ScoredEqualIndexModel2(score=1, main_field=['bar', 'baz'])
-        self.assertEqual(len(ScoredEqualIndexModel2.collection(main_field='foo')), 1)
-        self.assertEqual(len(ScoredEqualIndexModel2.collection(main_field='bar')), 2)
-        self.assertEqual(len(ScoredEqualIndexModel2.collection(main_field='baz')), 1)
+        obj2 = ScoredEqualIndexModel3(score=1, main_field=['bar', 'baz'])
+        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field='foo')), 1)
+        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field='bar')), 2)
+        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field='baz')), 1)
 
         # ordered by score: obj2 (1) then obj1 (2)
-        self.assertEqual(list(ScoredEqualIndexModel2.collection(main_field='bar')), [obj2.pk.get(), obj1.pk.get()])
+        self.assertEqual(list(ScoredEqualIndexModel3.collection(main_field='bar')), [obj2.pk.get(), obj1.pk.get()])
         obj2.score.hset(3)
-        self.assertEqual(list(ScoredEqualIndexModel2.collection(main_field='bar')), [obj1.pk.get(), obj2.pk.get()])
+        self.assertEqual(list(ScoredEqualIndexModel3.collection(main_field='bar')), [obj1.pk.get(), obj2.pk.get()])
+
+    def test_uniqueness_listfield(self):
+        class ScoredEqualIndexModel4(TestRedisModel):
+            collection_manager = ExtendedCollectionManager
+            score = fields.InstanceHashField()
+            main_field = fields.ListField(
+                indexable=True,
+                unique=True,
+                indexes=[ScoredEqualIndex.configure(score_field='score')]
+            )
+
+        obj1 = ScoredEqualIndexModel4(main_field=['foo', 'bar'])
+        with self.assertRaises(UniquenessError):
+            ScoredEqualIndexModel4(main_field=['foo'])
+        with self.assertRaises(UniquenessError):
+            ScoredEqualIndexModel4(score=1, main_field=['foo'])
+        obj2 = ScoredEqualIndexModel4(main_field=['baz'])
+        with self.assertRaises(UniquenessError):
+            obj2.main_field.lpush('foo')
+        self.assertEqual(obj2.main_field.lmembers(), ['baz'])
+        obj2.score.hset(1)
+        with self.assertRaises(UniquenessError):
+            obj2.main_field.lpush('foo')
+        self.assertEqual(obj2.main_field.lmembers(), ['baz'])
+        self.assertIn(obj2.pk.get(), set(ScoredEqualIndexModel4.collection(main_field='baz')))
+        self.assertNotIn(obj2.pk.get(), set(ScoredEqualIndexModel4.collection(main_field='foo')))
+        obj1.score.hset(1)
+        with self.assertRaises(UniquenessError):
+            ScoredEqualIndexModel4(main_field=['foo'])
+        with self.assertRaises(UniquenessError):
+            ScoredEqualIndexModel4(score=1, main_field=['foo'])
 
     def test_indexing_hashfield(self):
-        class ScoredEqualIndexModel3(TestRedisModel):
+        class ScoredEqualIndexModel5(TestRedisModel):
             collection_manager = ExtendedCollectionManager
             score = fields.InstanceHashField()
             main_field = fields.HashField(
@@ -671,23 +747,23 @@ class ScoredEqualIndexTestCase(LimpydBaseTest):
                 indexes=[ScoredEqualIndex.configure(score_field='score')]
             )
 
-        obj1 = ScoredEqualIndexModel3(score=1, main_field={'foo': 'XFOO', 'bar': 'XBAR'})
-        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__foo='XFOO')), 1)
-        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__bar='XFOO')), 0)
-        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__bar='XBAR')), 1)
+        obj1 = ScoredEqualIndexModel5(score=1, main_field={'foo': 'XFOO', 'bar': 'XBAR'})
+        self.assertEqual(len(ScoredEqualIndexModel5.collection(main_field__foo='XFOO')), 1)
+        self.assertEqual(len(ScoredEqualIndexModel5.collection(main_field__bar='XFOO')), 0)
+        self.assertEqual(len(ScoredEqualIndexModel5.collection(main_field__bar='XBAR')), 1)
         obj1.score.delete()
-        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__foo='XFOO')), 0)
-        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__bar='XBAR')), 0)
+        self.assertEqual(len(ScoredEqualIndexModel5.collection(main_field__foo='XFOO')), 0)
+        self.assertEqual(len(ScoredEqualIndexModel5.collection(main_field__bar='XBAR')), 0)
         obj1.score.hset(2)
-        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__foo='XFOO')), 1)
-        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__bar='XBAR')), 1)
+        self.assertEqual(len(ScoredEqualIndexModel5.collection(main_field__foo='XFOO')), 1)
+        self.assertEqual(len(ScoredEqualIndexModel5.collection(main_field__bar='XBAR')), 1)
 
-        obj2 = ScoredEqualIndexModel3(score=1, main_field={'foo': 'XFOO2', 'bar': 'XBAR', 'baz': 'XBAZ'})
-        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__foo='XFOO')), 1)
-        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__foo='XFOO2')), 1)
-        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__bar='XBAR')), 2)
-        self.assertEqual(len(ScoredEqualIndexModel3.collection(main_field__baz='XBAZ')), 1)
-        self.assertEqual(list(ScoredEqualIndexModel3.collection(main_field__bar='XBAR')), [obj2.pk.get(), obj1.pk.get()])
+        obj2 = ScoredEqualIndexModel5(score=1, main_field={'foo': 'XFOO2', 'bar': 'XBAR', 'baz': 'XBAZ'})
+        self.assertEqual(len(ScoredEqualIndexModel5.collection(main_field__foo='XFOO')), 1)
+        self.assertEqual(len(ScoredEqualIndexModel5.collection(main_field__foo='XFOO2')), 1)
+        self.assertEqual(len(ScoredEqualIndexModel5.collection(main_field__bar='XBAR')), 2)
+        self.assertEqual(len(ScoredEqualIndexModel5.collection(main_field__baz='XBAZ')), 1)
+        self.assertEqual(list(ScoredEqualIndexModel5.collection(main_field__bar='XBAR')), [obj2.pk.get(), obj1.pk.get()])
 
     def test_with_related_model(self):
         class Queue(RelatedModel):

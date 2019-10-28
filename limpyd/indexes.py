@@ -563,7 +563,7 @@ class EqualIndex(BaseIndex):
     handle_uniqueness = True
     supported_key_types = {'set'}
 
-    def union_keys(self, dest_key, *source_keys):
+    def union_filtered_in_keys(self, dest_key, *source_keys):
         """Do a union of the given `source_keys` at the redis level, into `dest_key`
 
         Parameters
@@ -600,7 +600,7 @@ class EqualIndex(BaseIndex):
             ]
 
             tmp_key = unique_key(self.connection)
-            self.union_keys(tmp_key, *in_keys)
+            self.union_filtered_in_keys(tmp_key, *in_keys)
 
             return [(tmp_key, 'set', True)]
 
@@ -684,8 +684,8 @@ class EqualIndex(BaseIndex):
             )
         )
 
-    def get_members(self, key):
-        """Get from redis all the members of the given index `key`.
+    def get_uniqueness_members(self, key):
+        """Get from redis all the members of the given index `key` used to check for uniqueness.
 
         Parameters
         ----------
@@ -723,7 +723,7 @@ class EqualIndex(BaseIndex):
             key = self.get_storage_key(*args)
 
         # Lets check if the index key already exist for another instance
-        pks = self.get_members(key)
+        pks = self.get_uniqueness_members(key)
 
         self.assert_pks_uniqueness(pks, pk, list(args)[-1])
 
@@ -1089,9 +1089,9 @@ class BaseRangeIndex(BaseIndex):
             ]
 
             if key_type == 'set':
-                self.connection.sunionstore(tmp_key, *in_keys)
+                self.connection.sunionstore(tmp_key, in_keys)
             else:
-                self.connection.zunionstore(tmp_key, *in_keys)
+                self.connection.zunionstore(tmp_key, in_keys)
 
             # we can delete the temporary keys
             for in_key in in_keys:

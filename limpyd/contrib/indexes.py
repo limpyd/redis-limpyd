@@ -343,10 +343,12 @@ class _ScoredEqualIndex_RelatedIndex(BaseIndex):
     def add(self, pk, *args, **kwargs):
         """Do not save anything but ask the related index to update the score of its saved value"""
         self.related_index.score_updated(pk, float(args[-1]) if args[-1] is not None else None)
+        self._indexed_values.add(tuple(args))
 
     def remove(self, pk, *args, **kwargs):
         """Do not remove anything but ask the related index to deindex its saved value"""
         self.related_index.score_updated(pk, None)
+        self._deindexed_values.add(tuple(args))
 
 
 class ScoredEqualIndex(EqualIndex):
@@ -475,19 +477,22 @@ class ScoredEqualIndex(EqualIndex):
             in super(ScoredEqualIndex, self).get_filtered_keys(suffix, *args, **kwargs)
         ]
 
-    def union_keys(self, dest_key, *source_keys):
+    def union_filtered_in_keys(self, dest_key, *source_keys):
         """Do a union of the given `source_keys` at the redis level, into `dest_key`
 
-        For the parameters, see ``EqualIndex.union_keys``
+        For the parameters, see ``EqualIndex.union_filtered_in_keys``
         """
         self.connection.zunionstore(dest_key, source_keys)
 
-    def get_members(self, key):
-        """Get from redis all the members of the given index `key`.
+    def get_uniqueness_key(self, base_key):
+        return self.field.make_key(base_key, '__uniqueness__')
 
-        For the parameters, see ``EqualIndex.get_members``
+    def get_uniqueness_members(self, key):
+        """Get from redis all the members of the given index `key` used to check for uniqueness.
+
+        For the parameters, see ``EqualIndex.get_uniqueness_members``
         """
-        return list(self.connection.zmembers(key))
+        return super(ScoredEqualIndex, self).get_uniqueness_members(self.get_uniqueness_key(key))
 
     def store(self, key, pk, **kwargs):
         """Store data in the index in redis
@@ -505,6 +510,8 @@ class ScoredEqualIndex(EqualIndex):
             in which case the value is not indexed.
         """
         score = kwargs.get('score') if 'score' in kwargs else self.score_field.get_for_instance(pk).proxy_get()
+        if self.handle_uniqueness and self.field.unique:
+            self.connection.sadd(self.get_uniqueness_key(key), pk)
         if score is None:
             return False
         self.connection.zadd(key, {pk: score})
@@ -515,6 +522,8 @@ class ScoredEqualIndex(EqualIndex):
 
         For the parameters, see ``EqualIndex.unstore``
         """
+        if self.handle_uniqueness and self.field.unique:
+            self.connection.sadd(self.get_uniqueness_key(key), pk)
         self.connection.zrem(key, pk)
         return True
 
@@ -536,5 +545,6 @@ class ScoredEqualIndex(EqualIndex):
             if new_score is None:
                 self.remove(pk, *parts, score=new_score)
             else:
-                self.add(pk, *parts, score=new_score)
+                self.add(pk, *parts, score=new_score, check_uniqueness=False)
+        self._reset_cache()
 
