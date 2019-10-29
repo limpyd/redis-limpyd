@@ -123,8 +123,9 @@ class MetaRedisModel(MetaRedisProxy):
             it._redis_attr_pk = getattr(it, "_redis_attr_%s" % pk_field.name)
 
         # Tell index classes that fields are now ready
-        for field_name in it._fields:
-            field = it.get_field(field_name)
+        for field in it.get_fields():
+            if field is it._redis_attr_pk:
+                continue
             for index_class in field.index_classes:
                 index_class._field_model_ready(it, field)
 
@@ -163,12 +164,11 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
 
         # --- Meta stuff
         # Put back the fields with the original names
-        for attr_name in self._fields:
-            attr = getattr(self, "_redis_attr_%s" % attr_name)
+        for field in self.get_class_fields():
             # Copy it, to avoid sharing fields between model instances
-            newattr = copy(attr)
-            newattr._attach_to_instance(self)
-            setattr(self, attr_name, newattr)
+            new_field = copy(field)
+            new_field._attach_to_instance(self)
+            setattr(self, field.name, new_field)
 
         # The `pk` field always exists, even if the real pk has another name
         pk_field_name = getattr(self, "_redis_attr_pk").name
@@ -177,9 +177,10 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
         # Cache of the pk value
         self._pk = None
 
-        # change the get_field method to use the instance related one instead
+        # change the get_field(s) method to use the instance related ones instead
         # of the classmethod
         self.get_field = self.get_instance_field
+        self.get_fields = self.get_instance_fields
 
         # Validate arguments
         if len(args) > 0 and len(kwargs) > 0:
@@ -215,11 +216,10 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
             # Do instanciate, starting by the pk and respecting fields order
             if kwargs_pk_field_name:
                 self.pk.set(kwargs[kwargs_pk_field_name])
-            for field_name in self._fields:
-                if field_name not in kwargs or self._field_is_pk(field_name):
+            for field in self.fields:
+                if field.name not in kwargs or self._field_is_pk(field.name):
                     continue
-                field = self.get_field(field_name)
-                field.proxy_set(kwargs[field_name])
+                field.proxy_set(kwargs[field.name])
 
         # --- Instanciate from DB
         if len(args) == 1:
@@ -293,9 +293,7 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
             raise AttributeError('"%s" is not a field for the model "%s"' %
                                  (field_name, cls.__name__))
 
-        field = getattr(cls, '_redis_attr_%s' % field_name)
-
-        return field
+        return getattr(cls, '_redis_attr_%s' % field_name)
 
     # at the class level, we use get_class_field to get a field
     # but in __init__, we update it to use get_instance_field
@@ -309,9 +307,21 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
             raise AttributeError('"%s" is not a field for the model "%s"' %
                                  (field_name, self.__class__.__name__))
 
-        field = getattr(self, field_name)
+        return getattr(self, field_name)
 
-        return field
+    @classmethod
+    def get_class_fields(cls):
+        for field_name in cls._fields:
+            yield cls.get_field(field_name)
+
+    # at the class level, we use get_class_fields to get the fields
+    # but in __init__, we update it to use get_instance_fields
+    get_fields = get_class_fields
+
+    def get_instance_fields(self):
+        for field_name in self._fields:
+            yield self.get_field(field_name)
+    fields = property(get_instance_fields)
 
     def _set_pk(self, value):
         """
@@ -330,10 +340,9 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
         Set default values to fields. We assume that they are not yet populated
         as this method is called just after creation of a new pk.
         """
-        for field_name in self._fields:
-            if field_name in self._init_fields:
+        for field in self.fields:
+            if field.name in self._init_fields:
                 continue
-            field = self.get_field(field_name)
             if hasattr(field, "default"):
                 field.proxy_set(field.default)
 
@@ -541,8 +550,7 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
         Delete the instance from redis storage.
         """
         # Delete each field
-        for field_name in self._fields:
-            field = self.get_field(field_name)
+        for field in self.fields:
             if not isinstance(field, PKField):
                 # pk has no stored key
                 field.delete()

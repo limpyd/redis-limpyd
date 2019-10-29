@@ -9,7 +9,7 @@ from collections import namedtuple
 
 from limpyd.utils import unique_key
 from limpyd.exceptions import *
-from limpyd.fields import MultiValuesField
+from limpyd.fields import SingleValueField
 
 
 ParsedFilter = namedtuple('ParsedFilter', ['index', 'suffix', 'extra_field_parts', 'value'])
@@ -548,14 +548,12 @@ class CollectionManager(object):
         """
         Return a list of the names of all fields that handle simple values
         (StringField or InstanceHashField), that redis can use to return values via
-        the sort command (so, exclude all fields based on MultiValuesField)
+        the sort command
         """
-        fields = []
-        for field_name in self.model._fields:
-            field = self.model.get_field(field_name)
-            if not isinstance(field, MultiValuesField):
-                fields.append(field_name)
-        return fields
+        return [
+            field.name for field in self.model.get_fields()
+            if isinstance(field, SingleValueField)
+        ]
 
     def primary_keys(self):
         """

@@ -407,7 +407,7 @@ class ScoredEqualIndex(EqualIndex):
             ))
 
         # check the score field match an existing field in the same model
-        if score_field_name not in model._fields:
+        if not model.has_field(score_field_name):
             raise ImplementationError("%s is not an existing field for the index %s on %s.%s" % (
                 score_field_name,
                 cls.__name__,
