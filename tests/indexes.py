@@ -499,7 +499,7 @@ class NumberRangeIndexTestCase(LimpydBaseTest):
 
     def test_uniqueness(self):
         class NumberRangeIndexTestModel2(TestRedisModel):
-            value = fields.StringField(indexable=True, unique=True, indexes=[TextRangeIndex])
+            value = fields.StringField(indexable=True, unique=True, indexes=[NumberRangeIndex])
 
         # first object with -15
         NumberRangeIndexTestModel2(value=-15)
