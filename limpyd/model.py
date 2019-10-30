@@ -526,7 +526,7 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
             raise
         finally:
             for field in indexed:
-                field._reset_indexes_caches()
+                field._reset_indexes_rollback_caches(self.pk.get())
 
     def hdel(self, *args):
         """

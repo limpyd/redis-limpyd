@@ -99,14 +99,14 @@ class MultiIndexes(BaseIndex):
 
         return False
 
-    def _reset_cache(self):
+    def _reset_rollback_cache(self, pk):
         """Reset attributes used to potentially rollback the indexes
 
-        For the parameters, seen BaseIndex._reset_cache
+        For the parameters, seen BaseIndex._reset_rollback_cache
 
         """
         for index in self._indexes:
-            index._reset_cache()
+            index._reset_rollback_cache(pk)
 
     def _rollback(self, pk):
         """Restore the index in its previous state
@@ -343,12 +343,12 @@ class _ScoredEqualIndex_RelatedIndex(BaseIndex):
     def add(self, pk, *args, **kwargs):
         """Do not save anything but ask the related index to update the score of its saved value"""
         self.related_index.score_updated(pk, float(args[-1]) if args[-1] is not None else None)
-        self._indexed_values.add(tuple(args))
+        self._get_rollback_cache(pk)['indexed_values'].add(tuple(args))
 
     def remove(self, pk, *args, **kwargs):
         """Do not remove anything but ask the related index to deindex its saved value"""
         self.related_index.score_updated(pk, None)
-        self._deindexed_values.add(tuple(args))
+        self._get_rollback_cache(pk)['deindexed_values'].add(tuple(args))
 
 
 class ScoredEqualIndex(EqualIndex):
@@ -546,5 +546,5 @@ class ScoredEqualIndex(EqualIndex):
                 self.remove(pk, *parts, score=new_score)
             else:
                 self.add(pk, *parts, score=new_score, check_uniqueness=False)
-        self._reset_cache()
 
+        self._reset_rollback_cache(pk)

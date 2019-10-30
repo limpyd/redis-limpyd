@@ -4,7 +4,9 @@ from future.builtins import str, object
 from future.utils import PY3
 from past.builtins import str as oldstr
 
+from collections import defaultdict
 from logging import getLogger
+import threading
 
 from limpyd.exceptions import ImplementationError, LimpydException, UniquenessError
 from limpyd.utils import unique_key
@@ -78,7 +80,14 @@ class BaseIndex(object):
     def __init__(self, field):
         """Attach the index to the given field and prepare the internal cache"""
         self.field = field
-        self._reset_cache()
+        self._rollback_cache = defaultdict(
+            lambda: defaultdict(  # one dict by thread id
+                lambda: {  # one dict by instance pk
+                    'indexed_values': set(),
+                    'deindexed_values': set(),
+                }
+            )
+        )
 
     @classmethod
     def handle_configurable_attrs(cls, **kwargs):
@@ -266,10 +275,19 @@ class BaseIndex(object):
         """
         return self.field._model
 
-    def _reset_cache(self):
-        """Reset attributes used to potentially rollback the indexes"""
-        self._indexed_values = set()
-        self._deindexed_values = set()
+    def _get_rollback_cache(self, pk):
+        return self._rollback_cache[threading.current_thread().ident][pk]
+
+    def _reset_rollback_cache(self, pk):
+        """Reset the cache used to potentially rollback the indexes for an instance
+
+        Parameters
+        ----------
+        pk : Any
+            The primary key of the instance for which to reset the rollback cache
+
+        """
+        self._rollback_cache[threading.current_thread().ident].pop(pk, None)
 
     def _rollback(self, pk):
         """Restore the index in its previous state
@@ -280,14 +298,15 @@ class BaseIndex(object):
             The primary key of the instance for which to rollback the index
 
         This uses values that were indexed/deindexed since the last call
-        to `_reset_cache`.
+        to `_reset_rollback_cache`.
         This is used when an error is encountered while updating a value,
         to return to the previous state
         """
 
-        # to avoid using self set that may be updated during the process
-        indexed_values = set(self._indexed_values)
-        deindexed_values = set(self._deindexed_values)
+        # use `set()`, before the loop, to avoid using self set that may be updated during the process
+        cache = self._get_rollback_cache(pk)
+        indexed_values = set(cache.get('indexed_values'))
+        deindexed_values = set(cache.get('deindexed_values'))
 
         for args in indexed_values:
             self.remove(pk, *args)
@@ -788,7 +807,7 @@ class EqualIndex(BaseIndex):
         # current field value]
         logger.debug("adding %s to index %s" % (pk, key))
         if self.store(key, pk, **kwargs):
-            self._indexed_values.add(tuple(args))
+            self._get_rollback_cache(pk)['indexed_values'].add(tuple(args))
 
     def remove(self, pk, *args, **kwargs):
         """Remove the instance tied to the field for the given "value" (via `args`) from the index
@@ -800,7 +819,7 @@ class EqualIndex(BaseIndex):
         key = self.get_storage_key(*args)
         logger.debug("removing %s from index %s" % (pk, key))
         if self.unstore(key, pk, **kwargs):
-            self._deindexed_values.add(tuple(args))
+            self._get_rollback_cache(pk)['deindexed_values'].add(tuple(args))
 
 
 class BaseRangeIndex(BaseIndex):
@@ -986,7 +1005,7 @@ class BaseRangeIndex(BaseIndex):
         logger.debug("adding %s to index %s" % (pk, key))
         member, score = self.prepare_data_to_store(pk, value, **kwargs)
         if self.store(key, member, score):
-            self._indexed_values.add(tuple(args))
+            self._get_rollback_cache(pk)['indexed_values'].add(tuple(args))
 
     def remove(self, pk, *args, **kwargs):
         """Remove the instance tied to the field for the given "value" (via `args`) from the index
@@ -1003,7 +1022,7 @@ class BaseRangeIndex(BaseIndex):
         logger.debug("removing %s from index %s" % (pk, key))
         member, score = self.prepare_data_to_store(pk, value, **kwargs)
         if self.unstore(key, member, score):
-            self._deindexed_values.add(tuple(args))
+            self._get_rollback_cache(pk)['deindexed_values'].add(tuple(args))
 
     def get_boundaries(self, filter_type, value):
         """Compute the boundaries to pass to the sorted-set command depending of the filter type

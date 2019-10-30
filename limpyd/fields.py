@@ -480,7 +480,8 @@ class RedisField(RedisProxyCommand):
                 else:
                     return result
                 finally:
-                    self._reset_indexes_caches()
+                    if self._instance.connected:
+                        self._reset_indexes_rollback_caches(self._instance_pk)
         else:
             return meth(name, *args, **kwargs)
 
@@ -493,13 +494,13 @@ class RedisField(RedisProxyCommand):
         for index in self._indexes:
             index._rollback(pk)
 
-    def _reset_indexes_caches(self):
+    def _reset_indexes_rollback_caches(self, pk):
         """
         Reset attributes used to store deindexed/indexed values, used to
         rollback the index when something failed.
         """
         for index in self._indexes:
-            index._reset_cache()
+            index._reset_rollback_cache(pk)
 
     def get_for_instance(self, pk):
         return self._model.lazy_connect(pk).get_field(self.name)
@@ -1420,7 +1421,7 @@ class PKField(SingleValueField):
         self._set = True
 
         # We have a new pk, so add it to the collection
-        log.debug("Adding %s in %s collection" % (value, self._model._name))
+        log.debug("Adding %s in %s collection" % (value, self._model.__name__))
         self.connection.sadd(self.collection_key, value)
 
         # Finally return 1 as we did a real redis call to the set command
@@ -1434,6 +1435,7 @@ class PKField(SingleValueField):
         if not hasattr(self, '_instance'):
             raise ImplementationError("Impossible to get the PK of an unbound field")
         if not hasattr(self._instance, '_pk'):
+            self._instance._connected = False
             raise DoesNotExist("The current object doesn't exists anymore")
 
         if not self._instance._pk:
