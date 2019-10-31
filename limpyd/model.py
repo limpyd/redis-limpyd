@@ -216,10 +216,15 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
             # Do instanciate, starting by the pk and respecting fields order
             if kwargs_pk_field_name:
                 self.pk.set(kwargs[kwargs_pk_field_name])
-            for field in self.fields:
-                if field.name not in kwargs or self._field_is_pk(field.name):
-                    continue
-                field.proxy_set(kwargs[field.name])
+            try:
+                for field in self.fields:
+                    if field.name not in kwargs or self._field_is_pk(field.name):
+                        continue
+                    field.proxy_set(kwargs[field.name])
+            except UniquenessError:
+                # may be raised if things were added in the meantime. TODO: add lock at model level to avoid this ?
+                self.delete()
+                raise
 
         # --- Instanciate from DB
         if len(args) == 1:
