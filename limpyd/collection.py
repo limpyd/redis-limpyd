@@ -1,18 +1,18 @@
 # -*- coding:utf-8 -*-
 from __future__ import unicode_literals
 
-from copy import copy
 
 from future.builtins import object
 from collections import namedtuple
-
+from copy import copy
+from itertools import product
+from operator import itemgetter
 
 from limpyd.utils import unique_key
 from limpyd.exceptions import *
 from limpyd.fields import SingleValueField
 
-
-ParsedFilter = namedtuple('ParsedFilter', ['index', 'suffix', 'extra_field_parts', 'value'])
+ParsedFilter = namedtuple('ParsedFilter', ['index', 'suffix', 'extra_field_parts', 'value', 'related_filters'])
 
 
 NONE_SLICE = slice(None, None, None)
@@ -368,7 +368,8 @@ class CollectionManager(object):
         for index_key, key_type, is_tmp in parsed_filter.index.get_filtered_keys(
                     parsed_filter.suffix,
                     accepted_key_types=self._accepted_key_types,
-                    *(parsed_filter.extra_field_parts + [parsed_filter.value])
+                    *(parsed_filter.extra_field_parts + [parsed_filter.value]),
+                    related_filters=parsed_filter.related_filters
                 ):
             if key_type not in self._accepted_key_types:
                 raise ValueError('The index key returned by the index %s is not valid' % (
@@ -387,7 +388,7 @@ class CollectionManager(object):
         final_sets = set()
         tmp_keys = set()
 
-        for set_ in sets:
+        for set_ in self._reduce_related_filters(sets):
             if isinstance(set_, str):
                 final_sets.add(set_)
             elif isinstance(set_, ParsedFilter):
@@ -399,6 +400,93 @@ class CollectionManager(object):
                 raise ValueError('Invalid filter type')
 
         return final_sets, tmp_keys
+
+    def _reduce_related_filters(self, sets):
+        """Try to replace single fields filters by multi-fields ones
+
+        Parameters
+        ----------
+        sets : List
+            See ``_prepare_sets``
+
+        Returns
+        -------
+            List
+                List of updated "sets", with some ``ParsedFilter`` that may have been removed
+                and new ones, handling many fields at once, added.
+
+        """
+        if not self.model._multi_fields_index_for_filtering:
+            return sets
+
+        parsed_filters, other_sets = [], []
+        for set_ in sets:
+            (parsed_filters if isinstance(set_, ParsedFilter) else other_sets).append(set_)
+
+        fields_and_suffixes = [
+            ((parsed_filter.index.field.name,  parsed_filter.suffix), parsed_filter)
+            for parsed_filter in parsed_filters
+        ]
+
+        multi_handled = set()
+        handled_together = {}
+        for index in self.model._multi_fields_index_for_filtering:
+            handled_fields_tuples = index.can_filter_fields(list(map(itemgetter(0), fields_and_suffixes)))
+            for handled_fields in handled_fields_tuples:
+                if handled_fields in handled_together:
+                    # group of fields already managed by an index
+                    continue
+                handled_together[handled_fields] = index
+                multi_handled.update(handled_fields)
+
+        many_filters = []
+        if not handled_together:
+            single_filters = parsed_filters
+        else:
+            single_filters = [
+                parsed_filter for field_and_suffix, parsed_filter in fields_and_suffixes
+                if field_and_suffix not in multi_handled
+            ]
+
+            handled_fields_sets = tuple(map(set, handled_together))
+            for handled_fields, index in handled_together.items():
+
+                # ignore the index if indexed fields is a subset of another index we have
+                handled_fields_set = set(handled_fields)
+                if any(handled_fields_set < other_handled_fields_set for other_handled_fields_set in handled_fields_sets):
+                    continue
+
+                groups = []
+                for field_name, suffix in handled_fields:
+                    group = []
+                    for field_and_suffix, parsed_filter in fields_and_suffixes:
+                        if (field_name, suffix) == field_and_suffix:
+                            group.append(parsed_filter)
+                    groups.append(group)
+                for filters in product(*groups):
+                    first_filter = filters[0]
+                    many_filters.append(ParsedFilter(
+                        index, first_filter.suffix, first_filter.extra_field_parts, first_filter.value, {
+                            other_filter.index.field.name:
+                                (other_filter.extra_field_parts + [other_filter.value], other_filter.suffix)
+                            for other_filter in filters[1:]
+                        }
+                    ))
+
+        # raise if we still have fields that cannot be filtered by themselves
+        for parsed_filter in single_filters:
+            if not parsed_filter.index.filter_single_field:
+                field = parsed_filter.index.field
+                key_parts = parsed_filter.extra_field_parts + [field.name]
+                if parsed_filter.suffix:
+                    key_parts.append(parsed_filter.suffix)
+                raise ImplementationError(
+                    'No index found to manage filter "%s" for field %s.%s' % (
+                        '__'.join(key_parts), field._model.__name__, field.name
+                    )
+                )
+
+        return many_filters + single_filters + other_sets
 
     def _get_final_set(self, sets, pk, sort_options):
         """
@@ -503,18 +591,24 @@ class CollectionManager(object):
 
         rest = key_path[field._field_parts - 1:]
         index_suffix = None if not rest else '__'.join(rest)
-        index_to_use = None
-        for index in field._indexes:
-            if index.can_handle_suffix(index_suffix):
+        indexes = [index for index in field._indexes if index.can_handle_suffix(index_suffix)]
+        # start by looking for a single-field index
+        for index in indexes:
+            if index.filter_single_field:
                 index_to_use = index
                 break
-
-        if not index_to_use:
-            raise ImplementationError(
-                'No index found to manage filter %s for field %s.%s' % (
-                    key, field._model.__name__, field.name
+        else:
+            # if not found, check for multi-fields index
+            for index in indexes:
+                if not index.filter_single_field:
+                    index_to_use = index
+                    break
+            else:
+                raise ImplementationError(
+                    'No index found to manage filter "%s" for field %s.%s' % (
+                        key, field._model.__name__, field.name
+                    )
                 )
-            )
 
         return index_to_use, index_suffix, other_field_parts
 
@@ -528,7 +622,7 @@ class CollectionManager(object):
                 # store the info to call the index later, in ``_prepare_sets``
                 # (to avoid doing extra work if the collection is never called)
                 index, suffix, extra_field_parts = self._parse_filter_key(key)
-                parsed_filter = ParsedFilter(index, suffix, extra_field_parts, value)
+                parsed_filter = ParsedFilter(index, suffix, extra_field_parts, value, None)
                 self._lazy_collection['sets'].append(parsed_filter)
 
         return self

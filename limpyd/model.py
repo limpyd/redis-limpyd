@@ -1,8 +1,10 @@
 # -*- coding:utf-8 -*-
 from __future__ import unicode_literals
+
 from future.utils import iteritems, iterkeys
 from future.utils import with_metaclass
 
+from collections import defaultdict
 from logging import getLogger
 from copy import copy
 import inspect
@@ -129,6 +131,12 @@ class MetaRedisModel(MetaRedisProxy):
             for index_class in field.index_classes:
                 index_class._field_model_ready(it, field)
 
+        it._multi_fields_index_for_filtering = [
+            index
+            for field in it.get_fields()
+            for index in field._indexes if not index.filter_single_field
+        ]
+
         return it
 
 
@@ -212,6 +220,28 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
                 if field.unique:
                     field.check_uniqueness(value)
                 self._init_fields.add(field_name)
+
+            # handle uniqueness check for multi-fields indexes
+            if self._multi_fields_index_for_filtering and any(index.unique for index in self._multi_fields_index_for_filtering):
+                passed_fields = {
+                    field.name: kwargs[field.name]
+                    for field in self.fields
+                    if field.name in kwargs and not self._field_is_pk(field.name)
+                }
+                if passed_fields:
+                    handled_together = defaultdict(list)
+                    for index in self._multi_fields_index_for_filtering:
+                        if not index.unique:
+                            continue
+                        handled_fields_tuples = index.can_filter_fields([(field_name, None) for field_name in passed_fields])
+                        for handled_fields in handled_fields_tuples:
+                            handled_together[handled_fields].append(index)
+                    for handled_fields, indexes in handled_together.items():
+                        for index in indexes:
+                            index.check_uniqueness_at_init({
+                                field_name: passed_fields[field_name]
+                                for field_name in dict(handled_fields)
+                            })
 
             # Do instanciate, starting by the pk and respecting fields order
             if kwargs_pk_field_name:

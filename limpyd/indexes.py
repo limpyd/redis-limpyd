@@ -5,6 +5,7 @@ from future.utils import PY3
 from past.builtins import str as oldstr
 
 from collections import defaultdict
+from itertools import product
 from logging import getLogger
 import threading
 
@@ -57,6 +58,8 @@ class BaseIndex(object):
     supported_key_types : Set[str]
         Redis key types supported by the index.
         May include: 'set', 'zset' or 'list'
+    filter_single_field : bool
+        Tell if the index can be used to filter a field independently than others.
 
     Parameters
     -----------
@@ -70,6 +73,7 @@ class BaseIndex(object):
     key = None
     prefix = None
     transform = None
+    filter_single_field = True
 
     configurable_attrs = {
         'prefix', 'transform', 'handle_uniqueness', 'key', 'name'
@@ -112,7 +116,7 @@ class BaseIndex(object):
 
         attrs = {}
         for key in ('prefix', 'handle_uniqueness', 'key'):
-            if key in kwargs:
+            if key in kwargs and key in cls.configurable_attrs:
                 attrs[key] = kwargs.pop(key)
 
         if 'transform' in kwargs:
@@ -1476,3 +1480,94 @@ class NumberRangeIndex(BaseRangeIndex):
         """
         start, end, __ = self.get_boundaries(filter_type, value)  # we have nothing to exclude
         return self.connection.zrangebyscore(key, start, end)
+
+
+class _MultiFieldsIndexMixin(object):
+    """Mixin for multi-fields indexing"""
+
+    filter_single_field = False
+    unique = False
+    handle_uniqueness = False
+
+    @classmethod
+    def handle_configurable_attrs(cls, **kwargs):
+        """Deny passing ``handle_uniqueness``"""
+        cls.configurable_attrs -= {'handle_uniqueness'}
+        return super(_MultiFieldsIndexMixin, cls).handle_configurable_attrs(**kwargs)
+
+    def can_filter_fields(self, fields_and_suffixes):
+        """Tell if the index can handle the given fields + suffixes
+
+        It's a wrapper around ``_can_filter_fields`` that does the real work. This wrapper
+        cache the result.
+
+        Parameters
+        ----------
+        fields_and_suffixes : List[Tuple[str, Union[str, None]]]
+            The fields and suffixes to check.
+            It's a list with each entr being a tuple containing the field name and the suffix.
+
+        Returns
+        -------
+        List[Iterable[Tuple[str, Union[str, None]]]]
+            A list of fields+suffixes that can be handled together among the given ones
+            Each entry is an iterable, each entry of this iterable being a tuple with two values:
+            the field name, and the suffix.
+            The main list holds all the possible combinations
+            Example:
+            [
+                (('name', 'eq'), ('priority', None), ('foo', 'eq')),
+                (('name', 'eq'), ('priority', None), ('foo', 'in')),
+                (('name', None), ('priority', None), ('foo', 'eq')),
+                (('name', None), ('priority', None), ('foo', 'in')),
+            ]
+
+        """
+
+        if not hasattr(self, '_can_filter_fields_cache'):
+            self._can_filter_fields_cache = {}
+
+        fields_and_suffixes = tuple(sorted(fields_and_suffixes, key=lambda val: (val[0], val[1] or '')))
+        if fields_and_suffixes not in self._can_filter_fields_cache:
+            handled = self._can_filter_fields(fields_and_suffixes)
+            if handled:
+                field_names, field_suffixes = zip(*handled)
+                handled = [tuple(zip(field_names, product_values)) for product_values in product(*field_suffixes)]
+            self._can_filter_fields_cache[fields_and_suffixes] =  handled
+
+        return self._can_filter_fields_cache[fields_and_suffixes]
+
+    def _can_filter_fields(self, fields_and_suffixes):
+        """Tell if the index can handle the given fields + suffixes
+
+        For the parameters, see ``can_filter_fields``
+
+        Returns
+        -------
+        List[Tuple[str, Set[Union[None, str]]]
+            If the index can handle the given fields and suffixes, it will return a list with one
+            tuple for each field managed by the index. Each tuple has two entries:
+            - the field name
+            - a set with all handled suffixes among the ones asked in `fields_and_suffixes`.
+            If the index cannot handle the given fields and suffixes, returns an empty list.
+            Example:
+                [('name', {None, 'eq'}), ('priority', {None}), ('foo', {'in', 'eq')}
+            Note: the order may be important in your index. In general, the field to which the
+            index is attached (defined in the model) should be first.
+
+        """
+        raise NotImplementedError
+
+    def check_uniqueness_at_init(self, values):
+        """If the index is ``unique``, check that ``values`` are unique and can be inserted
+
+        Parameters
+        ----------
+        values : Dict[str, Any]
+            The values we want to insert. A dict with field names as keys, and values to set as
+            values.
+            Can contains fields not managed by the index (they will be ignored) but must contain
+            all the fields managed by the index.
+
+        """
+        raise NotImplementedError

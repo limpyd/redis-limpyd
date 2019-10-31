@@ -148,14 +148,14 @@ class ExtendedCollectionManager(CollectionManager):
                 # We have a RedisModel and we'll use its pk, or a RedisField
                 # (single value) and we'll use its value
                 if isinstance(set_.value, RedisModel):
-                    set_ = ParsedFilter(set_.index, set_.suffix, set_.extra_field_parts, set_.value.pk.get())
+                    set_ = ParsedFilter(set_.index, set_.suffix, set_.extra_field_parts, set_.value.pk.get(), set_.related_filters)
                 elif isinstance(set_.value, SingleValueField):
-                    set_ = ParsedFilter(set_.index, set_.suffix, set_.extra_field_parts, set_.value.proxy_get())
+                    set_ = ParsedFilter(set_.index, set_.suffix, set_.extra_field_parts, set_.value.proxy_get(), set_.related_filters)
                 elif isinstance(set_.value, RedisField):
                     raise ValueError(u'Invalid filter value for %s: %s' % (set_.index.field.name, set_.value))
             prepared_sets.append(set_)
 
-        for set_ in prepared_sets:
+        for set_ in self._reduce_related_filters(prepared_sets):
             if isinstance(set_, str):
                 add_key(set_)
             elif isinstance(set_, ParsedFilter):
@@ -599,7 +599,7 @@ class ExtendedCollectionManager(CollectionManager):
                 else:
                     # create an ParsedFilter which will be used in _prepare_sets
                     index, suffix, extra_field_parts = self._parse_filter_key(key)
-                    parsed_filter = ParsedFilter(index, suffix, extra_field_parts, value)
+                    parsed_filter = ParsedFilter(index, suffix, extra_field_parts, value, None)
                     self._lazy_collection['sets'].append(parsed_filter)
 
                 string_filters.pop(key)
