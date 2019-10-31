@@ -2,7 +2,6 @@
 
 from __future__ import unicode_literals
 
-from inspect import isclass
 from logging import getLogger
 
 from limpyd.contrib.collection import ExtendedCollectionManager
@@ -292,52 +291,58 @@ class _ScoredEqualIndex_RelatedIndex(BaseIndex):
     These are class attributes that can be changed via ``configure``:
 
     related_field : RedisField
-        The field on the model that define the ``ScoredEqualIndex``
-    related_index : ScoredEqualIndex
-        The ``ScoredEqualIndex`` defined for the indexed field
+        The field on the model that define the related index
+    related_index_class : Type[ScoredEqualIndex]
+        The index class defined for the indexed field
 
     """
 
     related_field = None
-    related_index = None
-    configurable_attrs = BaseRangeIndex.configurable_attrs | {'related_field', 'related_index'}
+    related_index_class = None
+    configurable_attrs = BaseIndex.configurable_attrs | {'related_field', 'related_index_class'}
 
     def __init__(self, field):
-        """Tie ``related_field`` and ``related_index`` from the class to the right instances."""
+        """Tie ``related_field`` from the class to the right instance."""
         super(_ScoredEqualIndex_RelatedIndex, self).__init__(field)
-
         self.related_field = field._model.get_field(self.related_field.name)
 
-        related_index_class = self.related_index
-        if not isclass(related_index_class):
-            related_index_class = related_index_class.__class__
+    @cached_property
+    def related_index(self):
+        """Get (and cache) the related index to use
 
-        self.related_index = self.related_field.get_index(
-            index_class=related_index_class,
-            key=related_index_class.key,
-            prefix=related_index_class.prefix,
+        Returns
+        -------
+        ScoredEqualIndex
+            The index instance tied to the related field.
+
+
+        """
+        return self.related_field.get_index(
+            index_class=self.related_index_class,
+            key=self.related_index_class.key,
+            prefix=self.related_index_class.prefix,
         )
 
     @classmethod
-    def handle_configurable_attrs(cls, related_index, related_field, **kwargs):
+    def handle_configurable_attrs(cls, related_index_class, related_field, **kwargs):
         """Handle attributes that can be passed to ``configure``.
 
-        This method handle the ``related_field`` and `'related_index`` attribute added in this
+        This method handle the ``related_field`` and `'related_index_class`` attribute added in this
         index class.
 
         Parameters
         ----------
         related_field : RedisField
-            The field on the model that define the ``ScoredEqualIndex``
-        related_index : ScoredEqualIndex
-            The ``ScoredEqualIndex`` defined for the indexed field
+            The field on the model that define the related index
+        related_index_class : Type[ScoredEqualIndex]
+            The related index defined for the indexed field
 
         For the other parameters, see ``BaseIndex.handle_configurable_attrs``.
 
         """
         name, attrs, kwargs = super(_ScoredEqualIndex_RelatedIndex, cls).handle_configurable_attrs(**kwargs)
         attrs['related_field'] = related_field
-        attrs['related_index'] = related_index
+        attrs['related_index_class'] = related_index_class
         return name, attrs, kwargs
 
     def add(self, pk, *args, **kwargs):
@@ -437,7 +442,7 @@ class ScoredEqualIndex(EqualIndex):
         # and create the related index on the other field
         score_field.indexable = True
         score_field.index_classes.append(
-            cls.RelatedIndex.configure(related_field=field, related_index=cls)
+            cls.RelatedIndex.configure(related_field=field, related_index_class=cls)
         )
 
     def __init__(self, field):
