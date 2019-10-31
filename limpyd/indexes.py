@@ -93,6 +93,12 @@ class BaseIndex(object):
             )
         )
 
+    def __repr__(self):
+        return u'%s (field=%s)>' % (
+            super(BaseIndex, self).__repr__()[:-2],
+            repr(self.field),
+        )
+
     @classmethod
     def handle_configurable_attrs(cls, **kwargs):
         """Handle attributes that can be passed to ``configure``.

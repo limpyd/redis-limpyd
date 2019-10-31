@@ -209,6 +209,16 @@ class RedisField(RedisProxyCommand):
         self._creation_order = RedisField._creation_order
         RedisField._creation_order += 1
 
+    def __repr__(self):
+        try:
+            return u'%s (model=%s, name=%s)>' % (
+                super(RedisField, self).__repr__()[:-2],
+                self._model.__name__,
+                self.name,
+            )
+        except Exception:
+            return super(RedisField, self).__repr__()
+
     def get_default_indexes(self):
         if self.__class__.default_indexes is not None:
             return self.__class__.default_indexes
