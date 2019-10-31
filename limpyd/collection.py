@@ -350,6 +350,32 @@ class CollectionManager(object):
 
         return results
 
+    def _prepare_parsed_filter(self, parsed_filter):
+        """Get and validate keys info from given parsed_filter
+
+        Parameters
+        ----------
+        parsed_filter : ParsedFilter
+            The parsed filter for which to extract keys
+
+        Yields
+        -------
+        Tuple[str, str, bool]
+            One or many entries as given by the ``get_filtered_keys`` method of the index tied to
+            the `parsed_filter`. See ``see BaseIndex.get_filtered_keys``.
+
+        """
+        for index_key, key_type, is_tmp in parsed_filter.index.get_filtered_keys(
+                    parsed_filter.suffix,
+                    accepted_key_types=self._accepted_key_types,
+                    *(parsed_filter.extra_field_parts + [parsed_filter.value])
+                ):
+            if key_type not in self._accepted_key_types:
+                raise ValueError('The index key returned by the index %s is not valid' % (
+                    parsed_filter.index.__class__.__name__
+                ))
+            yield index_key, key_type, is_tmp
+
     def _prepare_sets(self, sets):
         """
         Return all sets in self._lazy_collection['sets'] to be ready to be used
@@ -365,16 +391,7 @@ class CollectionManager(object):
             if isinstance(set_, str):
                 final_sets.add(set_)
             elif isinstance(set_, ParsedFilter):
-
-                for index_key, key_type, is_tmp in set_.index.get_filtered_keys(
-                            set_.suffix,
-                            accepted_key_types=self._accepted_key_types,
-                            *(set_.extra_field_parts + [set_.value])
-                        ):
-                    if key_type not in self._accepted_key_types:
-                        raise ValueError('The index key returned by the index %s is not valid' % (
-                            set_.index.__class__.__name__
-                        ))
+                for index_key, key_type, is_tmp in self._prepare_parsed_filter(set_):
                     final_sets.add(index_key)
                     if is_tmp:
                         tmp_keys.add(index_key)

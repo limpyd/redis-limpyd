@@ -104,8 +104,8 @@ class ExtendedCollectionManager(CollectionManager):
 
     def _prepare_sets(self, sets):
         """
-        The original "_prepare_sets" method simple return the list of sets in
-        _lazy_collection, know to be all keys of redis sets.
+        The original "_prepare_sets" method simply return the list of sets in
+        `_lazy_collection`, which only contains redis sets keys.
         As the new "intersect" method can accept different types of "set", we
         have to handle them because we must return only keys of redis sets.
         """
@@ -142,32 +142,25 @@ class ExtendedCollectionManager(CollectionManager):
             if is_tmp:
                 tmp_keys.add(key)
 
+        prepared_sets = []
         for set_ in sets:
+            if isinstance(set_, ParsedFilter):
+                # We have a RedisModel and we'll use its pk, or a RedisField
+                # (single value) and we'll use its value
+                if isinstance(set_.value, RedisModel):
+                    set_ = ParsedFilter(set_.index, set_.suffix, set_.extra_field_parts, set_.value.pk.get())
+                elif isinstance(set_.value, SingleValueField):
+                    set_ = ParsedFilter(set_.index, set_.suffix, set_.extra_field_parts, set_.value.proxy_get())
+                elif isinstance(set_.value, RedisField):
+                    raise ValueError(u'Invalid filter value for %s: %s' % (set_.index.field.name, set_.value))
+            prepared_sets.append(set_)
+
+        for set_ in prepared_sets:
             if isinstance(set_, str):
                 add_key(set_)
             elif isinstance(set_, ParsedFilter):
-
-                value = set_.value
-                # We have a RedisModel and we'll use its pk, or a RedisField
-                # (single value) and we'll use its value
-                if isinstance(value, RedisModel):
-                    value = value.pk.get()
-                elif isinstance(value, SingleValueField):
-                    value = value.proxy_get()
-                elif isinstance(value, RedisField):
-                    raise ValueError(u'Invalid filter value for %s: %s' % (set_.index.field.name, value))
-
-                for index_key, key_type, is_tmp in set_.index.get_filtered_keys(
-                            set_.suffix,
-                            accepted_key_types=self._accepted_key_types,
-                            *(set_.extra_field_parts + [value])
-                        ):
-                    if key_type not in self._accepted_key_types:
-                        raise ValueError('The index key returned by the index %s is not valid' % (
-                            set_.index.__class__.__name__
-                        ))
+                for index_key, key_type, is_tmp in self._prepare_parsed_filter(set_):
                     add_key(index_key, key_type, is_tmp)
-
             elif isinstance(set_, SetField):
                 # Use the set key. If we need to intersect, we'll use
                 # sunionstore, and if not, store accepts set
