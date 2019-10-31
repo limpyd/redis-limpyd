@@ -398,7 +398,12 @@ class BaseIndex(object):
 
         raise NotImplementedError
 
-    def assert_pks_uniqueness(self, pks, exclude, value):
+    @property
+    def unique_index_name(self):
+        """Get a string to describe the index in case of UniquenessError"""
+        return 'unique field %s.%s' % (self.model.__name__, self.field.name)
+
+    def assert_pks_uniqueness(self, pks, exclude, get_display_value):
         """Check uniqueness of pks
 
         Parameters
@@ -411,8 +416,8 @@ class BaseIndex(object):
             The pk that we accept to be the only one in `pks`. For example
             the pk of the instance we want to check for uniqueness: we don't
             want to raise if the value is the one already set for this instance
-        value: any
-            Only to be displayed in the error message.
+        get_display_value: callable
+            Called to display the value in the error message.
 
         Raises
         ------
@@ -425,14 +430,12 @@ class BaseIndex(object):
         if len(pks) > 1:
             # this may not happen !
             raise UniquenessError(
-                "Multiple values indexed for unique field %s.%s: %s" % (
-                    self.model.__name__, self.field.name, pks
-                )
+                "Multiple values indexed for %s: %s" % (self.unique_index_name, pks)
             )
         elif len(pks) == 1 and (not exclude or pks[0] != exclude):
             raise UniquenessError(
-                'Value "%s" already indexed for unique field %s.%s (for instance %s)' % (
-                    self.normalize_value(value), self.model.__name__, self.field.name, pks[0]
+                'Value "%s" already indexed for %s (for instance %s)' % (
+                    get_display_value(), self.unique_index_name, pks[0]
                 )
             )
 
@@ -744,7 +747,7 @@ class EqualIndex(BaseIndex):
         # Lets check if the index key already exist for another instance
         pks = self.get_uniqueness_members(key)
 
-        self.assert_pks_uniqueness(pks, pk, list(args)[-1])
+        self.assert_pks_uniqueness(pks, pk, lambda: list(args)[-1])
 
     def store(self, key, pk, **kwargs):
         """Store data in the index in redis
@@ -932,7 +935,7 @@ class BaseRangeIndex(BaseIndex):
         value = list(args)[-1]
         pks = self.get_pks_for_filter(key, 'eq', self.normalize_value(value))
 
-        self.assert_pks_uniqueness(pks, pk, value)
+        self.assert_pks_uniqueness(pks, pk, lambda: value)
 
     def store(self, key, member, score):
         """Store data in the index in redis
