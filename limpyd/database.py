@@ -66,8 +66,7 @@ class RedisDatabase(object):
             settings = self.connection_settings
         connection_key = ':'.join([str(settings[k]) for k in sorted(settings)])
         if connection_key not in self._connections:
-            self._connections[connection_key] = redis.StrictRedis(
-                                            decode_responses=True, **settings)
+            self._connections[connection_key] = redis.Redis(decode_responses=True, **settings)
             self.ensure_redis_versions()
         return self._connections[connection_key]
 

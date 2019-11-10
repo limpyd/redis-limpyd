@@ -267,7 +267,7 @@ class BaseIndex(object):
 
         Returns
         -------
-        StrictRedis
+        Redis
             The redis connection object used to talk to redis.
 
         """
