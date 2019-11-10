@@ -10,7 +10,7 @@ from logging import getLogger
 import threading
 
 from limpyd.exceptions import ImplementationError, LimpydException, UniquenessError
-from limpyd.utils import unique_key
+from limpyd.utils import make_key, unique_key
 
 logger = getLogger(__name__)
 
@@ -587,6 +587,18 @@ class BaseIndex(object):
         """
         pass
 
+    def _unique_key(self, prefix=None):
+        """
+        Create a unique key.
+        """
+        prefix_parts = [self.model._name, '__index__', self.__class__.__name__.lower()]
+        if prefix:
+            prefix_parts.append(prefix)
+        return unique_key(
+            self.connection,
+            prefix=make_key(*prefix_parts)
+        )
+
 
 class EqualIndex(BaseIndex):
     """Default simple equal index."""
@@ -631,7 +643,7 @@ class EqualIndex(BaseIndex):
                 for value in values
             ]
 
-            tmp_key = unique_key(self.connection)
+            tmp_key = self._unique_key('tmp')
             self.union_filtered_in_keys(tmp_key, *in_keys)
 
             return [(tmp_key, 'set', True)]
@@ -1104,7 +1116,7 @@ class BaseRangeIndex(BaseIndex):
         self._check_key_accepted_key_types(accepted_key_types)
 
         key_type = 'set' if not accepted_key_types or 'set' in accepted_key_types else 'zset'
-        tmp_key = unique_key(self.connection)
+        tmp_key = self._unique_key('tmp')
         args = list(args)
 
         # special "in" case: we get n keys and make an unionstore with them then return this key

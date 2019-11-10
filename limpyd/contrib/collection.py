@@ -14,6 +14,7 @@ from limpyd.fields import (SetField, ListField, SortedSetField, MultiValuesField
                            RedisField, SingleValueField)
 from limpyd.exceptions import DoesNotExist
 from limpyd.contrib.database import PipelineDatabase
+from limpyd.utils import make_key
 
 SORTED_SCORE = 'sorted_score'
 DEFAULT_STORE_TTL = 60
@@ -173,7 +174,7 @@ class ExtendedCollectionManager(CollectionManager):
                 add_key(set_.key, 'list')
             elif isinstance(set_, tuple) and len(set_):
                 # if we got a list or set, create a redis set to hold its values
-                tmp_key = self._unique_key()
+                tmp_key = self._unique_key('tmp')
                 conn.sadd(tmp_key, *set_)
                 add_key(tmp_key, 'set', True)
             else:
@@ -187,7 +188,7 @@ class ExtendedCollectionManager(CollectionManager):
                 # we have many sets/lists, we need to convert them to sets
                 for list_key in lists:
                     # many sets, convert the list to a simple redis set
-                    tmp_key = self._unique_key()
+                    tmp_key = self._unique_key('tmp')
                     self._list_to_set(list_key, tmp_key)
                     add_key(tmp_key, 'set', True)
 
@@ -381,13 +382,13 @@ class ExtendedCollectionManager(CollectionManager):
                 result.append((value, score))
 
         # create a temporary key for each (value,score) tuple
-        base_tmp_key = self._unique_key()
+        base_tmp_key = self._unique_key('tmp')
         conn.set(base_tmp_key, 'working...')  # only to "reserve" the main tmp key
         tmp_keys = []
         # use a mapping dict (tmp_key_with_value=>score) to use in mset
         mapping = {}
         for value, score in result:
-            tmp_key = '%s:%s' % (base_tmp_key, value)
+            tmp_key = make_key(base_tmp_key, value)
             tmp_keys.append(tmp_key)
             mapping[tmp_key] = score
         # set all keys in one call
@@ -697,7 +698,7 @@ class ExtendedCollectionManager(CollectionManager):
                 clone._values = None
 
             # create a key for storage
-            store_key = key or clone._unique_key()
+            store_key = key or clone._unique_key('store')
             if clone._sort is None:
                 clone._sort = {}
             clone._sort['store'] = store_key

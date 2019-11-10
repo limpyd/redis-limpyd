@@ -36,6 +36,12 @@ class UniqueKeyTest(LimpydBaseTest):
         key2 = unique_key(self.connection)
         self.assertNotEqual(key1, key2)
 
+    def test_generated_key_must_accept_prefix(self):
+        key1 = unique_key(self.connection, 'foo')
+        self.assertTrue(key1.startswith('foo:'))
+        key2 = unique_key(self.connection)
+        self.assertNotEqual(key1, key2)
+
 
 class LimpydBaseTestTest(LimpydBaseTest):
     """

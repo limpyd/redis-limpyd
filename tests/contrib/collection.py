@@ -325,55 +325,55 @@ class IntersectTest(BaseTest):
         super(IntersectTest, self).tearDown()
 
     def test_intersect_should_accept_set_key_as_string(self):
-        set_key = unique_key(self.connection)
+        set_key = unique_key(self.connection, 'tests')
         self.connection.sadd(set_key, 1, 2)
         collection = set(Group.collection().intersect(set_key))
         self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
         self.assertEqual(collection, {'1', '2'})
 
-        set_key = unique_key(self.connection)
+        set_key = unique_key(self.connection, 'tests')
         self.connection.sadd(set_key, 1, 2, 10, 50)
         collection = set(Group.collection().intersect(set_key))
         self.assertEqual(collection, {'1', '2'})
 
     def test_intersect_should_accept_sortedset_key_as_string(self):
-        zset_key = unique_key(self.connection)
+        zset_key = unique_key(self.connection, 'tests')
         self.connection.zadd(zset_key, {1: 1.0, 2: 2.0})
         collection = set(Group.collection().intersect(zset_key))
         self.assertEqual(self.last_interstore_call['command'], 'zinterstore')
         self.assertEqual(collection, {'1', '2'})
 
-        zset_key = unique_key(self.connection)
+        zset_key = unique_key(self.connection, 'tests')
         self.connection.zadd(zset_key, {1: 1.0, 2: 2.0, 10: 10.0, 50: 50.0})
         collection = set(Group.collection().intersect(zset_key))
         self.assertEqual(collection, {'1', '2'})
 
     def test_intersect_should_accept_list_key_as_string(self):
-        list_key = unique_key(self.connection)
+        list_key = unique_key(self.connection, 'tests')
         self.connection.lpush(list_key, 1, 2)
         collection = set(Group.collection().intersect(list_key))
         self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
         self.assertEqual(collection, {'1', '2'})
 
-        list_key = unique_key(self.connection)
+        list_key = unique_key(self.connection, 'tests')
         self.connection.lpush(list_key, 1, 2, 10, 50)
         collection = set(Group.collection().intersect(list_key))
         self.assertEqual(collection, {'1', '2'})
 
     def test_intersect_should_not_accept_string_key_as_string(self):
-        str_key = unique_key(self.connection)
+        str_key = unique_key(self.connection, 'tests')
         self.connection.set(str_key, 'foo')
         with self.assertRaises(ValueError):
             set(Group.collection().intersect(str_key))
 
     def test_intersect_should_not_accept_hkey_key_as_string(self):
-        hash_key = unique_key(self.connection)
+        hash_key = unique_key(self.connection, 'tests')
         self.connection.hset(hash_key, 'foo', 'bar')
         with self.assertRaises(ValueError):
             set(Group.collection().intersect(hash_key))
 
     def test_intersect_should_consider_non_existent_key_as_set(self):
-        no_key = unique_key(self.connection)
+        no_key = unique_key(self.connection, 'tests')
         collection = set(Group.collection().intersect(no_key))
         self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
         self.assertEqual(collection, set())
@@ -709,6 +709,15 @@ class StoreTest(BaseTest):
         self.assertTrue(0 <= self.connection.ttl(stored_collection.stored_key) <= 1)
         time.sleep(1.1)
         self.assertFalse(self.connection.exists(stored_collection.stored_key))
+
+    def test_stored_key_should_be_created_if_not_given(self):
+        collection = Group.collection(active=1).sort(by='-name', alpha=True)
+        stored_collection = collection.store()
+        stored_key = stored_collection.stored_key
+        self.assertTrue(stored_key.startswith('contrib-collection:group:__collection__:store:'))
+        self.assertNotEqual(stored_key, 'contrib-collection:group:__collection__:store:')
+        self.assertTrue(0 <= self.connection.ttl(stored_key) <= DEFAULT_STORE_TTL)
+        self.assertTrue(self.connection.exists(stored_key))
 
     def test_stored_key_should_be_the_given_one_if_set(self):
         collection = Group.collection(active=1).sort(by='-name', alpha=True)

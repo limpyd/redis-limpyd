@@ -629,7 +629,7 @@ class ScoredEqualIndexTestCase(LimpydBaseTest):
             'tests:scoredequalindexmodel:queue_name:equal-scored:bar',
         })
         # and all content via zunionstore, sorted by score field
-        tmp_key = unique_key(self.connection)
+        tmp_key = unique_key(self.connection, 'tests')
         self.connection.zunionstore(tmp_key, keys=all_keys)
         self.assertListEqual(self.connection.zrange(tmp_key, 0, -1, withscores=True), [
             (obj2.pk.get(), -2.0),

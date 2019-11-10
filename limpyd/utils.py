@@ -9,17 +9,44 @@ log = getLogger(__name__)
 
 
 def make_key(*args):
-    """Create the key concatening all args with `:`."""
+    """Create the key concatenating all args with `:`.
+
+    Parameters
+    ----------
+    args : str
+        List of parts of the key that will be converted to strings and concatenated, separated
+        by a `:`
+
+    Returns
+    -------
+    str
+        The concatenated string
+
+    """
     return u":".join(str(arg) for arg in args)
 
 
-def unique_key(connection):
-    """
-    Generate a unique keyname that does not exists is the connection
-    keyspace.
+def unique_key(connection, prefix=None):
+    """Generate a unique key that does not exists is the connection key space.
+
+    Parameters
+    ----------
+    connection : Redis
+        The redis connection on which to ensure the key does not exist
+    prefix : Optional[str]
+        If set, the key will be prefixed with this prefix (separated from the generated part with
+        a `:`
+
+    Returns
+    -------
+    str
+        A key that is, at the moment, guaranteed not to exist
+
     """
     while 1:
         key = str(uuid.uuid4().hex)
+        if prefix:
+            key = make_key(prefix, key)
         if not connection.exists(key):
             break
     return key

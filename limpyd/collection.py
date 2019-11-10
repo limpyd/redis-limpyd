@@ -8,7 +8,7 @@ from copy import copy
 from itertools import product
 from operator import itemgetter
 
-from limpyd.utils import unique_key
+from limpyd.utils import make_key, unique_key
 from limpyd.exceptions import *
 from limpyd.fields import SingleValueField
 
@@ -510,7 +510,7 @@ class CollectionManager(object):
             if pk is not None:
                 # create a set with the pk to do intersection (and to pass it to
                 # the store command to retrieve values if needed)
-                tmp_key = self._unique_key()
+                tmp_key = self._unique_key('tmp')
                 conn.sadd(tmp_key, pk)
                 all_sets.add(tmp_key)
                 tmp_keys.add(tmp_key)
@@ -536,7 +536,7 @@ class CollectionManager(object):
             # more than one set, do an intersection on all of them in a new key
             # that will must be deleted once the collection is called.
             delete_set_later = True
-            final_set = self._combine_sets(all_sets, self._unique_key())
+            final_set = self._combine_sets(all_sets, self._unique_key('final'))
 
         if tmp_keys:
             conn.delete(*tmp_keys)
@@ -713,8 +713,14 @@ class CollectionManager(object):
     def sort(self, **parameters):
         return self.clone()._apply_sort(**parameters)
 
-    def _unique_key(self):
+    def _unique_key(self, prefix=None):
         """
         Create a unique key.
         """
-        return unique_key(self.model.get_connection())
+        prefix_parts = [self.model._name, '__collection__']
+        if prefix:
+            prefix_parts.append(prefix)
+        return unique_key(
+            self.model.get_connection(),
+            prefix=make_key(*prefix_parts)
+        )
