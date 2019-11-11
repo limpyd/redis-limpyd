@@ -77,31 +77,22 @@ class ExtendedCollectionManager(CollectionManager):
             keys=[list_key, set_key]
         )
 
-    def _get_collection(self, slice=None):
+    def _fetch_collection(self, apply_slice=None):
         """
         Effectively retrieve data according to lazy_collection.
         If we have a stored collection, without any result, return an empty list
         """
-        old_sort_limits_and_len_mode = None if self._sort_limits is None else self._sort_limits.copy(), self._len_mode
-        old_sorts = None if self._sort is None else self._sort.copy(),\
-                    None if self._sort_by_sortedset is None else self._sort_by_sortedset.copy()
-        try:
-            if self.stored_key and not self._stored_len:
-                if self._len_mode:
-                    self._len = 0
-                    self._len_mode = False
-                self._sort_limits = {}
-                return iter(())
+        if self.stored_key and not self._stored_len:
+            self._sort_limits = {}
+            self._cache_empty_collection()
+            return
 
-            # Manage sort desc added by original `__getitem__` when we sort by score
-            if self._sort_by_sortedset and self._sort and self._sort.get('desc'):
-                self._sort = None
-                self._sort_by_sortedset['desc'] = not self._sort_by_sortedset.get('desc', False)
+        # Manage sort desc added by original `__getitem__` when we sort by score
+        if self._sort_by_sortedset and self._sort and self._sort.get('desc'):
+            self._sort = None
+            self._sort_by_sortedset['desc'] = not self._sort_by_sortedset.get('desc', False)
 
-            return super(ExtendedCollectionManager, self)._get_collection(slice=slice)
-        finally:
-            self._sort_limits, self._len_mode = old_sort_limits_and_len_mode
-            self._sort, self._sort_by_sortedset = old_sorts
+        super(ExtendedCollectionManager, self)._fetch_collection(apply_slice=apply_slice)
 
     def _prepare_sets(self, sets):
         """
@@ -115,7 +106,7 @@ class ExtendedCollectionManager(CollectionManager):
             raise DoesNotExist('This collection is based on a previous one, '
                                'stored at a key that does not exist anymore.')
 
-        conn = self.model.get_connection()
+        conn = self.connection
 
         all_sets = set()
         tmp_keys = set()
@@ -246,7 +237,7 @@ class ExtendedCollectionManager(CollectionManager):
         If we have a least a sorted set, use zinterstore insted of sunionstore
         """
         if self._has_sortedsets:
-            self.model.get_connection().zinterstore(final_set, list(sets))
+            self.connection.zinterstore(final_set, list(sets))
         else:
             final_set = super(ExtendedCollectionManager, self)._combine_sets(sets, final_set)
         return final_set
@@ -259,7 +250,7 @@ class ExtendedCollectionManager(CollectionManager):
         options, call zrange on the final set wich is the result of a call to
         zinterstore.
         """
-        conn = self.model.get_connection()
+        conn = self.connection
 
         # we have a sorted set without need to sort, use zrange
         if self._has_sortedsets and sort_options is None:
@@ -274,16 +265,30 @@ class ExtendedCollectionManager(CollectionManager):
 
             return conn.lrange(final_set, 0, -1)
 
-        # normal call
-        return super(ExtendedCollectionManager, self)._final_redis_call(
-                                                        final_set, sort_options)
+        keys_to_delete_after = set()
+        try:
+            if final_set and self._sort_by_sortedset_before:
+                # TODO: if we have filters, maybe apply _zet_to_keys to only
+                #       intersected values
+                base_tmp_key, tmp_keys = self._prepare_sort_by_score(None, sort_options)
+                # new keys have to be deleted once the final sort is done
+                keys_to_delete_after.add(base_tmp_key)
+                keys_to_delete_after |= tmp_keys
+
+            # normal call
+            return super(ExtendedCollectionManager, self)._final_redis_call(
+                                                            final_set, sort_options)
+
+        finally:
+            if keys_to_delete_after:
+                conn.delete(*keys_to_delete_after)
 
     def _collection_length(self, final_set):
         """
         Return the length of the final collection, directly asking redis for the
         count without calling sort
         """
-        conn = self.model.get_connection()
+        conn = self.connection
 
         # we have a sorted set without need to sort, use zcard
         if self._has_sortedsets:
@@ -351,7 +356,7 @@ class ExtendedCollectionManager(CollectionManager):
         If a value in values is not on the sorted set, it's still saved as a key
         but with a default value ('' is alpha is True, else '-inf')
         """
-        conn = self.model.get_connection()
+        conn = self.connection
         default = '' if alpha else '-inf'
         if values is None:
             # no values given, we get scores from the whole sorted set
@@ -384,12 +389,12 @@ class ExtendedCollectionManager(CollectionManager):
         # create a temporary key for each (value,score) tuple
         base_tmp_key = self._unique_key('tmp')
         conn.set(base_tmp_key, 'working...')  # only to "reserve" the main tmp key
-        tmp_keys = []
+        tmp_keys = set()
         # use a mapping dict (tmp_key_with_value=>score) to use in mset
         mapping = {}
         for value, score in result:
             tmp_key = make_key(base_tmp_key, value)
-            tmp_keys.append(tmp_key)
+            tmp_keys.add(tmp_key)
             mapping[tmp_key] = score
         # set all keys in one call
         conn.mset(mapping)
@@ -425,7 +430,7 @@ class ExtendedCollectionManager(CollectionManager):
 
         return base_tmp_key, tmp_keys
 
-    def _prepare_results(self, results, slice=None):
+    def _prepare_results(self, results, apply_slice=None):
         """
         Sort results by score if not done before (faster, if we have no values to
         retrieve, or slice)
@@ -434,7 +439,7 @@ class ExtendedCollectionManager(CollectionManager):
         # (no slice), we can do it know, by creating keys for each values with
         # the sorted set score, and sort on them
         if self._sort_by_sortedset_after and (len(results) > 1 or self._values):
-            conn = self.model.get_connection()
+            conn = self.connection
 
             sort_params = {}
             base_tmp_key, tmp_keys = self._prepare_sort_by_score(results, sort_params)
@@ -444,10 +449,10 @@ class ExtendedCollectionManager(CollectionManager):
             conn.sadd(final_set, *results)
 
             # apply the sort
-            results = conn.sort(final_set, **sort_params)
+            results = list(conn.sort(final_set, **sort_params))
 
             # finally delete all temporary keys
-            conn.delete(*(tmp_keys + [final_set, base_tmp_key]))
+            conn.delete(*(tmp_keys | {final_set, base_tmp_key}))
 
         if self._store:
             # if store, redis doesn't return result, so don't return anything here
@@ -455,25 +460,25 @@ class ExtendedCollectionManager(CollectionManager):
             results = []
 
         else:
-            if slice is not None:
-                results = list(results)[slice]
-            _len_hint = len(results)
+            results = list(results)
+
             if self._values and self._values['mode'] != 'flat':
-                results = self._to_values(results)
+                # regroup results by tuples when we have many values by entry
+                results = list(zip(*([iter(results)] * len(self._values['fields']['names']))))
 
-        return super(ExtendedCollectionManager, self)._prepare_results(results, _len_hint)
+            if apply_slice is not None:
+                results = results[apply_slice]
+            _len_hint = len(results)
 
-    def _to_values(self, collection):
-        """
-        Regroup values in tuples or dicts for each "instance".
-        Exemple: Given this result from redis: ['id1', 'name1', 'id2', 'name2']
-         tuples: [('id1', 'name1'), ('id2', 'name2')]
-         dicts:  [{'id': 'id1', 'name': 'name1'}, {'id': 'id2', 'name': 'name2'}]
-        """
-        result = zip(*([iter(collection)] * len(self._values['fields']['names'])))
-        if self._values['mode'] == 'dicts':
-            result = (dict(zip(self._values['fields']['names'], a_result)) for a_result in result)
-        return result
+        results, iterator_function = super(ExtendedCollectionManager, self)._prepare_results(results, _len_hint)
+
+        if self._values and self._values['mode'] == 'dicts':
+            iterator_function = self._to_values_dict
+
+        return results, iterator_function
+
+    def _to_values_dict(self, collection_entry):
+        return dict(zip(self._values['fields']['names'], collection_entry))
 
     @property
     def _sort_by_sortedset_before(self):
@@ -546,24 +551,7 @@ class ExtendedCollectionManager(CollectionManager):
             if not self._lazy_collection['sets'] and not self.stored_key:
                 sets.append(self.model.get_field('pk').collection_key)
 
-        final_set, keys_to_delete_later = super(ExtendedCollectionManager,
-                                    self)._get_final_set(sets, pk, sort_options)
-
-        # if we have a slice and we want to sort by the score of a sorted set,
-        # as redis sort command doesn't handle this, we have to create keys for
-        # each value of the sorted set and sort on them
-        # @antirez, y u don't allow this !!??!!
-        if final_set and self._sort_by_sortedset_before:
-            # TODO: if we have filters, maybe apply _zet_to_keys to only
-            #       intersected values
-            base_tmp_key, tmp_keys = self._prepare_sort_by_score(None, sort_options)
-            # new keys have to be deleted once the final sort is done
-            if not keys_to_delete_later:
-                keys_to_delete_later = []
-            keys_to_delete_later.append(base_tmp_key)
-            keys_to_delete_later += tmp_keys
-
-        return final_set, keys_to_delete_later
+        return super(ExtendedCollectionManager, self)._get_final_set(sets, pk, sort_options)
 
     def _add_filters(self, **filters):
         """
@@ -684,50 +672,45 @@ class ExtendedCollectionManager(CollectionManager):
         want expiration.
         """
         clone = self.clone()
-        old_sort_limits_and_len_mode = None if clone._sort_limits is None else clone._sort_limits.copy(), clone._len_mode
-        try:
-            clone._store = True
+        clone._store = True
 
-            # save sort and values options
-            sort_options = None
-            if clone._sort is not None:
-                sort_options = clone._sort.copy()
-            values = None
-            if clone._values is not None:
-                values = clone._values
-                clone._values = None
+        # save sort and values options
+        sort_options = None
+        if clone._sort is not None:
+            sort_options = clone._sort.copy()
+        values = None
+        if clone._values is not None:
+            values = clone._values
+            clone._values = None
 
-            # create a key for storage
-            store_key = key or clone._unique_key('store')
-            if clone._sort is None:
-                clone._sort = {}
-            clone._sort['store'] = store_key
+        # create a key for storage
+        store_key = key or clone._unique_key('store')
+        if clone._sort is None:
+            clone._sort = {}
+        clone._sort['store'] = store_key
 
-            # if filter by pk, but without need to get "values", no redis call is done
-            # so force values to get a call to sort (to store result)
-            if clone._lazy_collection['pks'] and not clone._values:
-               clone._apply_values('pk')
+        # if filter by pk, but without need to get "values", no redis call is done
+        # so force values to get a call to sort (to store result)
+        if clone._lazy_collection['pks'] and not clone._values:
+           clone._apply_values('pk')
 
-            # call the collection
-            clone._len_mode = False
-            clone._get_collection()
+        # call the collection
+        clone._len_mode = False
+        clone._fetch_collection()
 
-            # create the new collection
-            stored_collection = clone.__class__(clone.model).from_stored(store_key)
+        # create the new collection
+        stored_collection = clone.__class__(clone.model).from_stored(store_key)
 
-            # apply ttl if needed
-            if ttl is not None:
-                clone.model.get_connection().expire(store_key, ttl)
+        # apply ttl if needed
+        if ttl is not None:
+            clone.model.get_connection().expire(store_key, ttl)
 
-            # set choices about instances/values from the current to the new collection
-            for attr in ('_instances', '_lazy_instances', '_values'):
-                setattr(stored_collection, attr, deepcopy(getattr(clone, attr)))
+        # set choices about instances/values from the current to the new collection
+        for attr in ('_instances', '_lazy_instances', '_values'):
+            setattr(stored_collection, attr, deepcopy(getattr(clone, attr)))
 
-            # finally return the new collection
-            return stored_collection
-
-        finally:
-            clone._sort_limits, clone._len_mode = old_sort_limits_and_len_mode
+        # finally return the new collection
+        return stored_collection
 
     def from_stored(self, key):
         """
@@ -756,7 +739,7 @@ class ExtendedCollectionManager(CollectionManager):
         Check the existence of the stored key (useful if the collection is based
         on a stored one, to check if the redis key still exists)
         """
-        return self.model.get_connection().exists(self.stored_key)
+        return self.connection.exists(self.stored_key)
 
     def _reset_result_type(self):
         """

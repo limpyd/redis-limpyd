@@ -16,7 +16,7 @@ The filtering has some limitations:
 - no ``not`` (only able to find matching fields, not to exclude some)
 - no `join`` (filter on one model only)
 
-The result of a call to the ``collection`` is lazy. The query is only sent to ``Redis`` when data is really needed, to display or do computation with them.
+The result of a call to the ``collection`` is lazy. The query is only sent to ``Redis`` when data is really needed, to display or do computation with them. Then, an generator is returned.
 
 By default, a collection yields a list of primary keys for all the matching objects, but you can sort them, retrieve only a part, and/or directly get full instances instead of primary keys. In each case, you'll get a generator, not a list.
 

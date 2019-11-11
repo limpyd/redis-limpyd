@@ -93,7 +93,7 @@ class LimpydBaseTest(unittest.TestCase):
             this list
         check_only_length: bool
             Default to ``False``. When ``True``, only the length of the slicing of the collection
-            is comparedc to the slicing of the python list. To be used only when resulting content
+            is compared to the slicing of the python list. To be used only when resulting content
             cannot be assured (for unsorted collections)
         limit: int
             Default to ``5``, it's the boundary of the slicing ranges that will be tested.
@@ -109,38 +109,37 @@ class LimpydBaseTest(unittest.TestCase):
             assert sorted(collection) == check_data, 'Wrong dataset for this test'
 
         # do all the slices
-        total = 0
         for start in list(range(-limit, limit+1)) + [None]:
             for stop in list(range(-limit, limit+1)) + [None]:
                 for step in range(-limit, limit+1):
                     if not step:
                         continue
-                    with self.subTest(Start=start, Stop=stop, step=step):
-                        total += 1
+                    expected = check_data[start:stop:step]
+                    for test_collection, clone in ((collection, False), (collection.clone(), True)):
+                        with self.subTest(Start=start, Stop=stop, step=step, clone=clone):
 
-                        sliced_collection = collection[start:stop:step]
-                        expected = check_data[start:stop:step]
+                            sliced_collection = test_collection[start:stop:step]
 
-                        if not check_only_length:
+                            if not check_only_length:
+                                self.assertEqual(
+                                    list(sliced_collection),
+                                    expected,
+                                    'Unexpected result for `%s:%s:%s`' % (
+                                        '' if start is None else start,
+                                        '' if stop is None else stop,
+                                        '' if step is None else step,
+                                    )
+                                )
+
                             self.assertEqual(
-                                list(sliced_collection),
-                                expected,
-                                'Unexpected result for `%s:%s:%s`' % (
+                                len(sliced_collection),
+                                len(expected),
+                                'Unexpected length result for `%s:%s:%s`' % (
                                     '' if start is None else start,
                                     '' if stop is None else stop,
                                     '' if step is None else step,
                                 )
                             )
-
-                        self.assertEqual(
-                            len(sliced_collection),
-                            len(expected),
-                            'Unexpected length result for `%s:%s:%s`' % (
-                                '' if start is None else start,
-                                '' if stop is None else stop,
-                                '' if step is None else step,
-                            )
-                        )
 
 
 class _AssertNumCommandsContext(object):

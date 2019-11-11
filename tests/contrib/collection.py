@@ -4,6 +4,8 @@ from __future__ import unicode_literals
 import time
 import unittest
 
+from redis import ResponseError
+
 from limpyd import fields
 from limpyd.contrib.collection import ExtendedCollectionManager, SORTED_SCORE, DEFAULT_STORE_TTL
 from limpyd.utils import unique_key
@@ -685,12 +687,6 @@ class SortByScoreTest(BaseTest):
 
 class StoreTest(BaseTest):
 
-    def test_calling_store_should_return_a_new_collection(self):
-        collection = Group.collection(active=1).sort(by='-name', alpha=True)
-        stored_collection = collection.store()
-        self.assertNotEqual(collection, stored_collection)
-        self.assertListEqual(list(collection), list(stored_collection))
-
     def test_ttl_of_stored_collection_should_be_set(self):
         collection = Group.collection(active=1).sort(by='-name', alpha=True)
 
@@ -755,16 +751,17 @@ class StoreTest(BaseTest):
 
         commands_before = self.count_commands()
         time_before = time.time()
-        list(stored_collection)
+        first = list(stored_collection)
         stored_duration = time.time() - time_before
         stored_commands = self.count_commands() - commands_before
 
         self.assertTrue(default_duration > stored_duration)
         self.assertTrue(default_commands > stored_commands)
 
-        with self.assertNumCommands(2):
-            # 2 commands: one to check key existence, one for the lrange
-            list(stored_collection)
+        with self.assertNumCommands(0):
+            # result is cached, no more commands
+            second = list(stored_collection)
+        self.assertListEqual(first, second)
 
     def test_stored_collection_could_be_filtered(self):
         # but it's not recommanded as we have to convert the list into a set
@@ -820,17 +817,38 @@ class LenTest(BaseTest):
         container = GroupsContainer()
         container.groups_sortedset.zadd({1: 1.0, 2: 2.0})
         collection = Group.collection().intersect(container.groups_sortedset)
-        collection.sort(by='name')  # to fail if sort called, becase alpha not set
+        # sorting will fail because alpha is not set to True
+        collection = collection.sort(by='name')
+
+        # len won't fail on sort, not called
         self.assertEqual(len(collection), 2)
+
+        # real call => the sort will fail
+        with self.assertRaises(ResponseError):
+            self.assertEqual(len(list(collection)), 2)
 
     def test_len_should_work_with_stored_collection(self):
         collection = Group.collection(active=1)
+        # sorting will fail because alpha is not set to True
         stored_collection = collection.store().sort(by='name')
+
+        # len won't fail on sort, not called
         self.assertEqual(len(stored_collection), 2)
 
+        # real call => the sort will fail
+        with self.assertRaises(ResponseError):
+            self.assertEqual(len(list(stored_collection)), 2)
+
     def test_len_should_work_with_values(self):
+        # sorting will fail because alpha is not set to True
         collection = Group.collection(active=1).sort(by='name').values()
+
+        # len won't fail on sort, not called
         self.assertEqual(len(collection), 2)
+
+        # real call => the sort will fail
+        with self.assertRaises(ResponseError):
+            self.assertEqual(len(list(collection)), 2)
 
 
 class Boat(BaseBoat):

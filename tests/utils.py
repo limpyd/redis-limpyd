@@ -3,11 +3,13 @@ from __future__ import absolute_import
 from __future__ import unicode_literals
 from future.builtins import str
 
-import unittest
+from platform import python_implementation
 
 from limpyd.utils import make_key, unique_key
 
 from .base import LimpydBaseTest
+
+is_pypy = python_implementation() == 'PyPy'
 
 
 class MakeKeyTest(LimpydBaseTest):

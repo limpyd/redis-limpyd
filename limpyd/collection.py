@@ -18,6 +18,92 @@ ParsedFilter = namedtuple('ParsedFilter', ['index', 'suffix', 'extra_field_parts
 NONE_SLICE = slice(None, None, None)
 
 
+class CollectionResults(object):
+    def __init__(self, data, func=None):
+        self.data = data
+        self.func = func
+        if func:
+            self._get_entry = self._get_func_entry
+            self._iter_all_entries = self._iter_func_all_entries
+            self._iter_some_entries = self._iter_func_some_entries
+        else:
+            self._get_entry = self._get_direct_entry
+            self._iter_all_entries = self._iter_direct_all_entries
+            self._iter_some_entries = self._iter_direct_some_entries
+        self._index = -1
+        self.length = len(data)
+
+    def __len__(self):
+        return self.length
+
+    def __bool__(self):
+        return bool(self.length)
+
+    def _get_direct_entry(self, index):
+        return self.data[index]
+
+    def _get_func_entry(self, index):
+        return self.func(self.data[index])
+
+    def _iter_direct_some_entries(self, data):
+        return iter(data)
+
+    def _iter_func_some_entries(self, data):
+        for entry in data:
+            try:
+                yield self.func(entry)
+            except DoesNotExist:
+                continue
+
+    def _iter_direct_all_entries(self):
+        return iter(self.data)
+
+    def _iter_func_all_entries(self):
+        for entry in self.data:
+            try:
+                yield self.func(entry)
+            except DoesNotExist:
+                continue
+
+    def __next__(self):
+        if self._index >= self.length - 1:
+            raise StopIteration()
+        self._index += 1
+        try:
+            return self._get_entry(self._index)
+        except DoesNotExist:
+            return self.__next__()
+
+    def __iter__(self):
+        self._index = -1
+        return self._iter_all_entries()
+    next = __next__
+
+    def __eq__(self, other):
+        if isinstance(other, list):
+            return list(self) == other
+        if isinstance(other, set):
+            return set(self) == other
+        if isinstance(other, self.__class__):
+            return self.data == other.data
+        return super(CollectionResults, self).__eq__(other)
+
+    def __getitem__(self, arg):
+        if not isinstance(arg, (int, slice)):
+            raise TypeError
+        if isinstance(arg, slice):
+            return list(self._iter_some_entries(self.data[arg]))
+        return self.data[arg]
+
+    MAX_REPR_ITEMS = 20
+
+    def __repr__(self):
+        data = self[:self.MAX_REPR_ITEMS + 1]
+        if len(data) > self.MAX_REPR_ITEMS:
+            data[-1] = "... (%s remaining elements truncated)..." % (len(self) - self.MAX_REPR_ITEMS)
+        return '<%s %r>' % (self.__class__.__name__, data)
+
+
 class CollectionManager(object):
     """
     Retrieve objects collection, optionnaly slice and order it.
@@ -35,6 +121,9 @@ class CollectionManager(object):
     """
 
     _accepted_key_types = {'set'}  # Type of keys indexes are allowed to return
+
+    # time between a first call to __len__ followed by a collection retrieval
+    FINAL_SET_TTL = 300
 
     def __init__(self, model):
         self.model = model
@@ -57,6 +146,21 @@ class CollectionManager(object):
                                 # True by default to manage the __iter__ + __len__
                                 # case, specifically set to False in other cases
 
+        self._collection_cache = None  # will hold the result extracted from redis
+        self._cache_iterator_function = None  # function to apply to cached reults to get
+                                              # instances, values dicts.
+
+        self._final_set = None  # when __len__ alone is called, the final set is computed and
+                                # its key stored here, to have fast access during FINAL_SET_TTL
+                                # seconds if followed by a collection retrieval
+        self._final_set_deletable = False  # if the key stored in _final_set must have an expire
+                                           # applied, and deleted after the collection retrieval is
+                                           # done
+
+    @property
+    def connection(self):
+        return self.model.get_connection()
+
     def clone(self):
         new = self.__class__(self.model)
         new._lazy_collection = {key: copy(value) for key, value in self._lazy_collection.items()} if self._lazy_collection is not None else None
@@ -66,15 +170,26 @@ class CollectionManager(object):
         new._sort_limits = self._sort_limits.copy() if self._sort_limits is not None else None
         new._len = self._len
         new._len_mode = self._len_mode
+        new._collection_cache = None
+        new._cache_iterator_function = None
+        new._final_set = None
+        new._final_set_deletable = False
         return new
 
+    def _get_from_results_cache(self, apply_slice=None):
+        if apply_slice is not None and not isinstance(apply_slice, slice):
+            if self._cache_iterator_function:
+                return self._cache_iterator_function(self._collection_cache[apply_slice])
+            return self._collection_cache[apply_slice]
+
+        results = self._collection_cache[apply_slice] if apply_slice is not None else self._collection_cache
+        return CollectionResults(results, self._cache_iterator_function)
+
     def __iter__(self):
-        old_sort_limits_and_len_mode = None if self._sort_limits is None else self._sort_limits.copy(), self._len_mode
-        try:
-            self._len_mode = False
-            return self._get_collection()
-        finally:
-            self._sort_limits, self._len_mode = old_sort_limits_and_len_mode
+        self._reset_if_sort_limits(True)
+        self._len_mode = False
+        self._fetch_collection()
+        return self._get_from_results_cache()
 
     @staticmethod
     def _optimize_slice(the_slice, can_reverse):
@@ -146,64 +261,68 @@ class CollectionManager(object):
         return False, None, None, False, slice(start, stop, step)
 
     def _getitem(self, arg):
-        old_sort_limits_and_len_mode = None if self._sort_limits is None else self._sort_limits.copy(), self._len_mode
-        old_sort = None if self._sort is None else self._sort.copy()
-        try:
-            self._len_mode = False
-            self._sort_limits = {}
-            if isinstance(arg, slice):
-                # A slice has been requested
-                # We try to reduce the data to get back from redis
-                # when it's possible depending of the slice arguments.
-                # We use `self._sort_limits` to tell redis how to slice what
-                # it'll got from the `sort` command. We may also reverse
-                # `_sort['desc']`(the set will be read in reverse way as we wanted
-                # by redis).
-                # At the end we return the collection (a sliced collection
-                # is no more chainable, so we do not return `self`
+        if self._collection_cache is not None:
+            return self._get_from_results_cache(apply_slice=arg)
 
-                optimized, start, count, rev, python_slice = self._optimize_slice(
-                    arg,
-                    can_reverse=True if not self._sort else self._sort.get('by', '') != 'nosort'
-                )
+        self._len_mode = False
+        self._sort_limits = {}
+        if isinstance(arg, slice):
+            # A slice has been requested
+            # We try to reduce the data to get back from redis
+            # when it's possible depending of the slice arguments.
+            # We use `self._sort_limits` to tell redis how to slice what
+            # it'll got from the `sort` command. We may also reverse
+            # `_sort['desc']`(the set will be read in reverse way as we wanted
+            # by redis).
+            # At the end we return the collection (a sliced collection
+            # is no more chainable, so we do not return `self`
 
-                self._optimized_slicing = optimized
+            optimized, start, count, rev, python_slice = self._optimize_slice(
+                arg,
+                can_reverse=True if not self._sort else self._sort.get('by', '') != 'nosort'
+            )
 
-                if optimized and start is None and count is None and python_slice == NONE_SLICE:
-                    return []
+            self._optimized_slicing = optimized
 
-                if start is not None or count is not None:
-                    self._sort_limits['start'] = start or 0
-                    self._sort_limits['num'] = -1 if count is None else count
+            if optimized and start is None and count is None and python_slice == NONE_SLICE:
+                return []
 
-                if rev:
-                    if self._sort is None: self._sort = {}
-                    self._sort['desc'] = not self._sort.get('desc', False)
+            if start is not None or count is not None:
+                self._sort_limits['start'] = start or 0
+                self._sort_limits['num'] = -1 if count is None else count
 
-                return list(self._get_collection(slice=python_slice))
+            if rev:
+                if self._sort is None: self._sort = {}
+                self._sort['desc'] = not self._sort.get('desc', False)
 
+            self._fetch_collection(apply_slice=python_slice)
+            return self._get_from_results_cache()
+
+        else:
+            # A single item has been requested
+            # Nevertheless, use the redis pagination, to minimize
+            # data transfer and use the fast redis offset system
+            start = arg
+            self._sort_limits['num'] = 1  # one element
+            if start >= 0:
+                self._sort_limits['start'] = start
+                self._fetch_collection()
+                return self._get_from_results_cache(apply_slice=0)
             else:
-                # A single item has been requested
-                # Nevertheless, use the redis pagination, to minimize
-                # data transfer and use the fast redis offset system
-                start = arg
-                self._sort_limits['num'] = 1  # one element
-                if start >= 0:
-                    self._sort_limits['start'] = start
-                    return next(self._get_collection())
-                else:
-                    # we sort the result in the reverse way, mark the final result as
-                    # reversed to re-reverse it at the end
-                    if self._sort is None: self._sort = {}
-                    self._sort['desc'] = not self._sort.get('desc', False)
-                    self._sort_limits['start'] = - start - 1
-                    return next(self._get_collection())
-        finally:
-            self._sort_limits, self._len_mode = old_sort_limits_and_len_mode
-            self._sort = old_sort
+                # we sort the result in the reverse way, mark the final result as
+                # reversed to re-reverse it at the end
+                if self._sort is None: self._sort = {}
+                self._sort['desc'] = not self._sort.get('desc', False)
+                self._sort_limits['start'] = - start - 1
+                self._fetch_collection()
+                return self._get_from_results_cache(apply_slice=0)
 
     def __getitem__(self, arg):
-        return self.clone()._getitem(arg)
+        self._reset_if_sort_limits(True)
+        if not isinstance(arg, (int, slice)):
+            raise TypeError
+        self._len_mode = False
+        return self._getitem(arg)
 
     def _get_pk(self):
         """
@@ -236,70 +355,93 @@ class CollectionManager(object):
             sort_options = None
         return sort_options
 
-    def _get_collection(self, slice=None):
+    def _cache_empty_collection(self):
+        is_len_mode = self._len_mode
+        self._len_mode = False
+        self._collection_cache = []
+        self._len = 0
+        if is_len_mode:
+            return
+        return self._collection_cache
+
+    def _reset_if_sort_limits(self, clear_sort_limits):
+        if self._collection_cache is not None and self._sort_limits:
+            self._collection_cache = self._cache_iterator_function = self._len = None
+            if self._final_set and self._final_set_deletable:
+                self.connection.delete(self._final_set)
+            self._final_set, self._final_set_deletable = None, False
+            if clear_sort_limits:
+                self._sort_limits = None
+
+    def _fetch_collection(self, apply_slice=None):
         """
         Effectively retrieve data according to lazy_collection.
         """
-        old_sort_limits_and_len_mode = None if self._sort_limits is None else self._sort_limits.copy(), self._len_mode
-        try:  # try block to always reset the _sort_limits in the "finally" part
 
-            conn = self.model.get_connection()
-            self._len = 0
+        self._reset_if_sort_limits(False)
 
-            # The collection fails (empty) if more than one pk or if the only one
-            # doesn't exists
-            try:
-                pk = self._get_pk()
-            except ValueError:
-                return iter(())
-            else:
-                if pk is not None and not self.model.get_field('pk').exists(pk):
-                    return iter(())
+        if self._collection_cache is not None:
+            return
 
-            # Prepare options and final set to get/sort
-            sort_options = self._prepare_sort_options(bool(pk))
+        conn = self.connection
+        self._len = 0
 
-            final_set, keys_to_delete = self._get_final_set(
-                                                self._lazy_collection['sets'],
-                                                pk, sort_options)
-
-            if self._len_mode:
-                if final_set is None:
-                    if pk and not self._lazy_collection['sets']:
-                        # we have a only pk
-                        self._len = 1
-                    else:
-                        # we have nothing
-                        self._len = 0
-                else:
-                    self._len = self._collection_length(final_set)
-                    if keys_to_delete:
-                        conn.delete(*keys_to_delete)
-
-                # return nothing
+        # The collection fails (empty) if more than one pk or if the only one
+        # doesn't exists
+        try:
+            pk = self._get_pk()
+        except ValueError:
+            self._cache_empty_collection()
+            return
+        else:
+            if pk is not None and not self.model.get_field('pk').exists(pk):
+                self._cache_empty_collection()
                 return
 
-            else:
+        # Prepare options and final set to get/sort
+        sort_options = self._prepare_sort_options(bool(pk))
 
-                # fill the collection
-                if final_set is None:
-                    if pk and not self._lazy_collection['sets']:
-                        # we have a pk without other sets, and no
-                        # needs to get values so we can simply return the pk
-                        collection = {pk}
-                    else:
-                        # we have nothing
-                        collection = {}
+        # we call expire to have time to work on the key
+        # expire returns 0 if the key does not exist
+        if self._final_set and (not self._final_set_deletable or self.connection.expire(self._final_set, self.FINAL_SET_TTL)):
+            final_set, delete_set_later = self._final_set, self._final_set_deletable
+        else:
+            self._final_set, self._final_set_deletable = None, False
+            final_set, delete_set_later = self._get_final_set(
+                                                self._lazy_collection['sets'],
+                                                pk, sort_options)
+        try:
+            # fill the collection
+            if final_set is None:
+                if pk and not self._lazy_collection['sets']:
+                    # we have a pk without other sets
+                    if self._len_mode:
+                        self._len = 1
+                        return
+                    # and no needs to get values so we can simply return the pk
+                    collection = {pk}
                 else:
-                    # compute the sets and call redis te retrieve wanted values
-                    collection = self._final_redis_call(final_set, sort_options)
-                    if keys_to_delete:
-                        conn.delete(*keys_to_delete)
-
-                # Format return values if needed
-                return self._prepare_results(collection, slice=slice)
+                    # we have nothing
+                    self._cache_empty_collection()
+                    return
+            else:
+                if self._len_mode:
+                    # compute the sets and call redis to count wanted values
+                    self._len = self._collection_length(final_set)
+                    self._final_set = final_set
+                    self._final_set_deletable = delete_set_later
+                    if delete_set_later:
+                        self.connection.expire(self._final_set, self.FINAL_SET_TTL)
+                    return
+                # compute the sets and call redis to retrieve wanted values
+                collection = self._final_redis_call(final_set, sort_options)
         finally:
-            self._sort_limits, self._len_mode = old_sort_limits_and_len_mode
+            if not self._len_mode and delete_set_later:
+                conn.delete(final_set)
+
+        # Format return values if needed
+        self._collection_cache, self._cache_iterator_function = self._prepare_results(collection, apply_slice=apply_slice)
+        self._len = len(self._collection_cache)
 
     def _final_redis_call(self, final_set, sort_options):
         """
@@ -307,7 +449,7 @@ class CollectionManager(object):
         with some sort options.
         """
 
-        conn = self.model.get_connection()
+        conn = self.connection
         if sort_options is not None:
             # a sort, or values, call the SORT command on the set
             return conn.sort(final_set, **sort_options)
@@ -320,18 +462,13 @@ class CollectionManager(object):
         Return the length of the final collection, directly asking redis for the
         count without calling sort
         """
-        return self.model.get_connection().scard(final_set)
+        return self.connection.scard(final_set)
 
-    def _to_instances(self, pks):
-        """
-        Returns a generator of instances, one for each given pk, respecting the condition
-        about checking or not if a pk exists.
-        """
-        # we want instances, so create an object for each pk, without
-        # checking for pk existence if asked
-        return self.model.from_pks(pks, lazy=self._lazy_instances)
+    def _to_instance(self, pk):
+        meth = self.model.lazy_connect if self._lazy_instances else self.model
+        return meth(pk)
 
-    def _prepare_results(self, results, _len_hint=None, slice=None):
+    def _prepare_results(self, results, _len_hint=None, apply_slice=None):
         """
         Called in _collection to prepare results from redis before returning
         them.
@@ -340,15 +477,12 @@ class CollectionManager(object):
         # cache the len for future use
         self._len = _len_hint if _len_hint is not None else len(results)
 
-        if slice is not None:
-            results = list(results)[slice]
+        results = list(results)
 
-        if self._instances:
-            results = self._to_instances(results)
-        else:
-            results = iter(results)
+        if apply_slice is not None:
+            results = results[apply_slice]
 
-        return results
+        return results, (self._to_instance if self._instances else None)
 
     def _prepare_parsed_filter(self, parsed_filter):
         """Get and validate keys info from given parsed_filter
@@ -494,13 +628,13 @@ class CollectionManager(object):
         of the set to use, and a list of keys to delete once the collection is
         really called (in case of a computed set based on multiple ones)
         """
-        conn = self.model.get_connection()
+        conn = self.connection
         all_sets = set()
         tmp_keys = set()
 
         if pk is not None and not sets and not (sort_options and sort_options.get('get')):
             # no final set if only a pk without values to retrieve
-            return (None, False)
+            return None, False
 
         elif sets or pk:
             if sets:
@@ -542,14 +676,14 @@ class CollectionManager(object):
             conn.delete(*tmp_keys)
 
         # return the final set to work on, and a flag if we later need to delete it
-        return (final_set, [final_set] if delete_set_later else None)
+        return final_set, delete_set_later
 
     def _combine_sets(self, sets, final_set):
         """
         Given a list of set, combine them to create the final set that will be
         used to make the final redis call.
         """
-        self.model.get_connection().sinterstore(final_set, list(sets))
+        self.connection.sinterstore(final_set, list(sets))
         return final_set
 
     def __call__(self, **filters):
@@ -628,20 +762,27 @@ class CollectionManager(object):
         return self
 
     def __len__(self):
+        self._reset_if_sort_limits(True)
         if self._len is None:
-            if not self._len_mode:
-                self._len = self._get_collection().__len__()
-            else:
-                self._get_collection()
+            self._len_mode = True
+            self._fetch_collection()
         return self._len
 
     def __repr__(self):
-        old_sort_limits_and_len_mode = None if self._sort_limits is None else self._sort_limits.copy(), self._len_mode
-        try:
-            self._len_mode = False
-            return self._get_collection().__repr__()
-        finally:
-            self._sort_limits, self._len_mode = old_sort_limits_and_len_mode
+        self._reset_if_sort_limits(True)
+        self._len_mode = False
+        self._fetch_collection()
+        results = self._get_from_results_cache()
+        return repr(results).replace('%s' % results.__class__.__name__, self.__class__.__name__, 1)
+
+    def __bool__(self):
+        return bool(len(self))
+
+    def __eq__(self, other):
+        self._reset_if_sort_limits(True)
+        self._len_mode = False
+        self._fetch_collection()
+        return self._get_from_results_cache() == other
 
     def instances(self, lazy=False):
         """
@@ -721,6 +862,6 @@ class CollectionManager(object):
         if prefix:
             prefix_parts.append(prefix)
         return unique_key(
-            self.model.get_connection(),
+            self.connection,
             prefix=make_key(*prefix_parts)
         )
