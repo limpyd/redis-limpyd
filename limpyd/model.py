@@ -1,8 +1,10 @@
 # -*- coding:utf-8 -*-
 from __future__ import unicode_literals
+
 from future.utils import iteritems, iterkeys
 from future.utils import with_metaclass
 
+from collections import defaultdict
 from logging import getLogger
 from copy import copy
 import inspect
@@ -108,6 +110,9 @@ class MetaRedisModel(MetaRedisProxy):
             # save InstanceHashFields in a special list
             if isinstance(field, InstanceHashField):
                 _instancehash_fields.append(field.name)
+            # use default indexes if indexable with no index defined
+            if field.indexable and not field.index_classes:
+                field.index_classes = field.get_default_indexes()[::1]
 
         # keep the pk as first field
         _fields.remove(pk_field.name)
@@ -118,6 +123,19 @@ class MetaRedisModel(MetaRedisProxy):
         it._instancehash_fields = _instancehash_fields
         if pk_field.name != 'pk':
             it._redis_attr_pk = getattr(it, "_redis_attr_%s" % pk_field.name)
+
+        # Tell index classes that fields are now ready
+        for field in it.get_fields():
+            if field is it._redis_attr_pk:
+                continue
+            for index_class in field.index_classes:
+                index_class._field_model_ready(it, field)
+
+        it._multi_fields_index_for_filtering = [
+            index
+            for field in it.get_fields()
+            for index in field._indexes if not index.filter_single_field
+        ]
 
         return it
 
@@ -154,12 +172,11 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
 
         # --- Meta stuff
         # Put back the fields with the original names
-        for attr_name in self._fields:
-            attr = getattr(self, "_redis_attr_%s" % attr_name)
+        for field in self.get_class_fields():
             # Copy it, to avoid sharing fields between model instances
-            newattr = copy(attr)
-            newattr._attach_to_instance(self)
-            setattr(self, attr_name, newattr)
+            new_field = copy(field)
+            new_field._attach_to_instance(self)
+            setattr(self, field.name, new_field)
 
         # The `pk` field always exists, even if the real pk has another name
         pk_field_name = getattr(self, "_redis_attr_pk").name
@@ -168,9 +185,10 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
         # Cache of the pk value
         self._pk = None
 
-        # change the get_field method to use the instance related one instead
+        # change the get_field(s) method to use the instance related ones instead
         # of the classmethod
         self.get_field = self.get_instance_field
+        self.get_fields = self.get_instance_fields
 
         # Validate arguments
         if len(args) > 0 and len(kwargs) > 0:
@@ -203,14 +221,40 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
                     field.check_uniqueness(value)
                 self._init_fields.add(field_name)
 
+            # handle uniqueness check for multi-fields indexes
+            if self._multi_fields_index_for_filtering and any(index.unique for index in self._multi_fields_index_for_filtering):
+                passed_fields = {
+                    field.name: kwargs[field.name]
+                    for field in self.fields
+                    if field.name in kwargs and not self._field_is_pk(field.name)
+                }
+                if passed_fields:
+                    handled_together = defaultdict(list)
+                    for index in self._multi_fields_index_for_filtering:
+                        if not index.unique:
+                            continue
+                        handled_fields_tuples = index.can_filter_fields([(field_name, None) for field_name in passed_fields])
+                        for handled_fields in handled_fields_tuples:
+                            handled_together[handled_fields].append(index)
+                    for handled_fields, indexes in handled_together.items():
+                        for index in indexes:
+                            index.check_uniqueness_at_init({
+                                field_name: passed_fields[field_name]
+                                for field_name in dict(handled_fields)
+                            })
+
             # Do instanciate, starting by the pk and respecting fields order
             if kwargs_pk_field_name:
                 self.pk.set(kwargs[kwargs_pk_field_name])
-            for field_name in self._fields:
-                if field_name not in kwargs or self._field_is_pk(field_name):
-                    continue
-                field = self.get_field(field_name)
-                field.proxy_set(kwargs[field_name])
+            try:
+                for field in self.fields:
+                    if field.name not in kwargs or self._field_is_pk(field.name):
+                        continue
+                    field.proxy_set(kwargs[field.name])
+            except UniquenessError:
+                # may be raised if things were added in the meantime. TODO: add lock at model level to avoid this ?
+                self.delete()
+                raise
 
         # --- Instanciate from DB
         if len(args) == 1:
@@ -284,9 +328,7 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
             raise AttributeError('"%s" is not a field for the model "%s"' %
                                  (field_name, cls.__name__))
 
-        field = getattr(cls, '_redis_attr_%s' % field_name)
-
-        return field
+        return getattr(cls, '_redis_attr_%s' % field_name)
 
     # at the class level, we use get_class_field to get a field
     # but in __init__, we update it to use get_instance_field
@@ -300,9 +342,21 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
             raise AttributeError('"%s" is not a field for the model "%s"' %
                                  (field_name, self.__class__.__name__))
 
-        field = getattr(self, field_name)
+        return getattr(self, field_name)
 
-        return field
+    @classmethod
+    def get_class_fields(cls):
+        for field_name in cls._fields:
+            yield cls.get_field(field_name)
+
+    # at the class level, we use get_class_fields to get the fields
+    # but in __init__, we update it to use get_instance_fields
+    get_fields = get_class_fields
+
+    def get_instance_fields(self):
+        for field_name in self._fields:
+            yield self.get_field(field_name)
+    fields = property(get_instance_fields)
 
     def _set_pk(self, value):
         """
@@ -321,10 +375,9 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
         Set default values to fields. We assume that they are not yet populated
         as this method is called just after creation of a new pk.
         """
-        for field_name in self._fields:
-            if field_name in self._init_fields:
+        for field in self.fields:
+            if field.name in self._init_fields:
                 continue
-            field = self.get_field(field_name)
             if hasattr(field, "default"):
                 field.proxy_set(field.default)
 
@@ -339,6 +392,16 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
     def instances(cls, lazy=False, **filters):
         # FIXME Keep as shortcut or remove for clearer API?
         return cls.collection(**filters).instances(lazy=lazy)
+
+    @classmethod
+    def from_pks(cls, pks, lazy=False):
+        """Returns a generator with one instance for each pk that exist"""
+        meth = cls.lazy_connect if lazy else cls
+        for pk in pks:
+            try:
+                yield meth(pk)
+            except DoesNotExist:
+                continue
 
     @classmethod
     def _field_is_pk(cls, name):
@@ -492,12 +555,13 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
         except:
             # We revert indexes previously set if we have an exception, then
             # really raise the error
-            for field in indexed:
-                field._rollback_indexes()
+            if self.connected:
+                for field in indexed:
+                    field._rollback_indexes()
             raise
         finally:
             for field in indexed:
-                field._reset_indexes_caches()
+                field._reset_indexes_rollback_caches(self.pk.get())
 
     def hdel(self, *args):
         """
@@ -521,8 +585,7 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
         Delete the instance from redis storage.
         """
         # Delete each field
-        for field_name in self._fields:
-            field = self.get_field(field_name)
+        for field in self.fields:
             if not isinstance(field, PKField):
                 # pk has no stored key
                 field.delete()
@@ -605,3 +668,19 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
         )
 
         return cls.database.scan_keys(pattern, count)
+
+    def __hash_key(self):
+        """Elements used in __hash__ and __eq__ of an instance"""
+        return self.__class__, self.pk.get()
+
+    def __hash__(self):
+        return hash(self.__hash_key())
+
+    def __eq__(self, other):
+        try:
+            return self.__hash_key() == other.__hash_key()
+        except AttributeError:
+            return NotImplemented
+
+    def __repr__(self):
+        return u'%s (pk=%s)>' % (super(RedisModel, self).__repr__()[:-2], self.pk.get())

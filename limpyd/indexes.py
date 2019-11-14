@@ -4,7 +4,10 @@ from future.builtins import str, object
 from future.utils import PY3
 from past.builtins import str as oldstr
 
+from collections import defaultdict
+from itertools import product
 from logging import getLogger
+import threading
 
 from limpyd.exceptions import ImplementationError, LimpydException, UniquenessError
 from limpyd.utils import unique_key
@@ -15,24 +18,48 @@ logger = getLogger(__name__)
 class BaseIndex(object):
     """Base of all indexes
 
-    Class Attributes
-    -----------------
-    handled_suffixes: set of str
-        The suffixes in the filter keys allowed for this index.
-        If one of them is ``None``, it can be used when no suffix is given.
-        For example `collection(foo=1)` can be used for the `None` suffix.
-        And `collection(foo__eq=1)` can be used for the `eq` suffix.
+    Configurable attributes
+    -----------------------
+    These are class attributes that can be changed via ``configure``:
+
     handle_uniqueness: bool
-        If ``True``, the index is able to check for uniqueness. When many index are used, only
+        If ``True``, the index is able to check for uniqueness. When many indexes are used, only
         the first with this flag set to ``True`` have to do the work.
     prefix: str
         If defined, will be used as a prefix to the suffix in the collection
         For example, with a prefix "foo" and the suffix "eq": "myfield__foo__eq="
         May be defined at the class level for a subclass, or by calling the ``configure``
-        class method
+        class method.
+        This prefix can also be used by the indexes to store the data at a different place than
+        the same index without prefix.
+    key: str
+        If set, will override the key used by the index.
+        Two indexes for the same field of the same type must not have the same key or data will be
+        saved at the same place.
+        Note that the default key is None for `EqualIndex`, `text-range` for
+        `TextRangeIndex` and `number-range` for `NumberRangeIndex`...
     transform: callable
-        None by default, can be set to a function that will transform the value to be indexed.
-        This callable can accept one (`value`) or two (`self`, `value`) arguments
+        None by default. If defined, a function that will transform the value to be used as the
+        reference for the index, before the call to ``normalize_value``.
+        If can be extraction of a date, or any computation.
+        The filter in the collection will then have to use a transformed value, for example
+        ``birth_date__year=1976`` if the transform take a date and transform it to a year.
+        This callable can accept one (``value``) or two (``self``, ``value``) arguments
+
+    Class attributes
+    ----------------
+    handled_suffixes: set of str
+        The suffixes in the filter keys allowed for this index.
+        If one of them is ``None``, it can be used when no suffix is given.
+        For example `collection(foo=1)` can be used for the `None` suffix.
+        And `collection(foo__eq=1)` can be used for the `eq` suffix.
+    configurable_attrs : Set[str]
+        Name of attributes that can be passed to ``configure``
+    supported_key_types : Set[str]
+        Redis key types supported by the index.
+        May include: 'set', 'zset' or 'list'
+    filter_single_field : bool
+        Tell if the index can be used to filter a field independently than others.
 
     Parameters
     -----------
@@ -46,44 +73,82 @@ class BaseIndex(object):
     key = None
     prefix = None
     transform = None
+    filter_single_field = True
+
+    configurable_attrs = {
+        'prefix', 'transform', 'handle_uniqueness', 'key', 'name'
+    }
+
+    supported_key_types = set()
 
     def __init__(self, field):
         """Attach the index to the given field and prepare the internal cache"""
         self.field = field
-        self._reset_cache()
+        self._rollback_cache = defaultdict(
+            lambda: defaultdict(  # one dict by thread id
+                lambda: {  # one dict by instance pk
+                    'indexed_values': set(),
+                    'deindexed_values': set(),
+                }
+            )
+        )
+
+    def __repr__(self):
+        return u'%s (field=%s)>' % (
+            super(BaseIndex, self).__repr__()[:-2],
+            repr(self.field),
+        )
+
+    @classmethod
+    def handle_configurable_attrs(cls, **kwargs):
+        """Handle attributes that can be passed to ``configure``.
+
+        For the parameters, see ``configure``.
+
+        Returns
+        -------
+        Union[str, None]
+            The name passed in ``kwargs``
+        dict
+            The attrs extracted from kwargs and prepared
+        kwargs
+            A copy of ``kwargs`` without the handled fields, like ``name`` and the ones extracted.
+            The dict must be empty once gone through this method in all the class tree, else
+            a ``TypeError`` exception will be raised in ``configure``.
+
+        """
+
+        kwargs = kwargs.copy()
+
+        attrs = {}
+        for key in ('prefix', 'handle_uniqueness', 'key'):
+            if key in kwargs and key in cls.configurable_attrs:
+                attrs[key] = kwargs.pop(key)
+
+        if 'transform' in kwargs:
+            attrs['transform'] = staticmethod(kwargs.pop('transform'))
+
+        name = kwargs.pop('name', None)
+
+        return name, attrs, kwargs
 
     @classmethod
     def configure(cls, **kwargs):
         """Create a new index class with the given info
 
         This allow to avoid creating a new class when only few changes are
-        to be made
+        to be made.
+
+        Accepts all, and only, attributes defined in ``configurable_attrs``.
 
         Parameters
         ----------
         kwargs: dict
-            prefix: str
-                The string part to use in the collection, before the normal suffix.
-                For example `foo` to filter on `myfiled__foo__eq=`
-                This prefix will also be used by the indexes to store the data at
-                a different place than the same index without prefix.
-            transform: callable
-                A function that will transform the value to be used as the reference
-                for the index, before the call to `normalize_value`.
-                If can be extraction of a date, or any computation.
-                The filter in the collection will then have to use a transformed value,
-                for example `birth_date__year=1976` if the transform take a date and
-                transform it to a year.
-            handle_uniqueness: bool
-                To make the index handle or not the uniqueness
-            key: str
-                To override the key used by the index. Two indexes for the same field of
-                the same type must not have the same key or data will be saved at the same place.
-                Note that the default key is None for `EqualIndex`, `text-range` for
-                `TextRangeIndex` and `number-range` for `NumberRangeIndex`
             name: str
                 The name of the new multi-index class. If not set, it will be the same
                 as the current class
+
+        For the other parameters, see ``BaseIndex`` docstring.
 
         Returns
         -------
@@ -92,20 +157,12 @@ class BaseIndex(object):
 
         """
 
-        attrs = {}
-        for key in ('prefix', 'handle_uniqueness', 'key'):
-            if key in kwargs:
-                attrs[key] = kwargs.pop(key)
-
-        if 'transform' in kwargs:
-            attrs['transform'] = staticmethod(kwargs.pop('transform'))
-
-        name = kwargs.pop('name', None)
+        name, attrs, kwargs = cls.handle_configurable_attrs(**kwargs)
 
         if kwargs:
             raise TypeError('%s.configure only accepts these named arguments: %s' % (
                 cls.__name__,
-                ', '.join(('prefix', 'transform', 'handle_uniqueness', 'key', 'name')),
+                ', '.join(cls.configurable_attrs)
             ))
 
         return type((str if PY3 else oldstr)(name or cls.__name__), (cls, ), attrs)
@@ -206,55 +263,90 @@ class BaseIndex(object):
 
     @property
     def connection(self):
-        """Shortcut to get the redis connection of the field tied to this index"""
+        """Shortcut to get the redis connection of the field tied to this index
+
+        Returns
+        -------
+        StrictRedis
+            The redis connection object used to talk to redis.
+
+        """
         return self.field.connection
 
     @property
     def model(self):
-        """Shortcut to get the model tied to the field tied to this index"""
+        """Shortcut to get the model tied to the field tied to this index
+
+        Returns
+        -------
+        Type[RedisModel]
+            The model tied to the field tied to the current index
+
+        """
         return self.field._model
 
-    @property
-    def attached_to_model(self):
-        """Tells if the current index is the one attached to the model field, not instance field"""
-        try:
-            if not bool(self.model):
-                return False
-        except AttributeError:
-            return False
-        else:
-            try:
-                return not bool(self.instance)
-            except AttributeError:
-                return True
+    def _get_rollback_cache(self, pk):
+        return self._rollback_cache[threading.current_thread().ident][pk]
 
-    @property
-    def instance(self):
-        """Shortcut to get the instance tied to the field tied to this index"""
-        return self.field._instance
+    def _reset_rollback_cache(self, pk):
+        """Reset the cache used to potentially rollback the indexes for an instance
 
-    def _reset_cache(self):
-        """Reset attributes used to potentially rollback the indexes"""
-        self._indexed_values = set()
-        self._deindexed_values = set()
+        Parameters
+        ----------
+        pk : Any
+            The primary key of the instance for which to reset the rollback cache
 
-    def _rollback(self):
+        """
+        self._rollback_cache[threading.current_thread().ident].pop(pk, None)
+
+    def _rollback(self, pk):
         """Restore the index in its previous state
 
+        Parameters
+        ----------
+        pk : Any
+            The primary key of the instance for which to rollback the index
+
         This uses values that were indexed/deindexed since the last call
-        to `_reset_cache`.
+        to `_reset_rollback_cache`.
         This is used when an error is encountered while updating a value,
         to return to the previous state
         """
 
-        # to avoid using self set that may be updated during the process
-        indexed_values = set(self._indexed_values)
-        deindexed_values = set(self._deindexed_values)
+        # use `set()`, before the loop, to avoid using self set that may be updated during the process
+        cache = self._get_rollback_cache(pk)
+        indexed_values = set(cache.get('indexed_values'))
+        deindexed_values = set(cache.get('deindexed_values'))
 
         for args in indexed_values:
-            self.remove(*args)
+            self.remove(pk, *args)
         for args in deindexed_values:
-            self.add(*args, check_uniqueness=False)
+            self.add(pk, *args, check_uniqueness=False)
+
+    def _check_key_accepted_key_types(self, accepted_key_types):
+        """Check if key types accepted from the collection match the ones supported by the index.
+
+        Parameters
+        ----------
+        accepted_key_types : Iterable[str]
+            The key types accepted by the collection calling this index.
+
+        Raises
+        ------
+        ImplementationError
+            If there is no match between the key types supported by this index and the ones
+            accepted by the collection
+
+        """
+        if not accepted_key_types:
+            return
+        if self.supported_key_types.isdisjoint(accepted_key_types):
+            raise ImplementationError(
+                '%s can only return keys of type %s' % (
+                    self.__class__.__name__,
+                    ', '.join(self.supported_key_types)
+                )
+            )
 
     def get_filtered_keys(self, suffix, *args, **kwargs):
         """Returns the index keys to be used by the collection for the given args
@@ -294,7 +386,7 @@ class BaseIndex(object):
         """
         raise NotImplementedError
 
-    def check_uniqueness(self, *args):
+    def check_uniqueness(self, pk, *args):
         """For a unique index, check if the given args are not used twice
 
         To implement this method in subclasses, get pks for the value (via `args`)
@@ -302,6 +394,8 @@ class BaseIndex(object):
 
         Parameters
         ----------
+        pk: Any
+            The pk of the instance for which its ok to have the value.
         args: tuple
             All the values to take into account to check the indexed entries
 
@@ -310,15 +404,16 @@ class BaseIndex(object):
         UniquenessError
             If the uniqueness is not respected.
 
-        Returns
-        -------
-        None
-
         """
 
         raise NotImplementedError
 
-    def assert_pks_uniqueness(self, pks, exclude, value):
+    @property
+    def unique_index_name(self):
+        """Get a string to describe the index in case of UniquenessError"""
+        return 'unique field %s.%s' % (self.model.__name__, self.field.name)
+
+    def assert_pks_uniqueness(self, pks, exclude, get_display_value):
         """Check uniqueness of pks
 
         Parameters
@@ -331,8 +426,8 @@ class BaseIndex(object):
             The pk that we accept to be the only one in `pks`. For example
             the pk of the instance we want to check for uniqueness: we don't
             want to raise if the value is the one already set for this instance
-        value: any
-            Only to be displayed in the error message.
+        get_display_value: callable
+            Called to display the value in the error message.
 
         Raises
         ------
@@ -345,30 +440,29 @@ class BaseIndex(object):
         if len(pks) > 1:
             # this may not happen !
             raise UniquenessError(
-                "Multiple values indexed for unique field %s.%s: %s" % (
-                    self.model.__name__, self.field.name, pks
-                )
+                "Multiple values indexed for %s: %s" % (self.unique_index_name, pks)
             )
         elif len(pks) == 1 and (not exclude or pks[0] != exclude):
-            self.connection.delete(self.field.key)
             raise UniquenessError(
-                'Value "%s" already indexed for unique field %s.%s (for instance %s)' % (
-                    self.normalize_value(value), self.model.__name__, self.field.name, pks[0]
+                'Value "%s" already indexed for %s (for instance %s)' % (
+                    get_display_value(), self.unique_index_name, pks[0]
                 )
             )
 
-    def add(self, *args, **kwargs):
+    def add(self, pk, *args, **kwargs):
         """Add the instance tied to the field for the given "value" (via `args`) to the index
 
         Parameters
         ----------
+        pk : Any
+            The primary key of the instance we want to add to the index
         args: tuple
             All the values to take into account to define the index entry
         kwargs: dict
-            check_uniqueness: bool
+            check_uniqueness: Optional[bool]
                 When ``True`` (the default), if the index is unique, the uniqueness will
                 be checked before indexing
-                MUST be passed as a named argument
+                If passed, it MUST be passed as a named argument
 
         Raises
         ------
@@ -378,11 +472,13 @@ class BaseIndex(object):
         """
         raise NotImplementedError
 
-    def remove(self, *args):
+    def remove(self, pk, *args, **kwargs):
         """Remove the instance tied to the field for the given "value" (via `args`) from the index
 
         Parameters
         ----------
+        pk : Any
+            The primary key of the instance we want to remove from the index
         args: tuple
             All the values to take into account to define the index entry
 
@@ -415,20 +511,12 @@ class BaseIndex(object):
             But may also find keys not related to the index.
             Should be set to ``True`` if you are not sure about the already indexed values.
 
-        Raises
-        ------
-        AssertionError
-            If called from an index tied to an instance field. It must be called from the model field
-
         Examples
         --------
 
-        >>> MyModel.get_field('myfield')._indexes[0].clear()
+        >>> MyModel.get_field('myfield').get_index().clear()
 
         """
-        assert self.attached_to_model, \
-            '`clear` can only be called on an index attached to the model field'
-
         if aggressive:
             keys = self.get_all_storage_keys()
             with self.model.database.pipeline(transaction=False) as pipe:
@@ -466,12 +554,9 @@ class BaseIndex(object):
         Examples
         --------
 
-        >>> MyModel.get_field('myfield')._indexes[0].rebuild()
+        >>> MyModel.get_field('myfield').get_index().rebuild()
 
         """
-        assert self.attached_to_model, \
-            '`rebuild` can only be called on an index attached to the model field'
-
         self.clear(chunk_size=chunk_size, aggressive=aggressive_clear)
 
         start = 0
@@ -488,12 +573,40 @@ class BaseIndex(object):
 
             start += chunk_size
 
+    @classmethod
+    def _field_model_ready(cls, model, field):
+        """Called when a model is ready, for each field..
+
+        May be used by a subclass to handle indexes related but not directly tied to this field
+
+        Parameters
+        ----------
+        field : RedisField
+            The field for which the indexes are ready
+
+        """
+        pass
+
 
 class EqualIndex(BaseIndex):
     """Default simple equal index."""
 
     handled_suffixes = {None, 'eq', 'in'}
     handle_uniqueness = True
+    supported_key_types = {'set'}
+
+    def union_filtered_in_keys(self, dest_key, *source_keys):
+        """Do a union of the given `source_keys` at the redis level, into `dest_key`
+
+        Parameters
+        ----------
+        dest_key : str
+            The key where to store the result of the union
+        source_keys : str
+            The keys to union
+
+        """
+        self.connection.sunionstore(dest_key, source_keys)
 
     def get_filtered_keys(self, suffix, *args, **kwargs):
         """Return the set used by the index for the given "value" (`args`)
@@ -502,12 +615,7 @@ class EqualIndex(BaseIndex):
 
         """
 
-        accepted_key_types = kwargs.get('accepted_key_types', None)
-
-        if accepted_key_types and 'set' not in accepted_key_types:
-            raise ImplementationError(
-                '%s can only return keys of type "set"' % self.__class__.__name__
-            )
+        self._check_key_accepted_key_types(kwargs.get('accepted_key_types'))
 
         # special "in" case: we get n keys and make an unionstore with them then return this key
         if suffix == 'in':
@@ -524,7 +632,7 @@ class EqualIndex(BaseIndex):
             ]
 
             tmp_key = unique_key(self.connection)
-            self.connection.sunionstore(tmp_key, *in_keys)
+            self.union_filtered_in_keys(tmp_key, *in_keys)
 
             return [(tmp_key, 'set', True)]
 
@@ -608,7 +716,23 @@ class EqualIndex(BaseIndex):
             )
         )
 
-    def check_uniqueness(self, *args, **kwargs):
+    def get_uniqueness_members(self, key):
+        """Get from redis all the members of the given index `key` used to check for uniqueness.
+
+        Parameters
+        ----------
+        key : str
+            The index key we want the members from.
+
+        Returns
+        -------
+        List[str]
+            The members of the index `key`.
+
+        """
+        return list(self.connection.smembers(key))
+
+    def check_uniqueness(self, pk, *args, **kwargs):
         """Check if the given "value" (via `args`) is unique or not.
 
         Parameters
@@ -631,12 +755,55 @@ class EqualIndex(BaseIndex):
             key = self.get_storage_key(*args)
 
         # Lets check if the index key already exist for another instance
-        pk = self.instance.pk.get()
-        pks = list(self.connection.smembers(key))
+        pks = self.get_uniqueness_members(key)
 
-        self.assert_pks_uniqueness(pks, pk, list(args)[-1])
+        self.assert_pks_uniqueness(pks, pk, lambda: list(args)[-1])
 
-    def add(self, *args, **kwargs):
+    def store(self, key, pk, **kwargs):
+        """Store data in the index in redis
+
+        Parameters
+        ----------
+        key : str
+            The key in which to store data
+        pk : Any
+            The pk of the instance to save in the index.
+        kwargs : Any
+            This is the ``kwargs`` passed to ``.add``. May be used by subclasses.
+
+        Returns
+        -------
+        bool
+            If we asked redis to do something. Always ``True`` for this index but may vary in
+            subclasses.
+
+        """
+        self.connection.sadd(key, pk)
+        return True
+
+    def unstore(self, key, pk, **kwargs):
+        """Remove data from the index in redis
+
+        Parameters
+        ----------
+        key : str
+            The key from which to remove data
+        pk : Any
+            The pk of the instance to remove from the index.
+        kwargs : Any
+            This is the ``kwargs`` passed to ``.add``. May be used by subclasses.
+
+        Returns
+        -------
+        bool
+            If we asked redis to do something. Always ``True`` for this index but may vary in
+            subclasses.
+
+        """
+        self.connection.srem(key, pk)
+        return True
+
+    def add(self, pk, *args, **kwargs):
         """Add the instance tied to the field for the given "value" (via `args`) to the index
 
         For the parameters, see ``BaseIndex.add``
@@ -647,16 +814,15 @@ class EqualIndex(BaseIndex):
 
         key = self.get_storage_key(*args)
         if self.field.unique and check_uniqueness:
-            self.check_uniqueness(key=key, *args)
+            self.check_uniqueness(pk, key=key, *args)
 
         # Do index => create a key to be able to retrieve parent pk with
         # current field value]
-        pk = self.instance.pk.get()
         logger.debug("adding %s to index %s" % (pk, key))
-        self.connection.sadd(key, pk)
-        self._indexed_values.add(tuple(args))
+        if self.store(key, pk, **kwargs):
+            self._get_rollback_cache(pk)['indexed_values'].add(tuple(args))
 
-    def remove(self, *args):
+    def remove(self, pk, *args, **kwargs):
         """Remove the instance tied to the field for the given "value" (via `args`) from the index
 
         For the parameters, see ``BaseIndex.remove``
@@ -664,10 +830,9 @@ class EqualIndex(BaseIndex):
         """
 
         key = self.get_storage_key(*args)
-        pk = self.instance.pk.get()
         logger.debug("removing %s from index %s" % (pk, key))
-        self.connection.srem(key, pk)
-        self._deindexed_values.add(tuple(args))
+        if self.unstore(key, pk, **kwargs):
+            self._get_rollback_cache(pk)['deindexed_values'].add(tuple(args))
 
 
 class BaseRangeIndex(BaseIndex):
@@ -675,11 +840,12 @@ class BaseRangeIndex(BaseIndex):
 
     handle_uniqueness = True
     lua_filter_script = NotImplemented
+    supported_key_types = {'set', 'zset'}
 
     def get_storage_key(self, *args):
         """Return the redis key where to store the index for the given "value" (`args`)
 
-        For this index, we store all PKs having for a field in the same sorted-set.
+        For this index, we store all PKs for a field in the same sorted-set.
         Key has this form:
         model-name:field-name:sub-field-name:index-key-name
         The ':sub-field-name part' is repeated for each entry in *args that is not the final value
@@ -743,25 +909,29 @@ class BaseRangeIndex(BaseIndex):
             )
         )
 
-    def prepare_value_for_storage(self, value, pk):
-        """Prepare the value to be stored in the zset
+    def prepare_data_to_store(self, pk, value, **kwargs):
+        """Prepare the value and score to be stored in the zset
 
         Parameters
         ----------
-        value: any
-            The value, to normalize, to use
-        pk: any
+        pk: Any
             The pk, that will be stringified
+        value: Any
+            The value, to normalize, to use for indexing
+        kwargs: Any
+            Passed by the add/remove methods as they receive them.
 
         Returns
         -------
         str
             The string ready to use as member of the sorted set.
+        float
+            The score for this member of the sorted set
 
         """
-        return self.normalize_value(value)
+        raise NotImplementedError
 
-    def check_uniqueness(self, *args, **kwargs):
+    def check_uniqueness(self, pk, *args, **kwargs):
         """Check if the given "value" (via `args`) is unique or not.
 
         For the parameters, see ``BaseIndex.check_uniqueness``
@@ -771,69 +941,90 @@ class BaseRangeIndex(BaseIndex):
         if not self.field.unique:
             return
 
-        try:
-            pk = self.instance.pk.get()
-        except AttributeError:
-            pk = None
-
         key = self.get_storage_key(*args)
         value = list(args)[-1]
         pks = self.get_pks_for_filter(key, 'eq', self.normalize_value(value))
 
-        self.assert_pks_uniqueness(pks, pk, value)
+        self.assert_pks_uniqueness(pks, pk, lambda: value)
 
-    def add(self, *args, **kwargs):
+    def store(self, key, member, score):
+        """Store data in the index in redis
+
+        Parameters
+        ----------
+        key : str
+            The key in which to store data
+        member : Any
+            The member to store in the sorted set.
+        score : Union[int, float, None]
+            The score to use to store the `member`.
+
+        Returns
+        -------
+        bool
+            If we asked redis to do something. Will be ``True`` except if `score` is ``None``, in
+            which case we don't ask redis to save the member.
+
+        """
+        if score is None:
+            return False
+        self.connection.zadd(key, {member: score})
+        return True
+
+    def unstore(self, key, member, score):
+        """Remove data from the index in redis
+
+        Parameters
+        ----------
+        key : str
+            The key from which to remove data
+        member : Any
+            The member to remove from the sorted set.
+        score : Union[int, float, None]
+            The score for the member, but not used here (may be in subclasses)
+
+        Returns
+        -------
+        bool
+            If we asked redis to do something. Always ``True`` for this index but may vary in
+            subclasses.
+
+        """
+        self.connection.zrem(key, member)
+        return True
+
+    def add(self, pk, *args, **kwargs):
         """Add the instance tied to the field for the given "value" (via `args`) to the index
 
         For the parameters, see ``BaseIndex.add``
 
         Notes
         -----
-        This method calls the ``store`` method that should be overridden in subclasses
-        to store in the index sorted-set key
+        If the score returned by ``prepare_data_to_store`` is None, nothing will be added to the
+        index. If it not a valid float, an error will be raised.
 
         """
 
         check_uniqueness = kwargs.get('check_uniqueness', True)
 
         if self.field.unique and check_uniqueness:
-            self.check_uniqueness(*args)
+            self.check_uniqueness(pk, *args)
 
         key = self.get_storage_key(*args)
 
         args = list(args)
         value = args[-1]
 
-        pk = self.instance.pk.get()
         logger.debug("adding %s to index %s" % (pk, key))
-        self.store(key, pk, self.prepare_value_for_storage(value, pk))
-        self._indexed_values.add(tuple(args))
+        member, score = self.prepare_data_to_store(pk, value, **kwargs)
+        if self.store(key, member, score):
+            self._get_rollback_cache(pk)['indexed_values'].add(tuple(args))
 
-    def store(self, key, pk, value):
-        """Store the value/pk in the sorted set index
-
-        Parameters
-        ----------
-        key: str
-            The name of the sorted-set key
-        pk: str
-            The primary key of the instance having the given value
-        value: any
-            The value to use
-
-        """
-        raise NotImplementedError
-
-    def remove(self, *args):
+    def remove(self, pk, *args, **kwargs):
         """Remove the instance tied to the field for the given "value" (via `args`) from the index
 
         For the parameters, see ``BaseIndex.remove``
 
-        Notes
-        -----
-        This method calls the ``unstore`` method that should be overridden in subclasses
-        to remove data from the index sorted-set key
-
         """
 
         key = self.get_storage_key(*args)
@@ -841,25 +1032,10 @@ class BaseRangeIndex(BaseIndex):
         args = list(args)
         value = args[-1]
 
-        pk = self.instance.pk.get()
         logger.debug("removing %s from index %s" % (pk, key))
-        self.unstore(key, pk, self.prepare_value_for_storage(value, pk))
-        self._deindexed_values.add(tuple(args))
-
-    def unstore(self, key, pk, value):
-        """Remove the value/pk from the sorted set index
-
-        Parameters
-        ----------
-        key: str
-            The name of the sorted-set key
-        pk: str
-            The primary key of the instance having the given value
-        value: any
-            The value to use
-
-        """
-        raise NotImplementedError
+        member, score = self.prepare_data_to_store(pk, value, **kwargs)
+        if self.unstore(key, member, score):
+            self._get_rollback_cache(pk)['deindexed_values'].add(tuple(args))
 
     def get_boundaries(self, filter_type, value):
         """Compute the boundaries to pass to the sorted-set command depending of the filter type
@@ -924,14 +1100,8 @@ class BaseRangeIndex(BaseIndex):
         redis level.
 
         """
-
-        accepted_key_types = kwargs.get('accepted_key_types', None)
-
-        if accepted_key_types\
-                and 'set' not in accepted_key_types and 'zset' not in accepted_key_types:
-            raise ImplementationError(
-                '%s can only return keys of type "set" or "zset"' % self.__class__.__name__
-            )
+        accepted_key_types = kwargs.get('accepted_key_types')
+        self._check_key_accepted_key_types(accepted_key_types)
 
         key_type = 'set' if not accepted_key_types or 'set' in accepted_key_types else 'zset'
         tmp_key = unique_key(self.connection)
@@ -951,9 +1121,9 @@ class BaseRangeIndex(BaseIndex):
             ]
 
             if key_type == 'set':
-                self.connection.sunionstore(tmp_key, *in_keys)
+                self.connection.sunionstore(tmp_key, in_keys)
             else:
-                self.connection.zunionstore(tmp_key, *in_keys)
+                self.connection.zunionstore(tmp_key, in_keys)
 
             # we can delete the temporary keys
             for in_key in in_keys:
@@ -1066,15 +1236,17 @@ class TextRangeIndex(BaseRangeIndex):
         """
     }
 
-    def prepare_value_for_storage(self, value, pk):
+    def prepare_data_to_store(self, pk, value, **kwargs):
         """Prepare the value to be stored in the zset
 
-        We'll store the value and pk concatenated.
+        For the parameters, see BaseRangeIndex.prepare_data_to_store
 
-        For the parameters, see BaseRangeIndex.prepare_value_for_storage
+        We add a string "value:pk" to the storage sorted-set, with a score of 0.
+        Then when filtering will get then lexicographical ordered
+        And we'll later be able to extract the pk for each returned values
         """
-        value = super(TextRangeIndex, self).prepare_value_for_storage(value, pk)
-        return self.separator.join([value, str(pk)])
+        value = self.normalize_value(value)
+        return self.separator.join([value, str(pk)]), 0
 
     def _extract_value_from_storage(self, string):
         """Taking a string that was a member of the zset, extract the value and pk
@@ -1093,27 +1265,6 @@ class TextRangeIndex(BaseRangeIndex):
         parts = string.split(self.separator)
         pk = parts.pop()
         return self.separator.join(parts), pk
-
-    def store(self, key, pk, value):
-        """Store the value/pk in the sorted set index
-
-        For the parameters, see BaseRangeIndex.store
-
-        We add a string "value:pk" to the storage sorted-set, with a score of 0.
-        Then when filtering will get then lexicographical ordered
-        And we'll later be able to extract the pk for each returned values
-
-        """
-
-        self.connection.zadd(key, {value: 0})
-
-    def unstore(self, key, pk, value):
-        """Remove the value/pk from the sorted set index
-
-        For the parameters, see BaseRangeIndex.store
-        """
-
-        self.connection.zrem(key, value)
 
     def get_boundaries(self, filter_type, value):
         """Compute the boundaries to pass to zrangebylex depending of the filter type
@@ -1278,25 +1429,15 @@ class NumberRangeIndex(BaseRangeIndex):
                 ))
             return 0
 
-    def store(self, key, pk, value):
-        """Store the value/pk in the sorted set index
-
-        For the parameters, see BaseRangeIndex.store
+    def prepare_data_to_store(self, pk, value, **kwargs):
+        """Prepare the value to be stored in the zset
 
         We simple store the pk as a member of the sorted set with the value being the score
+
+        For the parameters, see BaseRangeIndex.prepare_data_to_store
+
         """
-
-        self.connection.zadd(key, {pk: value})
-
-    def unstore(self, key, pk, value):
-        """Remove the value/pk from the sorted set index
-
-        For the parameters, see BaseRangeIndex.store
-
-        We simple remove the pk as a member from the sorted set
-        """
-
-        self.connection.zrem(key, pk)
+        return pk, self.normalize_value(value)
 
     def get_boundaries(self, filter_type, value):
         """Compute the boundaries to pass to the sorted-set command depending of the filter type
@@ -1345,3 +1486,94 @@ class NumberRangeIndex(BaseRangeIndex):
         """
         start, end, __ = self.get_boundaries(filter_type, value)  # we have nothing to exclude
         return self.connection.zrangebyscore(key, start, end)
+
+
+class _MultiFieldsIndexMixin(object):
+    """Mixin for multi-fields indexing"""
+
+    filter_single_field = False
+    unique = False
+    handle_uniqueness = False
+
+    @classmethod
+    def handle_configurable_attrs(cls, **kwargs):
+        """Deny passing ``handle_uniqueness``"""
+        cls.configurable_attrs -= {'handle_uniqueness'}
+        return super(_MultiFieldsIndexMixin, cls).handle_configurable_attrs(**kwargs)
+
+    def can_filter_fields(self, fields_and_suffixes):
+        """Tell if the index can handle the given fields + suffixes
+
+        It's a wrapper around ``_can_filter_fields`` that does the real work. This wrapper
+        cache the result.
+
+        Parameters
+        ----------
+        fields_and_suffixes : List[Tuple[str, Union[str, None]]]
+            The fields and suffixes to check.
+            It's a list with each entr being a tuple containing the field name and the suffix.
+
+        Returns
+        -------
+        List[Iterable[Tuple[str, Union[str, None]]]]
+            A list of fields+suffixes that can be handled together among the given ones
+            Each entry is an iterable, each entry of this iterable being a tuple with two values:
+            the field name, and the suffix.
+            The main list holds all the possible combinations
+            Example:
+            [
+                (('name', 'eq'), ('priority', None), ('foo', 'eq')),
+                (('name', 'eq'), ('priority', None), ('foo', 'in')),
+                (('name', None), ('priority', None), ('foo', 'eq')),
+                (('name', None), ('priority', None), ('foo', 'in')),
+            ]
+
+        """
+
+        if not hasattr(self, '_can_filter_fields_cache'):
+            self._can_filter_fields_cache = {}
+
+        fields_and_suffixes = tuple(sorted(fields_and_suffixes, key=lambda val: (val[0], val[1] or '')))
+        if fields_and_suffixes not in self._can_filter_fields_cache:
+            handled = self._can_filter_fields(fields_and_suffixes)
+            if handled:
+                field_names, field_suffixes = zip(*handled)
+                handled = [tuple(zip(field_names, product_values)) for product_values in product(*field_suffixes)]
+            self._can_filter_fields_cache[fields_and_suffixes] =  handled
+
+        return self._can_filter_fields_cache[fields_and_suffixes]
+
+    def _can_filter_fields(self, fields_and_suffixes):
+        """Tell if the index can handle the given fields + suffixes
+
+        For the parameters, see ``can_filter_fields``
+
+        Returns
+        -------
+        List[Tuple[str, Set[Union[None, str]]]
+            If the index can handle the given fields and suffixes, it will return a list with one
+            tuple for each field managed by the index. Each tuple has two entries:
+            - the field name
+            - a set with all handled suffixes among the ones asked in `fields_and_suffixes`.
+            If the index cannot handle the given fields and suffixes, returns an empty list.
+            Example:
+                [('name', {None, 'eq'}), ('priority', {None}), ('foo', {'in', 'eq')}
+            Note: the order may be important in your index. In general, the field to which the
+            index is attached (defined in the model) should be first.
+
+        """
+        raise NotImplementedError
+
+    def check_uniqueness_at_init(self, values):
+        """If the index is ``unique``, check that ``values`` are unique and can be inserted
+
+        Parameters
+        ----------
+        values : Dict[str, Any]
+            The values we want to insert. A dict with field names as keys, and values to set as
+            values.
+            Can contains fields not managed by the index (they will be ignored) but must contain
+            all the fields managed by the index.
+
+        """
+        raise NotImplementedError

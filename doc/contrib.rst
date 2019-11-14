@@ -1,11 +1,14 @@
-]*******
-Contrib
-*******
+********
+Advanced
+********
 
-To keep the core of ``limpyd``, say, "limpid", we limited what it contains. But we added some extra stuff in the ``contrib`` module:
+To keep the core of ``limpyd``, say, "limpid", we limited what it contains. But we added some extra stuff in the ``limpyd.contrib`` module:
 
 - `Related fields`_
 - Pipelines_
+- `Extended collection`_
+- `Multi-indexes`_
+- `Other indexes`_
 
 
 Related fields
@@ -927,6 +930,128 @@ For simplest cases let's make a ``SimpleDateTimeIndex`` that doesn't contains pa
 
 
 And we're done!
+
+Other indexes
+===================
+
+Some indexes are specific so only available in the ``contrib`` module.
+
+ScoredEqualIndex
+----------------
+
+This is an index behaving like the ``EqualIndex`` one, ie allowing filtering with `=`, `__eq=` or `__in=`.
+The difference is that it is stored in a Redis_ sorted set, with the score from an other field of the same model.
+
+If the related field (named the "score field") is not set, the indexed field will not be indexed. In the example below, a job will only be retrievable via filtering on the ``queue_name`` field if it has its ``priority`` field
+set.
+
+The score field can only contain floats (or ints) values as they will be used as the score in the sorted set.
+
+One advantage of this field is that when filtering on the value of such an indexed field, result is sorted using the related field order, in a single redis call. In the example below, when filtering on a ``queue_name``, result is sorted by ``priority``.
+
+.. code:: python
+
+    >>> class Job(RedisModel):
+    ...     collection_manager = ExtendedCollectionManager  # mandatory to use this index
+    ...     priority = fields.InstanceHashField()
+    ...     queue_name = fields.InstanceHashField(
+    ...         indexable=True,
+    ...         indexes=[ScoredEqualIndex.configure(score_field='priority')]
+    ...     )
+
+    >>> job1 = Job(queue_name='foo')
+    >>> # not indexed if scored field not set
+    >>> list(Job.collection(queue_name='foo'))
+    []
+    >>> job1.priority.hset(2)
+    >>> list(Job.collection(queue_name='foo'))
+    [1]
+    >>> job2 = Job(priority=1, queue_name='foo')
+    >>> # collection is ordered by score
+    >>> list(Job.collection(queue_name='foo'))
+    [2, 1]
+    >>> job2.priority.hset(4)
+    >>> list(Job.collection(queue_name='foo'))
+    [1, 2]
+
+This index can be used with related models:
+
+.. code:: python
+
+    >>> class Queue(RelatedModel):
+    ...     name = fields.InstanceHashField(unique=True)
+
+    >>> class Job(RelatedModel):
+    ...     priority = fields.InstanceHashField()
+    ...     queue = FKInstanceHashField(
+    ...         Queue,
+    ...         related_name='jobs',
+    ...         indexes=[ScoredEqualIndex.configure(score_field='priority')]
+    ...     )
+
+    >>> queue = Queue(name='foo')
+    >>> job1 = Job(queue=queue, priority=2)
+    >>> job2 = Job(queue=queue, priority=1)
+    >>> # we can retrieve the related object like with the default EqualIndex
+    >>> job1.queue.instance() == queue
+    True
+    >>> # retrieving using the related collection get the objects sorted by score
+    >>> list(queue.jobs().instances()) == [job2, job1]
+    True
+    >>> # if on score field, we can access the related object, but the reverse is not True
+    >>> job1.priority.delete()
+    >>> job1.queue.instance() == queue
+    True
+    >>> list(queue.jobs().instances()) == [job2]
+    True
+
+If you want to get the key used to store the data (one key by value of the indexed field), you can use this:
+
+.. code:: python
+
+    >>> # based on previous example
+    >>> key = Job.get_field('queue').get_index().get_storage_key(queue)
+    namespace:job:queue:equal-scored:1
+
+
+EqualIndexWith
+--------------
+
+This index manage many fields at once. Can be used to retrieve a collection filtering on all fields indexed together in a single redis calls.
+
+Also allows to manage multi-fields uniqueness.
+
+The values are only indexed if all the fields managed by the index are set.
+
+Note that this index does not handle the filtering on only one or some of the managed fields. All fields must be present in the filtering. If you want a field to be filterable alone, you must add another index (like ``EqualIndex``) to the list of indexes, like for ``name`` in the example below.
+
+.. code:: python
+
+    >>> class Queue(RedisModel):
+    ...     name = fields.InstanceHashField(
+    ...         indexable=True,
+    ...         indexes=[
+    ...             EqualIndex,  # allow to filter on ``name`` only
+    ...             EqualIndexWith.configure(other_fields=['priority'], unique=True),  # name and priority are unique together
+    ...         ]
+    ...     )
+    ...     priority = fields.InstanceHashField()
+
+    >>> queue = Queue(name='foo', priority=1)
+    >>> list(Queue.collection(name='foo', priority=1))
+    [1]
+    >>> list(Queue.collection(name='foo'))  # possible because of ``EqualIndex``
+    [1]
+    >>> list(Queue.collection(priority=1))  # not possible, because field not indexed alone
+    ImplementationError: No index found to manage filter "priority" for field Queue.priority
+    >>> Queue(name='foo', priority=1)
+    UniquenessError: Value "name=foo, priority=1" already indexed for unique together fields [name, priority] on Queue (for instance 1)
+    >>> queue2 = Queue(name='foo', priority=2)  # same name, different priority
+    >>> list(Queue.collection(name='foo', priority=2))
+    [2]
+    >>> list(Queue.collection(name='foo', priority__in=[1, 2]))  # `__in` suffix are usable with this index
+    [1, 2]
+
 
 .. _Redis: http://redis.io
 .. _redis-py: https://github.com/andymccurdy/redis-py

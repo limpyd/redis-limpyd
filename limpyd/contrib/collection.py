@@ -39,8 +39,8 @@ class ExtendedCollectionManager(CollectionManager):
         },
     }
 
-    def __init__(self, cls):
-        super(ExtendedCollectionManager, self).__init__(cls)
+    def __init__(self, model):
+        super(ExtendedCollectionManager, self).__init__(model)
 
         self._lazy_collection['intersects'] = set()
 
@@ -69,7 +69,7 @@ class ExtendedCollectionManager(CollectionManager):
         Use lua scripting to avoid retrieving all values locally from the list before sending them
         back to the set
         """
-        self.cls.database.call_script(
+        self.model.database.call_script(
             # be sure to use the script dict at the class level
             # to avoid registering it many times
             script_dict=self.__class__.scripts['list_to_set'],
@@ -104,8 +104,8 @@ class ExtendedCollectionManager(CollectionManager):
 
     def _prepare_sets(self, sets):
         """
-        The original "_prepare_sets" method simple return the list of sets in
-        _lazy_collection, know to be all keys of redis sets.
+        The original "_prepare_sets" method simply return the list of sets in
+        `_lazy_collection`, which only contains redis sets keys.
         As the new "intersect" method can accept different types of "set", we
         have to handle them because we must return only keys of redis sets.
         """
@@ -114,7 +114,7 @@ class ExtendedCollectionManager(CollectionManager):
             raise DoesNotExist('This collection is based on a previous one, '
                                'stored at a key that does not exist anymore.')
 
-        conn = self.cls.get_connection()
+        conn = self.model.get_connection()
 
         all_sets = set()
         tmp_keys = set()
@@ -142,32 +142,25 @@ class ExtendedCollectionManager(CollectionManager):
             if is_tmp:
                 tmp_keys.add(key)
 
+        prepared_sets = []
         for set_ in sets:
+            if isinstance(set_, ParsedFilter):
+                # We have a RedisModel and we'll use its pk, or a RedisField
+                # (single value) and we'll use its value
+                if isinstance(set_.value, RedisModel):
+                    set_ = ParsedFilter(set_.index, set_.suffix, set_.extra_field_parts, set_.value.pk.get(), set_.related_filters)
+                elif isinstance(set_.value, SingleValueField):
+                    set_ = ParsedFilter(set_.index, set_.suffix, set_.extra_field_parts, set_.value.proxy_get(), set_.related_filters)
+                elif isinstance(set_.value, RedisField):
+                    raise ValueError(u'Invalid filter value for %s: %s' % (set_.index.field.name, set_.value))
+            prepared_sets.append(set_)
+
+        for set_ in self._reduce_related_filters(prepared_sets):
             if isinstance(set_, str):
                 add_key(set_)
             elif isinstance(set_, ParsedFilter):
-
-                value = set_.value
-                # We have a RedisModel and we'll use its pk, or a RedisField
-                # (single value) and we'll use its value
-                if isinstance(value, RedisModel):
-                    value = value.pk.get()
-                elif isinstance(value, SingleValueField):
-                    value = value.proxy_get()
-                elif isinstance(value, RedisField):
-                    raise ValueError(u'Invalid filter value for %s: %s' % (set_.index.field.name, value))
-
-                for index_key, key_type, is_tmp in set_.index.get_filtered_keys(
-                            set_.suffix,
-                            accepted_key_types=self._accepted_key_types,
-                            *(set_.extra_field_parts + [value])
-                        ):
-                    if key_type not in self._accepted_key_types:
-                        raise ValueError('The index key returned by the index %s is not valid' % (
-                            set_.index.__class__.__name__
-                        ))
+                for index_key, key_type, is_tmp in self._prepare_parsed_filter(set_):
                     add_key(index_key, key_type, is_tmp)
-
             elif isinstance(set_, SetField):
                 # Use the set key. If we need to intersect, we'll use
                 # sunionstore, and if not, store accepts set
@@ -252,7 +245,7 @@ class ExtendedCollectionManager(CollectionManager):
         If we have a least a sorted set, use zinterstore insted of sunionstore
         """
         if self._has_sortedsets:
-            self.cls.get_connection().zinterstore(final_set, list(sets))
+            self.model.get_connection().zinterstore(final_set, list(sets))
         else:
             final_set = super(ExtendedCollectionManager, self)._combine_sets(sets, final_set)
         return final_set
@@ -265,7 +258,7 @@ class ExtendedCollectionManager(CollectionManager):
         options, call zrange on the final set wich is the result of a call to
         zinterstore.
         """
-        conn = self.cls.get_connection()
+        conn = self.model.get_connection()
 
         # we have a sorted set without need to sort, use zrange
         if self._has_sortedsets and sort_options is None:
@@ -289,7 +282,7 @@ class ExtendedCollectionManager(CollectionManager):
         Return the length of the final collection, directly asking redis for the
         count without calling sort
         """
-        conn = self.cls.get_connection()
+        conn = self.model.get_connection()
 
         # we have a sorted set without need to sort, use zcard
         if self._has_sortedsets:
@@ -357,7 +350,7 @@ class ExtendedCollectionManager(CollectionManager):
         If a value in values is not on the sorted set, it's still saved as a key
         but with a default value ('' is alpha is True, else '-inf')
         """
-        conn = self.cls.get_connection()
+        conn = self.model.get_connection()
         default = '' if alpha else '-inf'
         if values is None:
             # no values given, we get scores from the whole sorted set
@@ -366,10 +359,10 @@ class ExtendedCollectionManager(CollectionManager):
         else:
             # we have values, we'll get only their scores
 
-            if isinstance(self.cls.database, PipelineDatabase):
+            if isinstance(self.model.database, PipelineDatabase):
                 # if available, use the pipeline of our database to get all
                 # scores in one redis call
-                with self.cls.database.pipeline(transaction=False) as pipe:
+                with self.model.database.pipeline(transaction=False) as pipe:
                     for value in values:
                         pipe.zscore(key, value)
                     scores = pipe.execute()
@@ -440,7 +433,7 @@ class ExtendedCollectionManager(CollectionManager):
         # (no slice), we can do it know, by creating keys for each values with
         # the sorted set score, and sort on them
         if self._sort_by_sortedset_after and (len(results) > 1 or self._values):
-            conn = self.cls.get_connection()
+            conn = self.model.get_connection()
 
             sort_params = {}
             base_tmp_key, tmp_keys = self._prepare_sort_by_score(results, sort_params)
@@ -550,7 +543,7 @@ class ExtendedCollectionManager(CollectionManager):
             sets = sets[::]
             sets.extend(self._lazy_collection['intersects'])
             if not self._lazy_collection['sets'] and not self.stored_key:
-                sets.append(self.cls.get_field('pk').collection_key)
+                sets.append(self.model.get_field('pk').collection_key)
 
         final_set, keys_to_delete_later = super(ExtendedCollectionManager,
                                     self)._get_final_set(sets, pk, sort_options)
@@ -606,7 +599,7 @@ class ExtendedCollectionManager(CollectionManager):
                 else:
                     # create an ParsedFilter which will be used in _prepare_sets
                     index, suffix, extra_field_parts = self._parse_filter_key(key)
-                    parsed_filter = ParsedFilter(index, suffix, extra_field_parts, value)
+                    parsed_filter = ParsedFilter(index, suffix, extra_field_parts, value, None)
                     self._lazy_collection['sets'].append(parsed_filter)
 
                 string_filters.pop(key)
@@ -661,10 +654,10 @@ class ExtendedCollectionManager(CollectionManager):
                 final_fields['names'].append(field_name)
                 final_fields['keys'].append('#')
             else:
-                if not self.cls.has_field(field_name):
+                if not self.model.has_field(field_name):
                     raise ValueError("%s if not a valid field to get from collection"
-                                     " for %s" % (field_name, self.cls.__name__))
-                field = self.cls.get_field(field_name)
+                                     " for %s" % (field_name, self.model.__name__))
+                field = self.model.get_field(field_name)
                 if isinstance(field, MultiValuesField):
                     raise ValueError("It's not possible to get a MultiValuesField"
                                      " from a collection (asked: %s" % field_name)
@@ -719,11 +712,11 @@ class ExtendedCollectionManager(CollectionManager):
             clone._get_collection()
 
             # create the new collection
-            stored_collection = clone.__class__(clone.cls).from_stored(store_key)
+            stored_collection = clone.__class__(clone.model).from_stored(store_key)
 
             # apply ttl if needed
             if ttl is not None:
-                clone.cls.get_connection().expire(store_key, ttl)
+                clone.model.get_connection().expire(store_key, ttl)
 
             # set choices about instances/values from the current to the new collection
             for attr in ('_instances', '_lazy_instances', '_values'):
@@ -748,12 +741,12 @@ class ExtendedCollectionManager(CollectionManager):
 
         # prepare the collection
         clone.stored_key = key
-        clone._apply_intersect(_StoredCollection(clone.cls.get_connection(), key))
+        clone._apply_intersect(_StoredCollection(clone.model.get_connection(), key))
         clone._apply_sort(by='nosort')  # keep stored order
 
         # count the number of results to manage empty result (to not behave like
         # expired key)
-        clone._stored_len = clone.cls.get_connection().llen(key)
+        clone._stored_len = clone.model.get_connection().llen(key)
 
         return clone
 
@@ -762,7 +755,7 @@ class ExtendedCollectionManager(CollectionManager):
         Check the existence of the stored key (useful if the collection is based
         on a stored one, to check if the redis key still exists)
         """
-        return self.cls.get_connection().exists(self.stored_key)
+        return self.model.get_connection().exists(self.stored_key)
 
     def _reset_result_type(self):
         """
