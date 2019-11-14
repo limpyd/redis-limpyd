@@ -3,11 +3,13 @@ from __future__ import absolute_import
 from __future__ import unicode_literals
 from future.builtins import str
 
-import unittest
+from platform import python_implementation
 
 from limpyd.utils import make_key, unique_key
 
 from .base import LimpydBaseTest
+
+is_pypy = python_implementation() == 'PyPy'
 
 
 class MakeKeyTest(LimpydBaseTest):
@@ -33,6 +35,12 @@ class UniqueKeyTest(LimpydBaseTest):
 
     def test_generated_key_must_be_unique(self):
         key1 = unique_key(self.connection)
+        key2 = unique_key(self.connection)
+        self.assertNotEqual(key1, key2)
+
+    def test_generated_key_must_accept_prefix(self):
+        key1 = unique_key(self.connection, 'foo')
+        self.assertTrue(key1.startswith('foo:'))
         key2 = unique_key(self.connection)
         self.assertNotEqual(key1, key2)
 

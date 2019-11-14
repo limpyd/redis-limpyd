@@ -802,7 +802,7 @@ class EqualIndexWith(_MultiFieldsIndexMixin, EqualIndex):
                     )
                 )
 
-            tmp_key = unique_key(self.connection)
+            tmp_key = self._unique_key('tmp')
             self.union_filtered_in_keys(tmp_key, *in_keys)
 
             return [(tmp_key, 'set', True)]

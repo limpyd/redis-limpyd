@@ -428,7 +428,7 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
         # get only the first element of the unsorted collection (the fastest)
         try:
             cls.collection(**kwargs).sort(by='nosort')[0]
-        except StopIteration:
+        except IndexError:
             return False
         else:
             return True
@@ -455,7 +455,7 @@ class RedisModel(with_metaclass(MetaRedisModel, RedisProxyCommand)):
                 else:
                     try:
                         pk = result[0]
-                    except StopIteration:
+                    except IndexError:
                         # object was deleted between the `len` check and now
                         raise DoesNotExist(u"No object matching filter: %s" % kwargs)
 
