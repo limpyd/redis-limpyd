@@ -24,19 +24,10 @@ class ReverseEqualIndex(EqualIndex):
 
 class ShortcutTestCase(LimpydBaseTest):
 
-    def test_shortcuts_for_instance_index(self):
-        bike = Bike(name='rosalie')
-        instance_index = EqualIndex(bike.get_field('name'))
-        self.assertIs(instance_index.connection, bike.database.connection)
-        self.assertIs(instance_index.model, Bike)
-        self.assertIs(instance_index.instance, bike)
-
     def test_shortcuts_for_model_index(self):
         instance_index = EqualIndex(Bike.get_field('name'))
         self.assertIs(instance_index.connection, Bike.database.connection)
         self.assertIs(instance_index.model, Bike)
-        with self.assertRaises(AttributeError):
-            instance_index.instance
 
 
 class EqualIndexKeyTestCase(unittest.TestCase):
@@ -97,7 +88,7 @@ class DefaultIndexesTestCase(LimpydBaseTest):
 
     def test_default_is_EqualIndex(self):
         field = Bike.get_field('name')
-        index = field._indexes[0]
+        index = field.get_index()
         self.assertIs(index.__class__, EqualIndex)
 
     def test_from_field_if_defined(self):
@@ -107,7 +98,7 @@ class DefaultIndexesTestCase(LimpydBaseTest):
             name = TestStringField(indexable=True)
 
         field = TestDefaultIndexModel1.get_field('name')
-        index = field._indexes[0]
+        index = field.get_index()
         self.assertIs(index.__class__, TestDefaultIndexForField)
 
     def test_from_model_if_defined(self):
@@ -117,7 +108,7 @@ class DefaultIndexesTestCase(LimpydBaseTest):
             name = fields.StringField(indexable=True)
 
         field = TestDefaultIndexModel2.get_field('name')
-        index = field._indexes[0]
+        index = field.get_index()
         self.assertIs(index.__class__, TestDefaultIndexForModel)
 
     def test_from_database_if_defined(self):
@@ -126,7 +117,7 @@ class DefaultIndexesTestCase(LimpydBaseTest):
             name = fields.StringField(indexable=True)
 
         field = TestDefaultIndexModel3.get_field('name')
-        index = field._indexes[0]
+        index = field.get_index()
         self.assertIs(index.__class__, TestDefaultIndexForDatabase)
 
 
@@ -142,7 +133,7 @@ class PassIndexesToFieldTestCase(LimpydBaseTest):
             name = fields.StringField(indexable=True, indexes=[ReverseEqualIndex])
 
         field = TestPassIndexesModel2.get_field('name')
-        index = field._indexes[0]
+        index = field.get_index()
         self.assertIs(index.__class__, ReverseEqualIndex)
 
     def test_many_indexes_should_be_used_correctly(self):
@@ -230,7 +221,7 @@ class TextRangeIndexTestCase(LimpydBaseTest):
     def test_storage_key_for_single_field(self):
 
         field = self.obj1.get_field('name')
-        index = field._indexes[0]
+        index = field.get_index()
         key = index.get_storage_key('foo')
 
         self.assertEqual(key, 'tests:rangeindextestmodel:name:text-range')
@@ -242,7 +233,7 @@ class TextRangeIndexTestCase(LimpydBaseTest):
         obj = TextRangeIndexTestModel1(data={'foo': 'bar'})
 
         field = obj.get_field('data')
-        index = field._indexes[0]
+        index = field.get_index()
         key = index.get_storage_key('foo', 'bar')
 
         self.assertEqual(key, 'tests:textrangeindextestmodel1:data:foo:text-range')
@@ -250,7 +241,7 @@ class TextRangeIndexTestCase(LimpydBaseTest):
     def test_stored_data(self):
 
         field = self.obj1.get_field('name')
-        index = field._indexes[0]
+        index = field.get_index()
         key = index.get_storage_key(None)  # value not used in this index for the storage key
 
         key_type = self.connection.type(key)
@@ -288,7 +279,7 @@ class TextRangeIndexTestCase(LimpydBaseTest):
 
     def test_get_filtered_key(self):
 
-        index = RangeIndexTestModel.get_field('name')._indexes[0]
+        index = RangeIndexTestModel.get_field('name').get_index()
 
         with self.assertRaises(ImplementationError):
             index.get_filtered_keys('gt', 'bar', accepted_key_types={'list'})
@@ -466,7 +457,7 @@ class NumberRangeIndexTestCase(LimpydBaseTest):
     def test_storage_key_for_single_field(self):
 
         field = self.obj1.get_field('value')
-        index = field._indexes[0]
+        index = field.get_index()
         key = index.get_storage_key(-25)
 
         self.assertEqual(key, 'tests:rangeindextestmodel:value:number-range')
@@ -478,7 +469,7 @@ class NumberRangeIndexTestCase(LimpydBaseTest):
         obj = NumberRangeIndexTestModel1(data={'foo': 123})
 
         field = obj.get_field('data')
-        index = field._indexes[0]
+        index = field.get_index()
         key = index.get_storage_key('foo', 123)
 
         self.assertEqual(key, 'tests:numberrangeindextestmodel1:data:foo:number-range')
@@ -486,7 +477,7 @@ class NumberRangeIndexTestCase(LimpydBaseTest):
     def test_stored_data(self):
 
         field = self.obj1.get_field('value')
-        index = field._indexes[0]
+        index = field.get_index()
         key = index.get_storage_key(None)  # value not used in this index for the storage key
 
         key_type = self.connection.type(key)
@@ -508,7 +499,7 @@ class NumberRangeIndexTestCase(LimpydBaseTest):
 
     def test_uniqueness(self):
         class NumberRangeIndexTestModel2(TestRedisModel):
-            value = fields.StringField(indexable=True, unique=True, indexes=[TextRangeIndex])
+            value = fields.StringField(indexable=True, unique=True, indexes=[NumberRangeIndex])
 
         # first object with -15
         NumberRangeIndexTestModel2(value=-15)
@@ -524,7 +515,7 @@ class NumberRangeIndexTestCase(LimpydBaseTest):
 
     def test_get_filtered_key(self):
 
-        index = RangeIndexTestModel.get_field('value')._indexes[0]
+        index = RangeIndexTestModel.get_field('value').get_index()
 
         with self.assertRaises(ImplementationError):
             index.get_filtered_keys('gt', -25, accepted_key_types={'list'})
@@ -704,7 +695,7 @@ class CleanTestCase(LimpydBaseTest):
         ).pk.get()
 
         ### check simple index
-        index = CleanModel1.get_field('field')._indexes[0]
+        index = CleanModel1.get_field('field').get_index()
 
         # check we have the keys
         self.assertSetEqual(index.get_all_storage_keys(), {
@@ -732,7 +723,7 @@ class CleanTestCase(LimpydBaseTest):
         self.assertSetEqual(set(CleanModel1.collection(field='b')), {pk2})
 
         # now for index with key
-        index = CleanModel1.get_field('key_field')._indexes[0]
+        index = CleanModel1.get_field('key_field').get_index()
 
         # check we have the keys
         self.assertSetEqual(index.get_all_storage_keys(), {
@@ -760,7 +751,7 @@ class CleanTestCase(LimpydBaseTest):
         self.assertSetEqual(set(CleanModel1.collection(key_field='bbb')), {pk2})
 
         ### now for index with prefix
-        index = CleanModel1.get_field('prefix_field')._indexes[0]
+        index = CleanModel1.get_field('prefix_field').get_index()
 
         # check we have the keys
         self.assertSetEqual(index.get_all_storage_keys(), {
@@ -788,7 +779,7 @@ class CleanTestCase(LimpydBaseTest):
         self.assertSetEqual(set(CleanModel1.collection(prefix_field__bar='bbbb')), {pk2})
 
         ### now for index with key and prefix
-        index = CleanModel1.get_field('key_prefix_field')._indexes[0]
+        index = CleanModel1.get_field('key_prefix_field').get_index()
 
         # check we have the keys
         self.assertSetEqual(index.get_all_storage_keys(), {
@@ -816,7 +807,7 @@ class CleanTestCase(LimpydBaseTest):
         self.assertSetEqual(set(CleanModel1.collection(key_prefix_field__qux='bbbbb')), {pk2})
 
         ### now for index for hashfield
-        index = CleanModel1.get_field('hash_field')._indexes[0]
+        index = CleanModel1.get_field('hash_field').get_index()
 
         # check we have the keys
         self.assertSetEqual(index.get_all_storage_keys(), {
@@ -850,7 +841,7 @@ class CleanTestCase(LimpydBaseTest):
         self.assertSetEqual(set(CleanModel1.collection(hash_field__bbbbbb2='BBBBBB2')), {pk2})
 
         ### now for multi-indexes
-        index = CleanModel1.get_field('two_indexes_field')._indexes[1]  # the reverse one
+        index = CleanModel1.get_field('two_indexes_field').get_index(prefix='two')
 
         # check we have the keys
         self.assertSetEqual(index.get_all_storage_keys(), {
@@ -872,12 +863,6 @@ class CleanTestCase(LimpydBaseTest):
 
         # and other index still present
         self.assertSetEqual(set(CleanModel1.collection(two_indexes_field__one='aaaaaaX')), {pk1})
-
-        # both methods cannot be called from instance index
-        with self.assertRaises(AssertionError):
-            CleanModel1().get_field('field')._indexes[0].clear()
-        with self.assertRaises(AssertionError):
-            CleanModel1().get_field('field')._indexes[0].rebuild()
 
     def test_range_index(self):
 
@@ -905,7 +890,7 @@ class CleanTestCase(LimpydBaseTest):
         ).pk.get()
 
         ### check simple index
-        index = CleanModel2.get_field('field')._indexes[0]
+        index = CleanModel2.get_field('field').get_index()
 
         # check we have the keys
         self.assertSetEqual(index.get_all_storage_keys(), {
@@ -932,7 +917,7 @@ class CleanTestCase(LimpydBaseTest):
         self.assertSetEqual(set(CleanModel2.collection(field='b')), {pk2})
 
         # now for index with key
-        index = CleanModel2.get_field('key_field')._indexes[0]
+        index = CleanModel2.get_field('key_field').get_index()
 
         # check we have the keys
         self.assertSetEqual(index.get_all_storage_keys(), {
@@ -959,7 +944,7 @@ class CleanTestCase(LimpydBaseTest):
         self.assertSetEqual(set(CleanModel2.collection(key_field='bbb')), {pk2})
 
         ### now for index with prefix
-        index = CleanModel2.get_field('prefix_field')._indexes[0]
+        index = CleanModel2.get_field('prefix_field').get_index()
 
         # check we have the keys
         self.assertSetEqual(index.get_all_storage_keys(), {
@@ -986,7 +971,7 @@ class CleanTestCase(LimpydBaseTest):
         self.assertSetEqual(set(CleanModel2.collection(prefix_field__bar='bbbb')), {pk2})
 
         ### now for index with key and prefix
-        index = CleanModel2.get_field('key_prefix_field')._indexes[0]
+        index = CleanModel2.get_field('key_prefix_field').get_index()
 
         # check we have the keys
         self.assertSetEqual(index.get_all_storage_keys(), {
@@ -1013,7 +998,7 @@ class CleanTestCase(LimpydBaseTest):
         self.assertSetEqual(set(CleanModel2.collection(key_prefix_field__qux='bbbbb')), {pk2})
 
         ### now for index for hashfield
-        index = CleanModel2.get_field('hash_field')._indexes[0]
+        index = CleanModel2.get_field('hash_field').get_index()
 
         # check we have the keys
         self.assertSetEqual(index.get_all_storage_keys(), {
@@ -1047,7 +1032,7 @@ class CleanTestCase(LimpydBaseTest):
         self.assertSetEqual(set(CleanModel2.collection(hash_field__bbbbbb2='BBBBBB2')), {pk2})
 
         ### now for multi-indexes
-        index = CleanModel2.get_field('two_indexes_field')._indexes[1]  # the reverse one
+        index = CleanModel2.get_field('two_indexes_field').get_index(prefix='two')
 
         # check we have the keys
         self.assertSetEqual(index.get_all_storage_keys(), {
@@ -1178,3 +1163,70 @@ class InSuffixTestCase(LimpydBaseTest):
             set(RangeIndexTestModel.collection(value__in=(1898, 1964, 11, 1955, 0), category='engine')),
             {pk4}
         )
+
+
+class GetIndexTestCase(LimpydBaseTest):
+    def test_not_indexable(self):
+        with self.assertRaises(ValueError):
+            Bike.get_field('wheels').get_index()
+        with self.assertRaises(ValueError):
+            Bike().get_field('wheels').get_index()
+
+    def test_if_only_one_index(self):
+        model_field = Bike.get_field('name')
+        instance_field = Bike().get_field('name')
+        self.assertIs(model_field.get_index().__class__, EqualIndex)
+        self.assertIs(instance_field.get_index().__class__, EqualIndex)
+        self.assertIs(model_field.get_index(index_class=EqualIndex).__class__, EqualIndex)
+        self.assertIs(instance_field.get_index(index_class=EqualIndex).__class__, EqualIndex)
+        self.assertIs(model_field.get_index(key=None).__class__, EqualIndex)
+        self.assertIs(instance_field.get_index(key=None).__class__, EqualIndex)
+        with self.assertRaises(ValueError):
+            model_field.get_index(index_class=ReverseEqualIndex)
+        with self.assertRaises(ValueError):
+            instance_field.get_index(index_class=ReverseEqualIndex)
+        with self.assertRaises(ValueError):
+            model_field.get_index(key='foo')
+        with self.assertRaises(ValueError):
+            instance_field.get_index(key='foo')
+        with self.assertRaises(ValueError):
+            model_field.get_index(index_class=EqualIndex, key='foo')
+        with self.assertRaises(ValueError):
+            instance_field.get_index(index_class=EqualIndex, key='foo')
+
+    def test_no_param_if_many_indexes(self):
+        ReverseEqualIndex2 = ReverseEqualIndex.configure(key='reverse-equal2', prefix='reverse')
+        class GetIndexModel1(TestRedisModel):
+            name = fields.StringField(indexable=True, indexes=[
+                EqualIndex,
+                ReverseEqualIndex,
+                ReverseEqualIndex2,
+            ])
+        model_field = GetIndexModel1.get_field('name')
+        instance_field = GetIndexModel1().get_field('name')
+        with self.assertRaises(ValueError):
+            model_field.get_index()
+        with self.assertRaises(ValueError):
+            instance_field.get_index()
+        with self.assertRaises(ValueError):
+            model_field.get_index(index_class=TestDefaultIndexForDatabase)
+        with self.assertRaises(ValueError):
+            instance_field.get_index(index_class=TestDefaultIndexForDatabase)
+        with self.assertRaises(ValueError):
+            model_field.get_index(index_class=EqualIndex)
+        with self.assertRaises(ValueError):
+            instance_field.get_index(index_class=EqualIndex)
+        self.assertIs(model_field.get_index(index_class=ReverseEqualIndex2).__class__, ReverseEqualIndex2)
+        self.assertIs(instance_field.get_index(index_class=ReverseEqualIndex2).__class__, ReverseEqualIndex2)
+        self.assertIs(model_field.get_index(index_class=EqualIndex, key=None).__class__, EqualIndex)
+        self.assertIs(instance_field.get_index(index_class=EqualIndex, key=None).__class__, EqualIndex)
+        self.assertIs(model_field.get_index(index_class=EqualIndex, key='reverse-equal').__class__, ReverseEqualIndex)
+        self.assertIs(instance_field.get_index(index_class=EqualIndex, key='reverse-equal').__class__, ReverseEqualIndex)
+        with self.assertRaises(ValueError):
+            model_field.get_index(index_class=EqualIndex, key='reverse-equal', prefix='reverse')
+        with self.assertRaises(ValueError):
+            instance_field.get_index(index_class=EqualIndex, key='reverse-equal', prefix='reverse')
+        self.assertIs(model_field.get_index(prefix='reverse').__class__, ReverseEqualIndex2)
+        self.assertIs(instance_field.get_index(prefix='reverse').__class__, ReverseEqualIndex2)
+        self.assertIs(model_field.get_index(index_class=EqualIndex, key='reverse-equal2', prefix='reverse').__class__, ReverseEqualIndex2)
+        self.assertIs(instance_field.get_index(index_class=EqualIndex, key='reverse-equal2', prefix='reverse').__class__, ReverseEqualIndex2)

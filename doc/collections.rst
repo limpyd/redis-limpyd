@@ -16,7 +16,7 @@ The filtering has some limitations:
 - no ``not`` (only able to find matching fields, not to exclude some)
 - no `join`` (filter on one model only)
 
-The result of a call to the ``collection`` is lazy. The query is only sent to ``Redis`` when data is really needed, to display or do computation with them.
+The result of a call to the ``collection`` is lazy. The query is only sent to ``Redis`` when data is really needed, to display or do computation with them. Then, an generator is returned.
 
 By default, a collection yields a list of primary keys for all the matching objects, but you can sort them, retrieve only a part, and/or directly get full instances instead of primary keys. In each case, you'll get a generator, not a list.
 
@@ -313,16 +313,16 @@ It will simply override the default value set on the index class. Useful if your
 Note that if your field is marked as ``unique``, you'll need to have at least one index capable of handling uniqueness.
 
 
-Clean and rebuild
+Clear and rebuild
 -----------------
 
-Before removing an index from the field declaration, you have to clean it, else the data will stay in redis.
+Before removing an index from the field declaration, you have to clear it, else the data will stay in redis.
 
-For this, use the ``clean_indexes`` method of the field.
+For this, use the ``clear_indexes`` method of the field.
 
 .. code:: python
 
-    >>> MyModel.get_field('myfield').clean_indexes()
+    >>> MyModel.get_field('myfield').clear_indexes()
 
 
 You can also rebuild them. It is useful if you decide to index a field with existing data that was not indexed before.
@@ -331,8 +331,7 @@ You can also rebuild them. It is useful if you decide to index a field with exis
 
     >>> MyModel.get_field('myfield').rebuild_indexes()
 
-
-You can pass the named argument ``index_class`` to limit the clean/rebuild to only indexes of this class.
+If you want to clear or rebuild only a specific index, you can use call ``clear`` or ``rebuild`` on the index itself.
 
 Say you defined your own index:
 
@@ -346,7 +345,36 @@ You can clear/rebuild only your own index this way:
 
 .. code:: python
 
-    >>> MyModel.get_field('myfield').clear(index_class=MyIndex)
+    >>> MyModel.get_field('myfield').get_index(key='yolo').clear()
+
+
+All these four methods (``clear_indexes`` and ``rebuild_indexes`` on a field, and ``clear`` and ``rebuild`` on an index) accept two arguments to manipulate the way data is cleared/rebuilded:
+
+- ``chunk_size``, default to ``1000``
+- ``aggressive``, default to ``False``
+
+``chunk_size`` is the number of instances that will be loaded at once. Not used for ``clear*`` methods if ``aggressive`` is ``True`` (and in the clear part of ``rebuild*`` methods, because ``rebuild`` calls ``clear``).
+
+If ``aggressive`` is ``True``, the clear part is done in a fast way without loading instances, but just by deleting the redis keys used by the index.
+
+
+Getting an index
+----------------
+
+As seen above, it can be useful to get the instance of an index to be able to work on it, like clearing/rebuilding it.
+
+For this, a field has a ``get_index`` method, accepting none or any number of these arguments: ``index_class``, ``key`` and ``prefix``. They will be used to filter the list of indexes of the field to get the one you want.
+
+If a field has only one index, simply calling ``get_index()`` without argument is enough.
+
+You can for example get the key used to store indexing data of a field for a specific value this way:
+
+
+.. code:: python
+
+    >>> index = MyModel.get_field('myfield').get_index()
+    >>> index.get_storage_key('foo')
+    namespace:mymodel:myfield:foo
 
 
 Laziness

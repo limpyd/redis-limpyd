@@ -12,7 +12,7 @@ from copy import copy
 from redis.exceptions import RedisError
 
 from limpyd.database import Lock
-from limpyd.utils import cached_property, make_key, normalize
+from limpyd.utils import cached_property, make_key, normalize, NotProvided
 from limpyd.exceptions import *
 
 log = getLogger(__name__)
@@ -200,7 +200,7 @@ class RedisField(RedisProxyCommand):
                 raise ImplementationError('Cannot set "default" and "unique" together!')
             self.indexable = True
 
-        self.index_classes = kwargs.get('indexes', [])
+        self.index_classes = kwargs.get('indexes') or []
         if self.index_classes:
             if not self.indexable:
                 raise ImplementationError('Cannot pass indexes if not indexable')
@@ -208,6 +208,16 @@ class RedisField(RedisProxyCommand):
         # keep fields ordered
         self._creation_order = RedisField._creation_order
         RedisField._creation_order += 1
+
+    def __repr__(self):
+        try:
+            return u'%s (model=%s, name=%s)>' % (
+                super(RedisField, self).__repr__()[:-2],
+                self._model.__name__,
+                self.name,
+            )
+        except Exception:
+            return super(RedisField, self).__repr__()
 
     def get_default_indexes(self):
         if self.__class__.default_indexes is not None:
@@ -378,36 +388,54 @@ class RedisField(RedisProxyCommand):
             If no index classes available for this field
 
         """
+
+        if self.attached_to_instance:
+            return self._model.get_field(self.name)._indexes
+
         if not self.indexable:
             return []
-        if not self.index_classes:
-            self.index_classes = self.get_default_indexes()[::1]
         if not self.index_classes:
             raise ImplementationError('%s field is indexable but has no indexes attached' %
                                       self.__class__.__name__)
 
         return [index_class(field=self) for index_class in self.index_classes]
 
-    def has_index(self, index):
-        """Tells if the field have an index matching the current one
+    def get_index(self, index_class=NotProvided, key=NotProvided, prefix=NotProvided):
+        """Get an index matching the given filters.
 
         Parameters
-        -----------
-        index: type or BaseIndex
-            It could be an index instance, or an index class
+        ----------
+        index_class : Optional[Type[BaseIndex]]
+            The index class to filter on
+        key : Optional[str]
+            The key of the index to filter on.
+        prefix : Optional[str]
+            The prefix of the index to filter on
+
+        Raises
+        ------
+        ValueError
+            - If no indexes match the filters
+            - If more than one index match the filters
 
         Returns
         -------
-        bool
-            Will be ``True`` if the current field has an index that is an instance
-            of the given index or of the class of the given index
+        BaseIndex
+            The only index matching all the filter
 
         """
-        klass = index if isclass(index) else index.__class__
-        for one_index in self._indexes:
-            if isinstance(one_index, klass):
-                return True
-        return False
+        indexes = self._indexes
+        if indexes and index_class is not NotProvided:
+            indexes = [index for index in indexes if isinstance(index, index_class)]
+        if indexes and key is not NotProvided:
+            indexes = [index for index in indexes if index.key == key]
+        if indexes and prefix is not NotProvided:
+            indexes = [index for index in indexes if index.prefix == prefix]
+        if len(indexes) > 1:
+            raise ValueError('More than one index matching filters')
+        if not indexes:
+            raise ValueError('No indexes matching filters')
+        return indexes[0]
 
     def _attach_to_model(self, model):
         """
@@ -438,6 +466,14 @@ class RedisField(RedisProxyCommand):
             except AttributeError:
                 return True
 
+    @property
+    def attached_to_instance(self):
+        """Tells if the current field is the one attached to the instance"""
+        try:
+            return bool(self._instance)
+        except AttributeError:
+            return False
+
     def _call_command(self, name, *args, **kwargs):
         """
         Add lock management and call parent.
@@ -448,12 +484,14 @@ class RedisField(RedisProxyCommand):
                 try:
                     result = meth(name, *args, **kwargs)
                 except:
-                    self._rollback_indexes()
+                    if self._instance.connected:
+                        self._rollback_indexes()
                     raise
                 else:
                     return result
                 finally:
-                    self._reset_indexes_caches()
+                    if self._instance.connected:
+                        self._reset_indexes_rollback_caches(self._instance_pk)
         else:
             return meth(name, *args, **kwargs)
 
@@ -462,61 +500,77 @@ class RedisField(RedisProxyCommand):
         Restore the index in its previous status, using deindexed/indexed values
         temporarily stored.
         """
+        pk = self._instance.pk.get()
         for index in self._indexes:
-            index._rollback()
+            index._rollback(pk)
 
-    def _reset_indexes_caches(self):
+    def _reset_indexes_rollback_caches(self, pk):
         """
         Reset attributes used to store deindexed/indexed values, used to
         rollback the index when something failed.
         """
         for index in self._indexes:
-            index._reset_cache()
+            index._reset_rollback_cache(pk)
 
-    def index(self, value=None, only_index=None):
+    def get_for_instance(self, pk):
+        return self._model.lazy_connect(pk).get_field(self.name)
+
+    def _prepare_index_data(self, pk, values=None):
+        raise NotImplementedError
+
+    def _index(self, values, only_index=None):
         """
         Handle field index process.
         """
         assert self.indexable, "Field not indexable"
-        assert not only_index or self.has_index(only_index), "Invalid index"
         if only_index:
-            only_index = only_index if isclass(only_index) else only_index.__class__
+            indexes = [self.get_index(
+                index_class=only_index.__class__, key=only_index.key, prefix=only_index.prefix
+            )]
+        else:
+            indexes = self._indexes
 
-        if value is None:
-            value = self.proxy_get()
+        pk = self._instance.pk.get()
+        values = self._prepare_index_data(pk, values)
 
-        if value is not None:
-            needs_to_check_uniqueness = bool(self.unique)
+        for parts in values:
+            value = parts[-1]
+            if value is not None:
+                needs_to_check_uniqueness = bool(self.unique)
 
-            for index in self._indexes:
-                if only_index and not isinstance(index, only_index):
-                    continue
+                for index in indexes:
+                    index.add(
+                        pk,
+                        *parts,
+                        check_uniqueness=needs_to_check_uniqueness and index.handle_uniqueness
+                    )
 
-                index.add(value, check_uniqueness=needs_to_check_uniqueness and index.handle_uniqueness)
+                    if needs_to_check_uniqueness and index.handle_uniqueness:
+                        # uniqueness check is done for this value
+                        needs_to_check_uniqueness = False
 
-                if needs_to_check_uniqueness and index.handle_uniqueness:
-                    # uniqueness check is done for this value
-                    needs_to_check_uniqueness = False
-
-    def deindex(self, value=None, only_index=None):
+    def _deindex(self, values, only_index=None):
         """
         Run process of deindexing field value(s).
         """
         assert self.indexable, "Field not indexable"
-        assert not only_index or self.has_index(only_index), "Invalid index"
         if only_index:
-            only_index = only_index if isclass(only_index) else only_index.__class__
+            indexes = [self.get_index(
+                index_class=only_index.__class__, key=only_index.key, prefix=only_index.prefix
+            )]
+        else:
+            indexes = self._indexes
 
-        if value is None:
-            value = self.proxy_get()
+        pk = self._instance.pk.get()
+        values = self._prepare_index_data(pk, values)
 
-        if value is not None:
-            for index in self._indexes:
-                if only_index and not isinstance(index, only_index):
-                    continue
-                index.remove(value)
+        for parts in values:
+            value = parts[-1]
+            if value is not None:
+                for index in indexes:
+                    index.remove(pk, *parts)
 
-    def clear_indexes(self, chunk_size=1000, aggressive=False, index_class=None):
+    def clear_indexes(self, chunk_size=1000, aggressive=False):
         """Clear all indexes tied to this field
 
         Parameters
@@ -530,8 +584,6 @@ class RedisField(RedisProxyCommand):
             pattern of the keys used by the indexes. This is a lot faster and may find forgotten keys.
             But may also find keys not related to the index.
             Should be set to ``True`` if you are not sure about the already indexed values.
-        index_class: type
-            Allow to clear only index(es) for this index class instead of all indexes.
 
         Raises
         ------
@@ -543,7 +595,6 @@ class RedisField(RedisProxyCommand):
         --------
 
         >>> MyModel.get_field('myfield').clear_indexes()
-        >>> MyModel.get_field('myfield').clear_indexes(index_class=MyIndex)
 
         """
         assert self.indexable, "Field not indexable"
@@ -551,11 +602,9 @@ class RedisField(RedisProxyCommand):
             '`rebuild_indexes` can only be called on a field attached to the model'
 
         for index in self._indexes:
-            if index_class and not isinstance(index, index_class):
-                continue
             index.clear(chunk_size=chunk_size, aggressive=aggressive)
 
-    def rebuild_indexes(self, chunk_size=1000, aggressive_clear=False, index_class=None):
+    def rebuild_indexes(self, chunk_size=1000, aggressive_clear=False):
         """Rebuild all indexes tied to this field
 
         Parameters
@@ -566,8 +615,6 @@ class RedisField(RedisProxyCommand):
             Will be passed to the `aggressive` argument of the `clear_indexes` method.
             If `False`, all values will be normally deindexed. If `True`, the work
             will be done at low level, scanning for keys that may match the ones used by the indexes
-        index_class: type
-            Allow to build only index(es) for this index class instead of all indexes.
 
         Raises
         ------
@@ -579,7 +626,6 @@ class RedisField(RedisProxyCommand):
         --------
 
         >>> MyModel.get_field('myfield').rebuild_indexes()
-        >>> MyModel.get_field('myfield').clear_indexes(index_class=MyIndex)
 
 
         """
@@ -588,8 +634,6 @@ class RedisField(RedisProxyCommand):
             '`rebuild_indexes` can only be called on a field attached to the model'
 
         for index in self._indexes:
-            if index_class and not isinstance(index, index_class):
-                continue
             index.rebuild(chunk_size=chunk_size, aggressive_clear=aggressive_clear)
 
     def get_unique_index(self):
@@ -603,11 +647,18 @@ class RedisField(RedisProxyCommand):
                 (self._model.__name__, self.name)
             )
 
+    @property
+    def _instance_pk(self):
+        try:
+            return self._instance.pk.get()
+        except (ImplementationError, DoesNotExist):
+            return None
+
     def check_uniqueness(self, value):
         if not self.unique:
             return
         if value is not None:
-            self.get_unique_index().check_uniqueness(value)
+            self.get_unique_index().check_uniqueness(self._instance_pk, value)
 
     def from_python(self, value):
         """
@@ -680,6 +731,17 @@ class SingleValueField(RedisField):
                 if value is not None:
                     self.index(value)
         return self._traverse_command(command, value, *args, **kwargs)
+
+    def _prepare_index_data(self, pk, values=None):
+        if values is None:
+            values = [self.get_for_instance(pk).proxy_get()]
+        return [(value, ) for value in values]
+
+    def index(self, value=None, only_index=None):
+        self._index(None if value is None else [value], only_index)
+
+    def deindex(self, value=None, only_index=None):
+        self._deindex(None if value is None else [value], only_index)
 
 
 class StringField(SingleValueField):
@@ -778,57 +840,30 @@ class MultiValuesField(RedisField):
             self.deindex([result])
         return result
 
+    def _prepare_index_data(self, pk, values=None):
+        if values is None:
+            values = self.get_for_instance(pk).proxy_get()
+        return [(value, ) for value in values]
+
     def index(self, values=None, only_index=None):
         """
         Index all values stored in the field, or only given ones if any.
         """
-        assert self.indexable, "Field not indexable"
-        assert not only_index or self.has_index(only_index), "Invalid index"
-        if only_index:
-            only_index = only_index if isclass(only_index) else only_index.__class__
-
-        if values is None:
-            values = self.proxy_get()
-
-        for value in values:
-            if value is not None:
-                needs_to_check_uniqueness = bool(self.unique)
-
-                for index in self._indexes:
-                    if only_index and not isinstance(index, only_index):
-                        continue
-
-                    index.add(value, check_uniqueness=needs_to_check_uniqueness and index.handle_uniqueness)
-
-                    if needs_to_check_uniqueness and index.handle_uniqueness:
-                        # uniqueness check is done for this value
-                        needs_to_check_uniqueness = False
+        self._index(values, only_index)
 
     def deindex(self, values=None, only_index=None):
         """
         Deindex all values stored in the field, or only given ones if any.
         """
-        assert self.indexable, "Field not indexable"
-        assert not only_index or self.has_index(only_index), "Invalid index"
-        if only_index:
-            only_index = only_index if isclass(only_index) else only_index.__class__
-
-        if not values:
-            values = self.proxy_get()
-
-        for value in values:
-            if value is not None:
-                for index in self._indexes:
-                    if only_index and not isinstance(index, only_index):
-                        continue
-                    index.remove(value)
+        self._deindex(values, only_index)
 
     def check_uniqueness(self, values):
         if not self.unique:
             return
+        pk = self._instance_pk
         for value in values:
             if value is not None:
-                self.get_unique_index().check_uniqueness(value)
+                self.get_unique_index().check_uniqueness(pk, value)
 
     def _scan(self, command, match=None, count=None):
         assert self.scannable, 'Field is not scannable'
@@ -1207,50 +1242,22 @@ class HashField(MultiValuesField):
             raise ImplementationError("HSTRLEN is not a valid command for redis-server version < 3.2")
         return self._traverse_command(command, key)
 
+    def _prepare_index_data(self, pk, values=None):
+        if values is None:
+            values = self.get_for_instance(pk).proxy_get()
+        return list(iteritems(values))
 
     def index(self, values=None, only_index=None):
         """
         Deal with dicts and field names.
         """
-        assert self.indexable, "Field not indexable"
-        assert not only_index or self.has_index(only_index), "Invalid index"
-        if only_index:
-            only_index = only_index if isclass(only_index) else only_index.__class__
-
-        if values is None:
-            values = self.proxy_get()
-
-        for field_name, value in iteritems(values):
-            if value is not None:
-                needs_to_check_uniqueness = bool(self.unique)
-
-                for index in self._indexes:
-                    if only_index and not isinstance(index, only_index):
-                        continue
-
-                    index.add(field_name, value, check_uniqueness=needs_to_check_uniqueness and index.handle_uniqueness)
-
-                    if needs_to_check_uniqueness and index.handle_uniqueness:
-                        # uniqueness check is done for this value
-                        needs_to_check_uniqueness = False
+        self._index(values, only_index)
 
     def deindex(self, values=None, only_index=None):
         """
         Deal with dicts and field names.
         """
-        assert self.indexable, "Field not indexable"
-        assert not only_index or self.has_index(only_index), "Invalid index"
-        if only_index:
-            only_index = only_index if isclass(only_index) else only_index.__class__
-
-        if values is None:
-            values = self.proxy_get()
-        for field_name, value in iteritems(values):
-            if value is not None:
-                for index in self._indexes:
-                    if only_index and not isinstance(index, only_index):
-                        continue
-                    index.remove(field_name, value)
+        self._deindex(values, only_index)
 
     def hexists(self, key):
         """
@@ -1424,7 +1431,7 @@ class PKField(SingleValueField):
         self._set = True
 
         # We have a new pk, so add it to the collection
-        log.debug("Adding %s in %s collection" % (value, self._model._name))
+        log.debug("Adding %s in %s collection" % (value, self._model.__name__))
         self.connection.sadd(self.collection_key, value)
 
         # Finally return 1 as we did a real redis call to the set command
@@ -1438,6 +1445,7 @@ class PKField(SingleValueField):
         if not hasattr(self, '_instance'):
             raise ImplementationError("Impossible to get the PK of an unbound field")
         if not hasattr(self._instance, '_pk'):
+            self._instance._connected = False
             raise DoesNotExist("The current object doesn't exists anymore")
 
         if not self._instance._pk:

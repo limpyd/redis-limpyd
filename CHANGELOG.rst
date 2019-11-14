@@ -1,6 +1,12 @@
 Changelog
 =========
 
+Release *v2.1* - ``2019-11-14``
+-------------------------------
+* Add new index `ScoredEqualIndex` in `limpyd.contrib.indexes` (to index a field with a score)
+* Add new index `EqualIndexWith` in `limpyd.contrib.indexes` (to index many fields at once, unique together or not)
+* Lot of rework of collections and indexing internals
+
 Release *v2.0.1* - ``2019-10-11``
 ---------------------------------
 * Fix versions support in documentation

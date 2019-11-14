@@ -2,16 +2,18 @@
 from __future__ import absolute_import
 from __future__ import unicode_literals
 
+from sys import version_info
 import unittest
 
 from redis.exceptions import ResponseError
 
 from limpyd import fields
-from limpyd.collection import CollectionManager
+from limpyd.collection import CollectionManager, CollectionResults
 from limpyd.exceptions import *
 
 from .base import LimpydBaseTest, TEST_CONNECTION_SETTINGS
 from .model import Boat, Bike, Email, TestRedisModel
+from .utils import is_pypy
 
 
 class CollectionBaseTest(LimpydBaseTest):
@@ -134,8 +136,8 @@ class CollectionTest(CollectionBaseTest):
 
     def test_connection_class_could_be_changed(self):
         class SailBoats(CollectionManager):
-            def __init__(self, cls):
-                super(SailBoats, self).__init__(cls)
+            def __init__(self, model):
+                super(SailBoats, self).__init__(model)
                 self._add_filters(power='sail')
 
         # all boats, using the default manager, attached to the model
@@ -144,8 +146,8 @@ class CollectionTest(CollectionBaseTest):
         self.assertEqual(len(list(Boat.collection(manager=SailBoats))), 3)
 
         class ActiveGroups(CollectionManager):
-            def __init__(self, cls):
-                super(ActiveGroups, self).__init__(cls)
+            def __init__(self, model):
+                super(ActiveGroups, self).__init__(model)
                 self._add_filters(active=1)
 
         class Group(TestRedisModel):
@@ -176,6 +178,43 @@ class CollectionTest(CollectionBaseTest):
             MyEmail.collection(headers='you@moon.io')
         with self.assertRaises(ImplementationError):
             MyEmail.collection(headers__from__age='you@moon.io')
+
+    def test_representation_collection(self):
+        collection = Boat.collection().sort()
+        if version_info.major < 3:
+            self.assertEqual(repr(collection), "<CollectionManager [u'1', u'2', u'3', u'4']>")
+        else:
+            self.assertEqual(repr(collection), "<CollectionManager ['1', '2', '3', '4']>")
+        try:
+            CollectionResults.MAX_REPR_ITEMS = 2
+            if version_info.major < 3:
+                self.assertEqual(repr(collection), "<CollectionManager [u'1', u'2', u'... (2 remaining elements truncated)...']>")
+            else:
+                self.assertEqual(repr(collection), "<CollectionManager ['1', '2', '... (2 remaining elements truncated)...']>")
+        finally:
+            CollectionResults.MAX_REPR_ITEMS = 20
+
+    def test_representaiton_results(self):
+        collection = iter(Boat.collection().sort())
+        if version_info.major < 3:
+            self.assertEqual(repr(collection), "<CollectionResults [u'1', u'2', u'3', u'4']>")
+        else:
+            self.assertEqual(repr(collection), "<CollectionResults ['1', '2', '3', '4']>")
+        try:
+            CollectionResults.MAX_REPR_ITEMS = 2
+            if version_info.major < 3:
+                self.assertEqual(repr(collection), "<CollectionResults [u'1', u'2', u'... (2 remaining elements truncated)...']>")
+            else:
+                self.assertEqual(repr(collection), "<CollectionResults ['1', '2', '... (2 remaining elements truncated)...']>")
+        finally:
+            CollectionResults.MAX_REPR_ITEMS = 20
+
+    def test_content_can_be_compared(self):
+        self.assertEqual(Boat.collection().sort(), ['1', '2', '3', '4'])
+        self.assertEqual(['1', '2', '3', '4'], Boat.collection().sort())
+
+        self.assertEqual(Boat.collection(), {'1', '2', '3', '4'})
+        self.assertEqual({'1', '2', '3', '4'}, Boat.collection())
 
 
 class SliceTest(CollectionBaseTest):
@@ -262,7 +301,7 @@ class SortTest(CollectionBaseTest):
                 try:
                     expected = test_list[index]
                 except IndexError:
-                    with self.assertRaises(StopIteration):
+                    with self.assertRaises(IndexError):
                         collection[index]
                 else:
                     self.assertEqual(
@@ -452,7 +491,7 @@ class InstancesTest(CollectionBaseTest):
             list(Boat.collection().instances(lazy=True))
 
         # add a fake id in an index to test the lazyness
-        index_key = Boat.get_field('name')._indexes[0].get_storage_key('Pen Duick I')
+        index_key = Boat.get_field('name').get_index().get_storage_key('Pen Duick I')
         self.connection.sadd(index_key, 9999)
         # only existing entries without lazy
         self.assertEqual(len(list(Boat.collection(name='Pen Duick I').instances())), 1)
@@ -496,9 +535,80 @@ class LenTest(CollectionBaseTest):
             self.assertEqual(len(list(collection)), 3)
 
     def test_len_call_could_be_followed_by_a_iter(self):
-        collection = Boat.collection(power="sail")
-        self.assertEqual(len(collection), 3)
-        self.assertSetEqual(set(collection), {'1', '2', '3'})
+
+        with self.assertNumCommands(0):
+            collection = Boat.collection(power="sail")
+
+        with self.assertNumCommands(1):
+            # SCARD index_key
+            self.assertEqual(len(collection), 3)
+
+        with self.assertNumCommands(1):
+            # SMEMBERS final_set
+            self.assertSetEqual(set(collection), {'1', '2', '3'})
+
+        # same for a more complex collection
+        with self.assertNumCommands(0):
+            collection = Boat.collection(power="sail", launched=1898).sort(by='launched')
+
+        with self.assertNumCommands(4):
+            # EXISTS tmp_key
+            # SINTERSTORE tmp_key index_key1 index_key2
+            # SCARD tmp_key
+            # EXPIRE tmp_key
+            self.assertEqual(len(collection), 1)
+
+        with self.assertNumCommands(3):
+            # EXPIRE final_set
+            # SORT final_set
+            # DEL final_set
+            self.assertSetEqual(set(collection), {'1'})
+
+    def test_iter_call_could_be_followed_by_a_len(self):
+
+        with self.assertNumCommands(0):
+            collection = Boat.collection(power="sail")
+
+        if is_pypy:
+            with self.assertNumCommands(2):
+                # SCARD index_key (pypy always starts by a __len__ before)
+                # SMEMBERS index_key
+                self.assertSetEqual(set(collection), {'1', '2', '3'})
+        else:
+            with self.assertNumCommands(1):
+                # SMEMBERS index_key
+                self.assertSetEqual(set(collection), {'1', '2', '3'})
+
+        with self.assertNumCommands(0):
+            self.assertEqual(len(collection), 3)
+
+        # same for a more complex collection
+        with self.assertNumCommands(0):
+            collection = Boat.collection(power="sail", launched=1898).sort(by='launched')
+
+        if is_pypy:
+            with self.assertNumCommands(7):
+                # PyPy always starts by a __len__
+                #   EXISTS tmp_key
+                #   SINTERSTORE tmp_key index_key1 index_key2
+                #   SCARD tmp_key
+                #   EXPIRE tmp_key
+                # Then will retrieve the collection
+                #   EXPIRE final_set
+                #   SORT tmp_key
+                #   DEL tmp_key
+                # So we have 3 additional redis call: 1 SCARD + 2 EXPIRE
+                self.assertSetEqual(set(collection), {'1'})
+        else:
+            with self.assertNumCommands(4):
+                # EXISTS tmp_key
+                # SINTERSTORE tmp_key index_key1 index_key2
+                # SORT tmp_key
+                # DEL tmp_key
+                self.assertSetEqual(set(collection), {'1'})
+
+        with self.assertNumCommands(0):
+            self.assertEqual(len(collection), 1)
 
     def test_len_should_work_with_slices(self):
         collection = Boat.collection(power="sail")[1:3]
@@ -513,8 +623,15 @@ class LenTest(CollectionBaseTest):
         self.assertEqual(len(collection), 0)
 
     def test_len_should_work_with_instances(self):
+        # sorting will fail because alpha is not set to True
         collection = Boat.collection(power="sail").sort(by='name').instances()
+
+        # len won't fail on sort, not called
         self.assertEqual(len(collection), 3)
+
+        # real call => the sort will fail
+        with self.assertRaises(ResponseError):
+            self.assertEqual(len(list(collection)), 3)
 
 
 if __name__ == '__main__':

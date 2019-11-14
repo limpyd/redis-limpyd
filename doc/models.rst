@@ -164,6 +164,28 @@ Also an advanced/debug feature, allows to retrieve (as a generator, or can be ca
     for key in Article.scan_model_keys():
         print(' - ' + key)
 
+from_pks
+""""""""
+
+Returns a generator of instances, created from primary keys given as an iterable
+
+.. code:: python
+
+    for article in Article.from_pks([10, 11]):
+        print(article.title.get())
+
+It accepts a ``lazy`` argument, default to ``False``, that, if set to ``True``, will use ``lazy_connect`` to
+create the instances.
+
+Also note that the primary keys that does not exist are ignored.
+
+instances
+"""""""""
+
+Calling ``Model.instance(filter1=..., filter2=...)`` is a shortcut for ``Model.collection(filter1=..., filte2=...).instances()``
+
+It accepts a ``lazy`` argument (named or, if positional, is the first one), default to ``False``, that will be passed to the ``instances`` method of the collection.
+
 
 Model instance methods
 ======================

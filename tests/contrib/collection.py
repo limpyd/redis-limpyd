@@ -4,6 +4,8 @@ from __future__ import unicode_literals
 import time
 import unittest
 
+from redis import ResponseError
+
 from limpyd import fields
 from limpyd.contrib.collection import ExtendedCollectionManager, SORTED_SCORE, DEFAULT_STORE_TTL
 from limpyd.utils import unique_key
@@ -325,55 +327,55 @@ class IntersectTest(BaseTest):
         super(IntersectTest, self).tearDown()
 
     def test_intersect_should_accept_set_key_as_string(self):
-        set_key = unique_key(self.connection)
+        set_key = unique_key(self.connection, 'tests')
         self.connection.sadd(set_key, 1, 2)
         collection = set(Group.collection().intersect(set_key))
         self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
         self.assertEqual(collection, {'1', '2'})
 
-        set_key = unique_key(self.connection)
+        set_key = unique_key(self.connection, 'tests')
         self.connection.sadd(set_key, 1, 2, 10, 50)
         collection = set(Group.collection().intersect(set_key))
         self.assertEqual(collection, {'1', '2'})
 
     def test_intersect_should_accept_sortedset_key_as_string(self):
-        zset_key = unique_key(self.connection)
+        zset_key = unique_key(self.connection, 'tests')
         self.connection.zadd(zset_key, {1: 1.0, 2: 2.0})
         collection = set(Group.collection().intersect(zset_key))
         self.assertEqual(self.last_interstore_call['command'], 'zinterstore')
         self.assertEqual(collection, {'1', '2'})
 
-        zset_key = unique_key(self.connection)
+        zset_key = unique_key(self.connection, 'tests')
         self.connection.zadd(zset_key, {1: 1.0, 2: 2.0, 10: 10.0, 50: 50.0})
         collection = set(Group.collection().intersect(zset_key))
         self.assertEqual(collection, {'1', '2'})
 
     def test_intersect_should_accept_list_key_as_string(self):
-        list_key = unique_key(self.connection)
+        list_key = unique_key(self.connection, 'tests')
         self.connection.lpush(list_key, 1, 2)
         collection = set(Group.collection().intersect(list_key))
         self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
         self.assertEqual(collection, {'1', '2'})
 
-        list_key = unique_key(self.connection)
+        list_key = unique_key(self.connection, 'tests')
         self.connection.lpush(list_key, 1, 2, 10, 50)
         collection = set(Group.collection().intersect(list_key))
         self.assertEqual(collection, {'1', '2'})
 
     def test_intersect_should_not_accept_string_key_as_string(self):
-        str_key = unique_key(self.connection)
+        str_key = unique_key(self.connection, 'tests')
         self.connection.set(str_key, 'foo')
         with self.assertRaises(ValueError):
             set(Group.collection().intersect(str_key))
 
     def test_intersect_should_not_accept_hkey_key_as_string(self):
-        hash_key = unique_key(self.connection)
+        hash_key = unique_key(self.connection, 'tests')
         self.connection.hset(hash_key, 'foo', 'bar')
         with self.assertRaises(ValueError):
             set(Group.collection().intersect(hash_key))
 
     def test_intersect_should_consider_non_existent_key_as_set(self):
-        no_key = unique_key(self.connection)
+        no_key = unique_key(self.connection, 'tests')
         collection = set(Group.collection().intersect(no_key))
         self.assertEqual(self.last_interstore_call['command'], 'sinterstore')
         self.assertEqual(collection, set())
@@ -685,12 +687,6 @@ class SortByScoreTest(BaseTest):
 
 class StoreTest(BaseTest):
 
-    def test_calling_store_should_return_a_new_collection(self):
-        collection = Group.collection(active=1).sort(by='-name', alpha=True)
-        stored_collection = collection.store()
-        self.assertNotEqual(collection, stored_collection)
-        self.assertListEqual(list(collection), list(stored_collection))
-
     def test_ttl_of_stored_collection_should_be_set(self):
         collection = Group.collection(active=1).sort(by='-name', alpha=True)
 
@@ -709,6 +705,15 @@ class StoreTest(BaseTest):
         self.assertTrue(0 <= self.connection.ttl(stored_collection.stored_key) <= 1)
         time.sleep(1.1)
         self.assertFalse(self.connection.exists(stored_collection.stored_key))
+
+    def test_stored_key_should_be_created_if_not_given(self):
+        collection = Group.collection(active=1).sort(by='-name', alpha=True)
+        stored_collection = collection.store()
+        stored_key = stored_collection.stored_key
+        self.assertTrue(stored_key.startswith('contrib-collection:group:__collection__:store:'))
+        self.assertNotEqual(stored_key, 'contrib-collection:group:__collection__:store:')
+        self.assertTrue(0 <= self.connection.ttl(stored_key) <= DEFAULT_STORE_TTL)
+        self.assertTrue(self.connection.exists(stored_key))
 
     def test_stored_key_should_be_the_given_one_if_set(self):
         collection = Group.collection(active=1).sort(by='-name', alpha=True)
@@ -746,16 +751,17 @@ class StoreTest(BaseTest):
 
         commands_before = self.count_commands()
         time_before = time.time()
-        list(stored_collection)
+        first = list(stored_collection)
         stored_duration = time.time() - time_before
         stored_commands = self.count_commands() - commands_before
 
         self.assertTrue(default_duration > stored_duration)
         self.assertTrue(default_commands > stored_commands)
 
-        with self.assertNumCommands(2):
-            # 2 commands: one to check key existence, one for the lrange
-            list(stored_collection)
+        with self.assertNumCommands(0):
+            # result is cached, no more commands
+            second = list(stored_collection)
+        self.assertListEqual(first, second)
 
     def test_stored_collection_could_be_filtered(self):
         # but it's not recommanded as we have to convert the list into a set
@@ -811,17 +817,38 @@ class LenTest(BaseTest):
         container = GroupsContainer()
         container.groups_sortedset.zadd({1: 1.0, 2: 2.0})
         collection = Group.collection().intersect(container.groups_sortedset)
-        collection.sort(by='name')  # to fail if sort called, becase alpha not set
+        # sorting will fail because alpha is not set to True
+        collection = collection.sort(by='name')
+
+        # len won't fail on sort, not called
         self.assertEqual(len(collection), 2)
+
+        # real call => the sort will fail
+        with self.assertRaises(ResponseError):
+            self.assertEqual(len(list(collection)), 2)
 
     def test_len_should_work_with_stored_collection(self):
         collection = Group.collection(active=1)
+        # sorting will fail because alpha is not set to True
         stored_collection = collection.store().sort(by='name')
+
+        # len won't fail on sort, not called
         self.assertEqual(len(stored_collection), 2)
 
+        # real call => the sort will fail
+        with self.assertRaises(ResponseError):
+            self.assertEqual(len(list(stored_collection)), 2)
+
     def test_len_should_work_with_values(self):
+        # sorting will fail because alpha is not set to True
         collection = Group.collection(active=1).sort(by='name').values()
+
+        # len won't fail on sort, not called
         self.assertEqual(len(collection), 2)
+
+        # real call => the sort will fail
+        with self.assertRaises(ResponseError):
+            self.assertEqual(len(list(collection)), 2)
 
 
 class Boat(BaseBoat):
