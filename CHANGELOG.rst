@@ -1,7 +1,7 @@
 Changelog
 =========
 
-Release *v2.1.1* - ``2019-11-14``
+Release *v2.1.1* - ``2020-05-03``
 ---------------------------------
 * speed up (more than x1000, no kidding) of limpyd model creation time
 
