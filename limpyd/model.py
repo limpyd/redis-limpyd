@@ -42,7 +42,8 @@ class MetaRedisModel(MetaRedisProxy):
             # Get the caller (next frame in the stack), with it's source file and line number
             # It will be used in ``database._add_model``, if a model with the same name
             # already exists, to check if it's the same one.
-            it._creation_source = inspect.stack()[1][1:3]
+            parent_frame = inspect.currentframe().f_back
+            it._creation_source = (parent_frame.f_code.co_filename, parent_frame.f_lineno)
             it_in_db = it.database._add_model(it)
             # If the returned model is not the same, it's the one from the database
             # we already added for this name, so we use it
