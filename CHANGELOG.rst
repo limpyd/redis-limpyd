@@ -1,6 +1,10 @@
 Changelog
 =========
 
+Release *v1.3.2* - ``2020-05-03``
+---------------------------------
+* speed up (more than x1000, no kidding) of limpyd model creation time (backport from v2.1.1)
+
 Release *v1.3.1* - ``2019-10-11``
 ---------------------------------
 * Resolve race condition in `get_or_connect`

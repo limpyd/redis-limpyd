@@ -85,7 +85,9 @@ class RedisDatabase(object):
         elif model.__name__ != existing.__name__ or model._creation_source != existing._creation_source:
             raise ImplementationError(
                 'A model with namespace "%s" and name "%s" is already defined '
-                'on this database' % (model.namespace, model.__name__))
+                'on this database (Attempt on "%s" line %s ; Already defined on "%s" line %s)' %
+                ((model.namespace, model.__name__, ) + model._creation_source + existing._creation_source)
+            )
         return self._models[name]
 
     def _use_for_model(self, model):

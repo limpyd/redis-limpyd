@@ -18,7 +18,7 @@ env:
  - REDIS="redis==2.10.6"
 
 install:
-- "pip install ."
+- "pip install .[test]"
 - "pip install $REDIS"
 
 script: "python run_tests.py"

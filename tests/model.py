@@ -8,6 +8,8 @@ from datetime import datetime
 import threading
 import time
 import unittest
+import future.utils
+import six
 
 from limpyd import model, fields
 from limpyd import fields
@@ -183,6 +185,56 @@ class DatabaseTest(LimpydBaseTest):
                     namespace = 'sub-tests'
 
         sub_test()
+
+        # check also with metaclass inheritance
+        class TestMetaClass(model.MetaRedisModel):
+            def __new__(mcs, name, base, attrs):
+                return super(TestMetaClass, mcs).__new__(mcs, name, base, attrs)
+
+        # normal class what will work
+
+        # in python2 it should fail using `__metaclass__`
+        if six.PY2:
+            class Bike3(TestRedisModel):
+                __metaclass__ = TestMetaClass
+                name = fields.StringField()
+                namespace = 'sub-tests2'
+            with self.assertRaises(ImplementationError):
+                class Bike3(TestRedisModel):
+                    __metaclass__ = TestMetaClass
+                    name = fields.StringField()
+                    namespace = 'sub-tests2'
+
+        # in python3 it should fail using `metaclass=`
+        if six.PY3:
+            # we use exec else it will be a syntax error in python 2
+            with self.assertRaises(ImplementationError):
+                six.exec_("""\
+class Bike4(TestRedisModel, metaclass=TestMetaClass):
+    name = fields.StringField()
+    namespace = 'sub-tests2'
+class Bike4(TestRedisModel, metaclass=TestMetaClass):
+    name = fields.StringField()
+    namespace = 'sub-tests2'
+                """)
+
+        # it should fail using six.with_metaclass
+        class Bike5(six.with_metaclass(TestMetaClass, TestRedisModel)):
+            name = fields.StringField()
+            namespace = 'sub-tests2'
+        with self.assertRaises(ImplementationError):
+            class Bike5(six.with_metaclass(TestMetaClass, TestRedisModel)):
+                name = fields.StringField()
+                namespace = 'sub-tests2'
+
+        # it should fail using future.utils.with_metaclass
+        class Bike6(future.utils.with_metaclass(TestMetaClass, TestRedisModel)):
+            name = fields.StringField()
+            namespace = 'sub-tests2'
+        with self.assertRaises(ImplementationError):
+            class Bike6(future.utils.with_metaclass(TestMetaClass, TestRedisModel)):
+                name = fields.StringField()
+                namespace = 'sub-tests2'
 
     def test_database_could_transfer_its_models_to_another(self):
         db1 = model.RedisDatabase(**TEST_CONNECTION_SETTINGS)
