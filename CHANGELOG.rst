@@ -1,6 +1,10 @@
 Changelog
 =========
 
+Release *v2.1.1* - ``2019-11-14``
+---------------------------------
+* speed up (more than x1000, no kidding) of limpyd model creation time
+
 Release *v2.1* - ``2019-11-14``
 -------------------------------
 * Add new index `ScoredEqualIndex` in `limpyd.contrib.indexes` (to index a field with a score)
