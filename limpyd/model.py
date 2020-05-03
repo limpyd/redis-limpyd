@@ -39,10 +39,29 @@ class MetaRedisModel(MetaRedisProxy):
                 it.namespace = ''
             it._name = ':'.join((it.namespace, name.lower()))
 
-            # Get the caller (next frame in the stack), with it's source file and line number
+            # Get the caller (parent of the call of the `__new__`` method of the metaclass, which
+            # may be the current metaclass, or a one that inherit from it), with it's source file
+            # and line number
             # It will be used in ``database._add_model``, if a model with the same name
             # already exists, to check if it's the same one.
             parent_frame = inspect.currentframe().f_back
+            while True:
+                f_code = parent_frame.f_code
+                f_locals = parent_frame.f_locals
+                if f_code.co_name == '__new__':
+                    try:
+                        # handle direct metaclass usage
+                        if issubclass(f_locals['mcs'], MetaRedisModel):
+                            parent_frame = parent_frame.f_back
+                            continue
+                    except Exception:
+                        pass
+                    # handle `future.utils.with_metaclass` and `six.with_metaclass`
+                    parent_cls = str(f_locals.get('cls'))
+                    if 'metaclass' in parent_cls and ('six.' in parent_cls or 'future.' in parent_cls):
+                        parent_frame = parent_frame.f_back
+                        continue
+                break
             it._creation_source = (parent_frame.f_code.co_filename, parent_frame.f_lineno)
             it_in_db = it.database._add_model(it)
             # If the returned model is not the same, it's the one from the database
