@@ -93,7 +93,7 @@ class CollectionResults(object):
             raise TypeError
         if isinstance(arg, slice):
             return list(self._iter_some_entries(self.data[arg]))
-        return self.data[arg]
+        return self._get_entry(arg)
 
     MAX_REPR_ITEMS = 20
 

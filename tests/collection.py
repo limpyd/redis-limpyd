@@ -249,6 +249,15 @@ class SliceTest(CollectionBaseTest):
         all_pks = set([pk for pk in collection])
         self.assertEqual(all_pks, {'1', '2', '3', '4'})
 
+    def test_slicing_on_slicing(self):
+        collection = Boat.collection()
+        self.assertSetEqual(set(collection[1:][1:]), {'3', '4'})
+        self.assertEqual(collection[1:][1], '3')
+
+        collection = Boat.collection().instances()
+        self.assertSetEqual(set(collection[1:][1:]), {self.boat3, self.boat4})
+        self.assertEqual(collection[1:][1], self.boat3)
+
 
 class SortTest(CollectionBaseTest):
     """
