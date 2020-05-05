@@ -1,8 +1,8 @@
 Changelog
 =========
 
-Release *2.1.2.dev0* - ``2020-05-04``
--------------------------------------
+Release *2.1.2* - ``2020-05-05``
+--------------------------------
 * fix double-slicing with instances/values/values_list (like `collection[:3][2]`)
 
 Release *v2.1.1* - ``2020-05-03``
